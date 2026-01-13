@@ -72,7 +72,7 @@ export function DialogSessionList() {
 
   return (
     <DialogSelect
-      title="Sessions"
+      title="Sessions (会话)"
       options={options()}
       skipFilter={true}
       current={currentSessionID()}
@@ -90,7 +90,7 @@ export function DialogSessionList() {
       keybind={[
         {
           keybind: Keybind.parse(deleteKeybind)[0],
-          title: "delete",
+          title: "delete (删除)",
           onTrigger: async (option) => {
             if (toDelete() === option.value) {
               sdk.client.session.delete({
@@ -104,7 +104,7 @@ export function DialogSessionList() {
         },
         {
           keybind: Keybind.parse("ctrl+r")[0],
-          title: "rename",
+          title: "rename (重命名)",
           onTrigger: async (option) => {
             dialog.replace(() => <DialogSessionRename session={option.value} />)
           },

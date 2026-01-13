@@ -51,7 +51,7 @@ function EditBody(props: { request: PermissionRequest }) {
     <box flexDirection="column" gap={1}>
       <box flexDirection="row" gap={1} paddingLeft={1}>
         <text fg={theme.textMuted}>{"→"}</text>
-        <text fg={theme.textMuted}>Edit {normalizePath(filepath())}</text>
+        <text fg={theme.textMuted}>编辑 {normalizePath(filepath())}</text>
       </box>
       <Show when={diff()}>
         <box maxHeight={Math.floor(dimensions().height / 4)} overflow="scroll">
@@ -128,15 +128,15 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
     <Switch>
       <Match when={store.stage === "always"}>
         <Prompt
-          title="Always allow"
+          title="总是允许"
           body={
             <Switch>
               <Match when={props.request.always.length === 1 && props.request.always[0] === "*"}>
-                <TextBody title={"This will allow " + props.request.permission + " until OpenCode is restarted."} />
+                <TextBody title={"这将允许 " + props.request.permission + " 直到 OpenCode 重启。"} />
               </Match>
               <Match when={true}>
                 <box paddingLeft={1} gap={1}>
-                  <text fg={theme.textMuted}>This will allow the following patterns until OpenCode is restarted</text>
+                  <text fg={theme.textMuted}>这将允许以下模式直到 OpenCode 重启</text>
                   <box>
                     <For each={props.request.always}>
                       {(pattern) => (
@@ -151,7 +151,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               </Match>
             </Switch>
           }
-          options={{ confirm: "Confirm", cancel: "Cancel" }}
+          options={{ confirm: "确认", cancel: "取消" }}
           escapeKey="cancel"
           onSelect={(option) => {
             setStore("stage", "permission")
@@ -177,23 +177,23 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
       </Match>
       <Match when={store.stage === "permission"}>
         <Prompt
-          title="Permission required"
+          title="需要权限"
           body={
             <Switch>
               <Match when={props.request.permission === "edit"}>
                 <EditBody request={props.request} />
               </Match>
               <Match when={props.request.permission === "read"}>
-                <TextBody icon="→" title={`Read ` + normalizePath(input().filePath as string)} />
+                <TextBody icon="→" title={`读取 ` + normalizePath(input().filePath as string)} />
               </Match>
               <Match when={props.request.permission === "glob"}>
-                <TextBody icon="✱" title={`Glob "` + (input().pattern ?? "") + `"`} />
+                <TextBody icon="✱" title={`文件搜索 (Glob) "` + (input().pattern ?? "") + `"`} />
               </Match>
               <Match when={props.request.permission === "grep"}>
-                <TextBody icon="✱" title={`Grep "` + (input().pattern ?? "") + `"`} />
+                <TextBody icon="✱" title={`内容搜索 (Grep) "` + (input().pattern ?? "") + `"`} />
               </Match>
               <Match when={props.request.permission === "list"}>
-                <TextBody icon="→" title={`List ` + normalizePath(input().path as string)} />
+                <TextBody icon="→" title={`列出 ` + normalizePath(input().path as string)} />
               </Match>
               <Match when={props.request.permission === "bash"}>
                 <TextBody
@@ -205,31 +205,31 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               <Match when={props.request.permission === "task"}>
                 <TextBody
                   icon="#"
-                  title={`${Locale.titlecase((input().subagent_type as string) ?? "Unknown")} Task`}
+                  title={`${Locale.titlecase((input().subagent_type as string) ?? "Unknown")} 任务`}
                   description={"◉ " + input().description}
                 />
               </Match>
               <Match when={props.request.permission === "webfetch"}>
-                <TextBody icon="%" title={`WebFetch ` + (input().url ?? "")} />
+                <TextBody icon="%" title={`网页获取 ` + (input().url ?? "")} />
               </Match>
               <Match when={props.request.permission === "websearch"}>
-                <TextBody icon="◈" title={`Exa Web Search "` + (input().query ?? "") + `"`} />
+                <TextBody icon="◈" title={`Exa 网络搜索 "` + (input().query ?? "") + `"`} />
               </Match>
               <Match when={props.request.permission === "codesearch"}>
-                <TextBody icon="◇" title={`Exa Code Search "` + (input().query ?? "") + `"`} />
+                <TextBody icon="◇" title={`Exa 代码搜索 "` + (input().query ?? "") + `"`} />
               </Match>
               <Match when={props.request.permission === "external_directory"}>
-                <TextBody icon="←" title={`Access external directory ` + normalizePath(input().path as string)} />
+                <TextBody icon="←" title={`访问外部目录 ` + normalizePath(input().path as string)} />
               </Match>
               <Match when={props.request.permission === "doom_loop"}>
-                <TextBody icon="⟳" title="Continue after repeated failures" />
+                <TextBody icon="⟳" title="重复失败后继续" />
               </Match>
               <Match when={true}>
-                <TextBody icon="⚙" title={`Call tool ` + props.request.permission} />
+                <TextBody icon="⚙" title={`调用工具 ` + props.request.permission} />
               </Match>
             </Switch>
           }
-          options={{ once: "Allow once", always: "Allow always", reject: "Reject" }}
+          options={{ once: "允许一次", always: "总是允许", reject: "拒绝" }}
           escapeKey="reject"
           onSelect={(option) => {
             if (option === "always") {
@@ -285,10 +285,10 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
       <box gap={1} paddingLeft={1} paddingRight={3} paddingTop={1} paddingBottom={1}>
         <box flexDirection="row" gap={1} paddingLeft={1}>
           <text fg={theme.error}>{"△"}</text>
-          <text fg={theme.text}>Reject permission</text>
+          <text fg={theme.text}>拒绝权限</text>
         </box>
         <box paddingLeft={1}>
-          <text fg={theme.textMuted}>Tell OpenCode what to do differently</text>
+          <text fg={theme.textMuted}>告诉 OpenCode 该如何做</text>
         </box>
       </box>
       <box
@@ -311,10 +311,10 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
         />
         <box flexDirection="row" gap={2} flexShrink={0} marginLeft={1}>
           <text fg={theme.text}>
-            enter <span style={{ fg: theme.textMuted }}>confirm</span>
+            回车 <span style={{ fg: theme.textMuted }}>确认</span>
           </text>
           <text fg={theme.text}>
-            esc <span style={{ fg: theme.textMuted }}>cancel</span>
+            Esc <span style={{ fg: theme.textMuted }}>取消</span>
           </text>
         </box>
       </box>
@@ -404,10 +404,10 @@ function Prompt<const T extends Record<string, string>>(props: {
         </box>
         <box flexDirection="row" gap={2}>
           <text fg={theme.text}>
-            {"⇆"} <span style={{ fg: theme.textMuted }}>select</span>
+            {"⇆"} <span style={{ fg: theme.textMuted }}>选择</span>
           </text>
           <text fg={theme.text}>
-            enter <span style={{ fg: theme.textMuted }}>confirm</span>
+            回车 <span style={{ fg: theme.textMuted }}>确认</span>
           </text>
         </box>
       </box>

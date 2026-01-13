@@ -61,7 +61,7 @@ export namespace Command {
     const result: Record<string, Info> = {
       [Default.INIT]: {
         name: Default.INIT,
-        description: "create/update AGENTS.md",
+        description: "创建/更新 AGENTS.md 规则文件",
         get template() {
           return PROMPT_INITIALIZE.replace("${path}", Instance.worktree)
         },
@@ -69,7 +69,7 @@ export namespace Command {
       },
       [Default.REVIEW]: {
         name: Default.REVIEW,
-        description: "review changes [commit|branch|pr], defaults to uncommitted",
+        description: "审查变更 [commit|branch|pr]，默认为未提交的变更",
         get template() {
           return PROMPT_REVIEW.replace("${path}", Instance.worktree)
         },

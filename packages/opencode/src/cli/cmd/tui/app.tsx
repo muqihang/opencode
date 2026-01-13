@@ -206,7 +206,7 @@ function App() {
     // @ts-expect-error writeOut is not in type definitions
     renderer.writeOut(finalOsc52)
     await Clipboard.copy(text)
-      .then(() => toast.show({ message: "Copied to clipboard", variant: "info" }))
+      .then(() => toast.show({ message: "已复制到剪贴板", variant: "info" }))
       .catch(toast.error)
     renderer.clearSelection()
   }
@@ -288,7 +288,7 @@ function App() {
   const connected = useConnected()
   command.register(() => [
     {
-      title: "Switch session",
+      title: "Switch session (切换会话)",
       value: "session.list",
       keybind: "session_list",
       category: "Session",
@@ -298,7 +298,7 @@ function App() {
       },
     },
     {
-      title: "New session",
+      title: "New session (新会话)",
       suggested: route.data.type === "session",
       value: "session.new",
       keybind: "session_new",
@@ -315,7 +315,7 @@ function App() {
       },
     },
     {
-      title: "Switch model",
+      title: "Switch model (切换模型)",
       value: "model.list",
       keybind: "model_list",
       suggested: true,
@@ -325,7 +325,7 @@ function App() {
       },
     },
     {
-      title: "Model cycle",
+      title: "Model cycle (模型轮询 - 最近)",
       disabled: true,
       value: "model.cycle_recent",
       keybind: "model_cycle_recent",
@@ -335,7 +335,7 @@ function App() {
       },
     },
     {
-      title: "Model cycle reverse",
+      title: "Model cycle reverse (模型轮询 - 最近 - 反向)",
       disabled: true,
       value: "model.cycle_recent_reverse",
       keybind: "model_cycle_recent_reverse",
@@ -345,7 +345,7 @@ function App() {
       },
     },
     {
-      title: "Favorite cycle",
+      title: "Favorite cycle (收藏模型切换)",
       value: "model.cycle_favorite",
       keybind: "model_cycle_favorite",
       category: "Agent",
@@ -354,7 +354,7 @@ function App() {
       },
     },
     {
-      title: "Favorite cycle reverse",
+      title: "Favorite cycle reverse (收藏模型切换 - 反向)",
       value: "model.cycle_favorite_reverse",
       keybind: "model_cycle_favorite_reverse",
       category: "Agent",
@@ -363,7 +363,7 @@ function App() {
       },
     },
     {
-      title: "Switch agent",
+      title: "Switch agent (切换助理/智能体)",
       value: "agent.list",
       keybind: "agent_list",
       category: "Agent",
@@ -372,7 +372,7 @@ function App() {
       },
     },
     {
-      title: "Toggle MCPs",
+      title: "Toggle MCPs (切换 MCP 工具)",
       value: "mcp.list",
       category: "Agent",
       onSelect: () => {
@@ -380,7 +380,7 @@ function App() {
       },
     },
     {
-      title: "Agent cycle",
+      title: "Agent cycle (助理切换 - 最近)",
       value: "agent.cycle",
       keybind: "agent_cycle",
       category: "Agent",
@@ -390,7 +390,7 @@ function App() {
       },
     },
     {
-      title: "Variant cycle",
+      title: "Variant cycle (变体切换)",
       value: "variant.cycle",
       keybind: "variant_cycle",
       category: "Agent",
@@ -399,7 +399,7 @@ function App() {
       },
     },
     {
-      title: "Agent cycle reverse",
+      title: "Agent cycle reverse (助理切换 - 反向)",
       value: "agent.cycle.reverse",
       keybind: "agent_cycle_reverse",
       category: "Agent",
@@ -409,7 +409,7 @@ function App() {
       },
     },
     {
-      title: "Connect provider",
+      title: "Connect provider (连接模型提供商)",
       value: "provider.connect",
       suggested: !connected(),
       onSelect: () => {
@@ -418,7 +418,7 @@ function App() {
       category: "Provider",
     },
     {
-      title: "View status",
+      title: "View status (查看状态)",
       keybind: "status_view",
       value: "opencode.status",
       onSelect: () => {
@@ -427,7 +427,7 @@ function App() {
       category: "System",
     },
     {
-      title: "Switch theme",
+      title: "Switch theme (切换主题)",
       value: "theme.switch",
       keybind: "theme_list",
       onSelect: () => {
@@ -436,7 +436,7 @@ function App() {
       category: "System",
     },
     {
-      title: "Toggle appearance",
+      title: "Toggle appearance (切换外观模式)",
       value: "theme.switch_mode",
       onSelect: (dialog) => {
         setMode(mode() === "dark" ? "light" : "dark")
@@ -445,7 +445,7 @@ function App() {
       category: "System",
     },
     {
-      title: "Help",
+      title: "Help (帮助)",
       value: "help.show",
       onSelect: () => {
         dialog.replace(() => <DialogHelp />)
@@ -453,7 +453,7 @@ function App() {
       category: "System",
     },
     {
-      title: "Open docs",
+      title: "Open docs (打开文档)",
       value: "docs.open",
       onSelect: () => {
         open("https://opencode.ai/docs").catch(() => {})
@@ -462,7 +462,7 @@ function App() {
       category: "System",
     },
     {
-      title: "Open WebUI",
+      title: "Open WebUI (打开网页版)",
       value: "webui.open",
       onSelect: () => {
         open(sdk.url).catch(() => {})
@@ -471,13 +471,13 @@ function App() {
       category: "System",
     },
     {
-      title: "Exit the app",
+      title: "Exit the app (退出程序)",
       value: "app.exit",
       onSelect: () => exit(),
       category: "System",
     },
     {
-      title: "Toggle debug panel",
+      title: "Toggle debug panel (调试面板)",
       category: "System",
       value: "app.debug",
       onSelect: (dialog) => {
@@ -486,7 +486,7 @@ function App() {
       },
     },
     {
-      title: "Toggle console",
+      title: "Toggle console (控制台)",
       category: "System",
       value: "app.console",
       onSelect: (dialog) => {
@@ -495,7 +495,7 @@ function App() {
       },
     },
     {
-      title: "Write heap snapshot",
+      title: "Write heap snapshot (堆快照)",
       category: "System",
       value: "app.heap_snapshot",
       onSelect: (dialog) => {
@@ -509,7 +509,7 @@ function App() {
       },
     },
     {
-      title: "Suspend terminal",
+      title: "Suspend terminal (挂起终端)",
       value: "terminal.suspend",
       keybind: "terminal_suspend",
       category: "System",
@@ -524,7 +524,7 @@ function App() {
       },
     },
     {
-      title: terminalTitleEnabled() ? "Disable terminal title" : "Enable terminal title",
+      title: terminalTitleEnabled() ? "禁用终端标题" : "启用终端标题",
       value: "terminal.title.toggle",
       keybind: "terminal_title_toggle",
       category: "System",
@@ -547,8 +547,8 @@ function App() {
       untrack(() => {
         DialogAlert.show(
           dialog,
-          "Warning",
-          "While openrouter is a convenient way to access LLMs your request will often be routed to subpar providers that do not work well in our testing.\n\nFor reliable access to models check out OpenCode Zen\nhttps://opencode.ai/zen",
+          "Warning (警告)",
+          "OpenRouter 是访问 LLM 的便捷方式，但你的请求经常会被路由到我们测试中表现不佳的提供商。\n\n若需稳定访问模型，请查看 OpenCode Zen\nhttps://opencode.ai/zen",
         ).then(() => kv.set("openrouter_warning", true))
       })
     }
@@ -579,7 +579,7 @@ function App() {
       route.navigate({ type: "home" })
       toast.show({
         variant: "info",
-        message: "The current session was deleted",
+        message: "当前会话已删除",
       })
     }
   })
@@ -588,7 +588,7 @@ function App() {
     const error = evt.properties.error
     if (error && typeof error === "object" && error.name === "MessageAbortedError") return
     const message = (() => {
-      if (!error) return "An error occurred"
+      if (!error) return "发生错误"
 
       if (typeof error === "object") {
         const data = error.data
@@ -609,8 +609,8 @@ function App() {
   sdk.event.on(Installation.Event.Updated.type, (evt) => {
     toast.show({
       variant: "success",
-      title: "Update Complete",
-      message: `OpenCode updated to v${evt.properties.version}`,
+      title: "Update Complete (更新完成)",
+      message: `OpenCode 已更新至 v${evt.properties.version}`,
       duration: 5000,
     })
   })
@@ -618,8 +618,8 @@ function App() {
   sdk.event.on(Installation.Event.UpdateAvailable.type, (evt) => {
     toast.show({
       variant: "info",
-      title: "Update Available",
-      message: `OpenCode v${evt.properties.version} is available. Run 'opencode upgrade' to update manually.`,
+      title: "Update Available (有更新可用)",
+      message: `OpenCode v${evt.properties.version} 可用。运行 'opencode upgrade' 手动更新。`,
       duration: 10000,
     })
   })
@@ -642,7 +642,7 @@ function App() {
           /* @ts-expect-error */
           renderer.writeOut(finalOsc52)
           await Clipboard.copy(text)
-            .then(() => toast.show({ message: "Copied to clipboard", variant: "info" }))
+            .then(() => toast.show({ message: "已复制到剪贴板", variant: "info" }))
             .catch(toast.error)
           renderer.clearSelection()
         }
@@ -716,22 +716,22 @@ function ErrorComponent(props: {
     <box flexDirection="column" gap={1} backgroundColor={colors.bg}>
       <box flexDirection="row" gap={1} alignItems="center">
         <text attributes={TextAttributes.BOLD} fg={colors.text}>
-          Please report an issue.
+          请提交问题反馈。
         </text>
         <box onMouseUp={copyIssueURL} backgroundColor={colors.primary} padding={1}>
           <text attributes={TextAttributes.BOLD} fg={colors.bg}>
-            Copy issue URL (exception info pre-filled)
+            复制问题链接（已预填异常信息）
           </text>
         </box>
-        {copied() && <text fg={colors.muted}>Successfully copied</text>}
+        {copied() && <text fg={colors.muted}>复制成功</text>}
       </box>
       <box flexDirection="row" gap={2} alignItems="center">
-        <text fg={colors.text}>A fatal error occurred!</text>
+        <text fg={colors.text}>发生致命错误！</text>
         <box onMouseUp={props.reset} backgroundColor={colors.primary} padding={1}>
-          <text fg={colors.bg}>Reset TUI</text>
+          <text fg={colors.bg}>Reset TUI (重置界面)</text>
         </box>
         <box onMouseUp={handleExit} backgroundColor={colors.primary} padding={1}>
-          <text fg={colors.bg}>Exit</text>
+          <text fg={colors.bg}>Exit (退出)</text>
         </box>
       </box>
       <scrollbox height={Math.floor(term().height * 0.7)}>
