@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-const childProcess = require("child_process")
-const fs = require("fs")
-const path = require("path")
-const os = require("os")
+import { spawnSync } from "child_process"
+import fs from "fs"
+import path from "path"
+import os from "os"
 
 function run(target) {
-  const result = childProcess.spawnSync(target, process.argv.slice(2), {
+  const result = spawnSync(target, process.argv.slice(2), {
     stdio: "inherit",
   })
   if (result.error) {
@@ -22,9 +22,11 @@ if (envPath) {
   run(envPath)
 }
 
-const scriptPath = fs.realpathSync(__filename)
+const scriptPath = fs.realpathSync(import.meta.url.slice(7)) // Remove 'file://' prefix
 const scriptDir = path.dirname(scriptPath)
+const packageDir = path.dirname(scriptDir)
 
+// Try to find the binary in the dist directory
 const platformMap = {
   darwin: "darwin",
   linux: "linux",
@@ -44,9 +46,14 @@ let arch = archMap[os.arch()]
 if (!arch) {
   arch = os.arch()
 }
-const base = "opencode-" + platform + "-" + arch
 const binary = platform === "windows" ? "opencode.exe" : "opencode"
+const binaryPath = path.join(packageDir, "dist", `opencode-${platform}-${arch}`, "bin", binary)
 
+if (fs.existsSync(binaryPath)) {
+  run(binaryPath)
+}
+
+// Fallback to old logic
 function findBinary(startDir) {
   let current = startDir
   for (;;) {
@@ -54,7 +61,7 @@ function findBinary(startDir) {
     if (fs.existsSync(modules)) {
       const entries = fs.readdirSync(modules)
       for (const entry of entries) {
-        if (!entry.startsWith(base)) {
+        if (!entry.startsWith(`opencode-${platform}-${arch}`)) {
           continue
         }
         const candidate = path.join(modules, entry, "bin", binary)
@@ -75,7 +82,7 @@ const resolved = findBinary(scriptDir)
 if (!resolved) {
   console.error(
     'It seems that your package manager failed to install the right version of the opencode CLI for your platform. You can try manually installing the "' +
-      base +
+      `opencode-${platform}-${arch}` +
       '" package',
   )
   process.exit(1)
