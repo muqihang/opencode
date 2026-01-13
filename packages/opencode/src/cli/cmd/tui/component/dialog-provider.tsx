@@ -56,7 +56,7 @@ export function createDialogProviderOptions() {
                 dialog.replace(
                   () => (
                     <DialogSelect
-                      title="Select auth method"
+                      title="Select auth method (选择认证方式)"
                       options={methods.map((x, index) => ({
                         title: x.label,
                         value: index,
@@ -109,7 +109,7 @@ export function createDialogProviderOptions() {
 
 export function DialogProvider() {
   const options = createDialogProviderOptions()
-  return <DialogSelect title="Connect a provider" options={options()} />
+  return <DialogSelect title="Connect a provider (连接提供商)" options={options()} />
 }
 
 interface AutoMethodProps {
@@ -184,7 +184,7 @@ function CodeMethod(props: CodeMethodProps) {
   return (
     <DialogPrompt
       title={props.title}
-      placeholder="Authorization code"
+      placeholder="Authorization code (授权码)"
       onConfirm={async (value) => {
         const { error } = await sdk.client.provider.oauth.callback({
           providerID: props.providerID,
@@ -225,7 +225,7 @@ function ApiMethod(props: ApiMethodProps) {
   return (
     <DialogPrompt
       title={props.title}
-      placeholder="API key"
+      placeholder="API key (API 密钥)"
       description={
         props.providerID === "opencode" ? (
           <box gap={1}>
