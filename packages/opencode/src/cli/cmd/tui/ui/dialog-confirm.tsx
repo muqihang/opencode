@@ -18,10 +18,12 @@ export function DialogConfirm(props: DialogConfirmProps) {
   const [store, setStore] = createStore({
     active: "confirm" as "confirm" | "cancel",
   })
-  const labels = {
+  const actionKeys = ["cancel", "confirm"] as const
+  type ActionKey = (typeof actionKeys)[number]
+  const labels: Record<ActionKey, string> = {
     cancel: "Cancel (取消)",
     confirm: "Confirm (确认)",
-  } as const
+  }
 
   useKeyboard((evt) => {
     if (evt.name === "return") {
@@ -46,8 +48,8 @@ export function DialogConfirm(props: DialogConfirmProps) {
         <text fg={theme.textMuted}>{props.message}</text>
       </box>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
-        <For each={["cancel", "confirm"]}>
-          {(key) => (
+        <For each={actionKeys}>
+          {(key: ActionKey) => (
             <box
               paddingLeft={1}
               paddingRight={1}
