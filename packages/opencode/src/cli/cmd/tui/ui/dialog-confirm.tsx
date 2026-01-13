@@ -4,7 +4,6 @@ import { useDialog, type DialogContext } from "./dialog"
 import { createStore } from "solid-js/store"
 import { For } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
-import { Locale } from "@/util/locale"
 
 export type DialogConfirmProps = {
   title: string
@@ -19,6 +18,10 @@ export function DialogConfirm(props: DialogConfirmProps) {
   const [store, setStore] = createStore({
     active: "confirm" as "confirm" | "cancel",
   })
+  const labels = {
+    cancel: "Cancel (取消)",
+    confirm: "Confirm (确认)",
+  } as const
 
   useKeyboard((evt) => {
     if (evt.name === "return") {
@@ -56,7 +59,7 @@ export function DialogConfirm(props: DialogConfirmProps) {
               }}
             >
               <text fg={key === store.active ? theme.selectedListItemText : theme.textMuted}>
-                {Locale.titlecase(key)}
+                {labels[key]}
               </text>
             </box>
           )}

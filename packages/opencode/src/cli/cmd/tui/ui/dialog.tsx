@@ -147,7 +147,7 @@ export function DialogProvider(props: ParentProps) {
             /* @ts-expect-error */
             renderer.writeOut(finalOsc52)
             await Clipboard.copy(text)
-              .then(() => toast.show({ message: "Copied to clipboard", variant: "info" }))
+              .then(() => toast.show({ message: "已复制到剪贴板", variant: "info" }))
               .catch(toast.error)
             renderer.clearSelection()
           }

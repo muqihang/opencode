@@ -76,7 +76,7 @@ export function Prompt(props: PromptProps) {
   function promptModelWarning() {
     toast.show({
       variant: "warning",
-      message: "Connect a provider to send prompts",
+      message: "请先连接模型提供商再发送提示词",
       duration: 3000,
     })
     if (sync.data.provider.length === 0) {
@@ -153,7 +153,7 @@ export function Prompt(props: PromptProps) {
   command.register(() => {
     return [
       {
-        title: "Clear prompt",
+        title: "清空提示词",
         value: "prompt.clear",
         category: "Prompt",
         disabled: true,
@@ -164,7 +164,7 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Submit prompt",
+        title: "提交提示词",
         value: "prompt.submit",
         disabled: true,
         keybind: "input_submit",
@@ -176,7 +176,7 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Paste",
+        title: "粘贴",
         value: "prompt.paste",
         disabled: true,
         keybind: "input_paste",
@@ -193,7 +193,7 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Interrupt session",
+        title: "中断会话",
         value: "session.interrupt",
         keybind: "session_interrupt",
         disabled: status().type === "idle",
@@ -224,7 +224,7 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Open editor",
+        title: "打开编辑器",
         category: "Session",
         keybind: "editor_open",
         value: "prompt.editor",
@@ -428,7 +428,7 @@ export function Prompt(props: PromptProps) {
 
   command.register(() => [
     {
-      title: "Stash prompt",
+      title: "暂存提示词",
       value: "prompt.stash",
       category: "Prompt",
       disabled: !store.prompt.input,
@@ -446,7 +446,7 @@ export function Prompt(props: PromptProps) {
       },
     },
     {
-      title: "Stash pop",
+      title: "弹出暂存",
       value: "prompt.stash.pop",
       category: "Prompt",
       disabled: stash.list().length === 0,
@@ -462,7 +462,7 @@ export function Prompt(props: PromptProps) {
       },
     },
     {
-      title: "Stash list",
+      title: "暂存列表",
       value: "prompt.stash.list",
       category: "Prompt",
       disabled: stash.list().length === 0,
