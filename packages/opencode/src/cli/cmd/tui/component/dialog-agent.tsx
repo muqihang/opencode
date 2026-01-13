@@ -19,7 +19,7 @@ export function DialogAgent() {
 
   return (
     <DialogSelect
-      title="Select agent"
+      title="Select agent (选择 Agent)"
       current={local.agent.current().name}
       options={options()}
       onSelect={(option) => {

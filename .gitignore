@@ -25,3 +25,5 @@ target
 opencode-dev
 logs/
 *.bun-build
+prompts-zh/
+packages/opencode/bin/opencode.backup

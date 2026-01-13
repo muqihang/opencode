@@ -117,7 +117,7 @@ function DialogCommand(props: { options: CommandOption[] }) {
   return (
     <DialogSelect
       ref={(r) => (ref = r)}
-      title="Commands"
+      title="Commands (命令)"
       options={props.options.filter((x) => !ref?.filter || !x.value.startsWith("suggested."))}
     />
   )

@@ -313,7 +313,7 @@ export function QuestionPrompt(props: { request: QuestionRequest }) {
                       ref={(val: TextareaRenderable) => (textarea = val)}
                       focused
                       initialValue={input()}
-                      placeholder="Type your own answer"
+                      placeholder="Type your own answer (输入自定义答案)"
                       textColor={theme.text}
                       focusedTextColor={theme.text}
                       cursorColor={theme.primary}
