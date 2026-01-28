@@ -65,9 +65,9 @@
 
 这些不变量是 P0 就必须落地并用测试/门禁保护的工程契约：
 
-1) **Artifacts 不断链**：任何落盘 artifact 必须登记到 `manifest.json`（path + sha256 + kind + size）；否则视为 Evidence 写入失败并记录 `events: evidence_write_failed`。
+1) **Artifacts 不断链**：任何落盘 artifact 必须登记到 `manifest.json`（path + sha256 + kind + size）；否则视为 Evidence 写入失败并记录 `events: evidence.write_failed`。
 2) **事件必成对**：每次 tool 调用至少有 `tool.started` 与 `tool.completed`（失败也要 completed，状态=error/degraded），否则 UI/审计无法可靠复盘。
-3) **协议强校验**：routing/context-pack/worker-result/events/pack/manifest 等协议文件写入前 `schema.parse()`；读取后同样 parse。失败必须写 `events: protocol_violation` 并生成失败 artifact（错误摘要 + 指针）。
+3) **协议强校验**：routing/context-pack/worker-result/events/pack/manifest 等协议文件写入前 `schema.parse()`；读取后同样 parse。失败必须写 `events: protocol.violation` 并生成失败 artifact（错误摘要 + 指针）。
 4) **边界可解释**：每次执行必须在证据中记录：`workdirMode`、可写路径集合、网络模式、命令策略评估结果（至少路径/命令/网络三维）。
 
 ### 路径与 symlink 安全（导出/打包阶段的真实漏洞点）
@@ -203,7 +203,7 @@ artifacts 与 claims 记录，主代理只接收“结果指针 + 关键摘要�
 
 **降级规则（生产级必须有）**：
 - 若某个数据源未配置/不可用（例如 Neo4j 未启动），worker 立即降级为空结果并写入 Evidence Pack：
-  - `events`: worker_unavailable
+  - `events`: worker.unavailable
   - `risks`: "Graph unavailable; impact analysis degraded"
   - 同时不阻塞其它 worker 与主任务执行。
 
@@ -465,7 +465,7 @@ cacheKey = sha256(stableJson({
 | routingRun.maxWallClockMs | 15000ms | - | 超过总预算：停止最慢的 worker，聚合已有结果 | events: routing_timeout |
 | workerTimeoutMs | 8000ms | `degraded` | 超时返回空 result + capsule（说明未完成） | artifacts: worker-*.result.json |
 | topK (A/B/C) | 20 | `ok/degraded` | 资源不足时降为 10 | request.json 记录最终 topK |
-| Worker A（LSP） | enabled | `degraded/unavailable` | LSP 未就绪→仅 ripgrep + 文件树扫描 | events: worker_unavailable; risks |
+| Worker A（LSP） | enabled | `degraded/unavailable` | LSP 未就绪→仅 ripgrep + 文件树扫描 | events: worker.unavailable; risks |
 | Worker B（KB） | enabled | `degraded/unavailable` | Qdrant 不可用→仅 PGroonga；PG 不可用→仅 Qdrant（若可） | citations 必须可追溯 |
 | Worker C（Graph） | enabled | `degraded/unavailable` | Neo4j 不可用→使用“本地 imports 近邻”启发式（若有）或返回空 | risks: impact degraded |
 
@@ -507,7 +507,7 @@ cacheKey = sha256(stableJson({
 - **统一写入入口**：所有 routing/context-pack/worker-result artifacts 必须通过统一的 writer 写入（例如 `ProtocolArtifactWriter`），写入前强制 parse；
 - **统一读取入口**：任何消费这些 artifacts 的地方也必须通过统一的 reader 读取（读后 parse），禁止“随手 JSON.parse 然后继续跑”；
 - **失败语义必须可审计**：parse 失败时不允许静默吞掉或回退到不受控路径，必须：
-  - 写 `events: protocol_violation`（safe 摘要）；
+  - 写 `events: protocol.violation`（safe 摘要）；
   - 落一个 “error artifact”（包含错误摘要、触发位置、输入指针），保证 Evidence Pack 不断链。
 
 实现状态（已落地，作为后续实现的唯一真相来源）：
@@ -685,7 +685,7 @@ Artifacts 包含日志、diff、扫描结果与命令输出；L4 Provenance 记�
 
 4) **小模型/工具当 worker（结构化、短输出、可校验）**
    - 机制：worker 优先使用工具直出（LSP/rg/DB/Graph），需要 LLM 时选轻量模型做抽取/对账/压缩；强制结构化 schema 输出，禁止长篇叙事（减少幻觉扩散）。
-   - 验收：worker result 都可通过 Zod schema 校验；出现 schema 不匹配必须写入 protocol_violation 事件并降级（见 Section 2.3.7.1 / Section 16.1）。
+  - 验收：worker result 都可通过 Zod schema 校验；出现 schema 不匹配必须写入 protocol.violation 事件并降级（见 Section 2.3.7.1 / Section 16.1）。
 
 5) **缓存分层：本地缓存为 SSOT；provider 缓存作为加速器**
    - 机制：本地 cacheKey/context-pack fingerprint 由 stableJson + sha256 生成并审计；不同 provider 的 prompt caching 只作为“额外加速”，不作为正确性依赖。
@@ -941,17 +941,40 @@ PoC v1 不是“跑一个命令就算完成”，而必须覆盖以下链路：
 - `opencode evidence export <id> --out ./evidence/<id>/`（示例）
 - 导出时执行脱敏与 allowlist 校验，确保不会把敏感信息带出沙盒/状态目录。
 
-### 11.2 P0-P4 路线图（每阶段都有“能用 + 可验证”产出）
+### 11.2 P0-P4 路线图（含 P1.5 收口门禁；每阶段都有“能用 + 可验证”产出）
 
 **最佳实践分期说明（已确认）**：
-P0–P4 的分期是本设计稿的**最佳实践推进**：先把“协议/证据链/统一执行入口”打牢（P0/P1），再做并行与写入协调（P2），随后才是上下文工程（P3）与生产级治理（P4）。该顺序可以最大化早期可用性，最小化返工与安全风险。后续若需调整分期，必须在此处更新并记录原因。
+P0–P4 的分期是本设计稿的**最佳实践推进**：先把“协议/证据链/统一执行入口”打牢（P0/P1），再做并行与写入协调（P2），随后才是上下文工程（P3）与生产级治理（P4）。
+
+但为了避免“P0/P1 看起来能跑、P2 一做并行与合并就暴露底座欠账”，在 P1 与 P2 之间插入 **P1.5（收口门禁）**
+作为强制 Gate：专门把 P0/P1 的关键不变量（协议强校验/证据不断链/审批收敛/可解释边界/变更集可复验）补齐并门禁化，
+确保进入 P2 后不会因为底座语义漂移而返工。
+
+该顺序可以最大化早期可用性、最小化返工与安全风险。后续若需调整分期，必须在此处更新并记录原因。
 
 **执行勾选清单（每完成一个阶段请勾选）**：
 - [ ] **P0**：软沙盒 + Evidence Pack v1 + BashTool 统一执行 + git worktree 隔离落地
 - [ ] **P1**：PythonTool + 子会话沙盒一致性 + micro-pack
-- [ ] **P2**：并行写入协调（隔离/共享 workdir）+ 自动合并 + 冲突 artifacts
-- [ ] **P3**：Context Pack + 指纹缓存 + compaction 联动
-- [ ] **P4**：硬沙盒后端 + OTel + 企业治理/合规
+- [ ] **P1.5**：P0/P1 收口门禁（协议/证据/审批/变更集/导出）→ P2 强制前置
+- [ ] **P2**：并行与写入协调（隔离/共享 workdir）+ 自动合并 + 冲突 artifacts + worker 并行协议骨架
+- [ ] **P3**：Context Pack（schema+计数器 SSOT）+ 指纹缓存 + compaction 联动 + prefix determinism
+- [ ] **P4**：硬沙盒后端 + OTel + 企业治理/合规 + 远端归档/保留周期 + Attestation（可选）
+
+**跨阶段硬门禁（P0 起始即强制；避免越迭代越乱）**：
+这些门禁是“底座工程契约”，不是某个阶段的可选功能；任何阶段的实现若破坏这些门禁，都必须阻塞合并。
+
+1) **Artifacts 不断链**：
+   - 任何落盘 artifact 必须登记到 `manifest.json`（path + sha256 + kind + size）。
+   - 若写入/登记失败：必须写 `events: evidence.write_failed` 并产出失败 artifact（错误摘要 + 指针）。
+2) **事件必成对**：每次 tool 调用至少有 `tool.started` 与 `tool.completed`（失败也要 completed，status=error/degraded）。
+3) **协议强校验**：routing/context-pack/worker-result/events/pack/manifest 等协议文件写入前 `schema.parse()`；读取后同样 parse。
+   - parse 失败：必须写 `events: protocol.violation` 并生成失败 artifact（错误摘要 + 指针），保证证据链不断。
+4) **边界可解释**：每次执行必须在证据中记录：`workdirMode`、可写路径集合、网络模式、命令策略评估结果（至少路径/命令/网络三维）。
+   - 推荐产物化：`execpolicy.eval.json`（artifact）+ 对应 events 引用（UI/CLI 仅展示安全摘要）。
+5) **审批收敛**：每次 tool run 最多允许一次“最终审批”交互（合并展示触发原因），并将评估结果写入证据。
+6) **Pointers-not-Paste**：超过阈值的 stdout/stderr/长文本一律落盘为 artifact；上下文与输出只回传“摘要 + 指针”。
+7) **确定性与版本化**：stableJson/canonicalization 规则必须固定；任何破坏确定性的变更必须 bump `specVersion` 或模板版本并加回归测试。
+8) **软/硬透明**：`enforcement=soft|hard` 必须如实声明；`soft` 阶段的 allowlist 只能用于审批/审计，不得暗示 OS 级阻断。
 
 P0（打底：Execution Sandbox + Evidence Pack 框架）：
 - 目标：让单人能跑“主会话工具执行 → 生成证据 → 导出到项目目录”。
@@ -971,33 +994,66 @@ P1（PythonTool + 子会话沙盒一致性）：
   - 主会话能汇总子会话 micro-pack 的指针（不粘贴全文）。
   - 可选但强烈推荐：`undo`（per-turn git 快照/回滚，feature flag，见 Section 5.2/17.3），降低“自动化误改”的心理成本。
 
+P1.5（收口门禁：P2 前强制 Gate，确保 P0/P1 “彻底完结”）：
+- 目标：把 P0/P1 的“关键不变量”做成可验证门禁，并补齐 P2 需要依赖的底座语义（审批/证据/变更集/导出/可解释边界）。
+- 交付（必须）：
+  - **证据失败可复盘**：补齐 `events: evidence.write_failed` 的失败证据路径；Evidence 写入失败不得静默。
+  - **审批收敛**：实现 “每次 tool run 最多一次最终审批” 的合并交互（命令/路径/网络等原因合并展示），并把评估结果产物化（`execpolicy.eval.json`）。
+  - **Provenance 补齐**：`pack.json` 的 `environment` 至少记录：os/runtime、repo commit/dirty、workdir 模式与关键 capability 摘要。
+  - **集成层版本锁（强烈推荐）**：生成/维护 `UPSTREAM.lock.json`（见 Section 10），把上游 commit/patch sha256/toolchain 作为最小 L1/L4 provenance 记录进证据链。
+  - **变更集可复验**：隔离 workdir（git worktree）场景下，生成 `patch/diff` artifact 并登记到 manifest；micro-pack 必须能携带变更集指针。
+  - **显式导出最小闭环**：提供最小 `opencode evidence export <sessionId> --out ...`（或等价）实现，并强制路径/symlink/allowlist 校验；导出过程必须写 events。
+- 执行计划参考：`docs/plans/2026-01-28-opencode-sandbox-context-p1_5-implementation-plan.md`
+- Exit Gate（建议）：
+  - 任意一次 bash/python/tool/task（含子会话）执行后：`.opencode/evidence/<id>` 下 pack.json/pack.md/manifest.json/events.jsonl/micro-pack.json（子会话）均可生成；
+  - tool run 的 evidence 中可解释展示：backend/enforcement + capability 摘要 + execpolicy eval；
+  - 若证据写入失败：有 `evidence.write_failed` 事件与失败 artifact 指针。
+
 P2（并行与写入协调：隔离 workdir 默认 + 可切共享 workdir）：
-- 目标：让“并行”真正可用，同时避免多代理写入冲突造成不可控。
+- 目标：让“并行”真正可用，同时避免多代理写入冲突造成不可控；并把“并行取证（worker）+ 并行改代码（workdir）”统一纳入证据链与回滚策略。
 - 交付：
-  - 默认隔离 workdir（git worktree；每个 session 一个可写工作区），子任务结束输出 patch + manifest，并支持主会话自动合并回主 workdir。
-  - 合并回主 workdir 的机制（可回滚、可验证），冲突生成 artifact 并要求决策。
-  - 共享 workdir 模式（按需开启），并发写入采用“并行读、串行写”（锁/队列）。
+  - **隔离 → 合并**：
+    - 默认隔离 workdir（git worktree；每个 session 一个可写工作区）。
+    - 子任务结束输出 patch + manifest（可复验变更集），主会话自动合并回主 workdir（优先 3-way apply），冲突生成 artifact 并要求决策。
+    - 合并后必须跑最小门禁（format/lint/test 任选其一），并把结果写入 `checks[]`（macro Evidence Pack 口径一致）。
+  - **共享 workdir 的写入协调**：
+    - 共享 workdir（按需开启），并发写入采用“并行读、串行写”（锁/队列），并对同文件并行写入意图做检测与排队。
+    - 锁/队列/排队决策必须写 events（可复盘为什么没并行、为什么排队）。
+  - **Worker 并行协议骨架（A/B/C）**（见 Section 2.3）：
+    - 产物化：`routing-run-request/1.0`（request.json）+ `worker-*.result.json` + `routing.capsule.md` 全部落盘，且写入/读取都有 Zod contract tests。
+    - 调度：并发上限、取消、超时、降级（worker 不可用时写 `events: worker.unavailable` + risks）。
+    - 安全：worker 默认只读/禁网；若访问本地服务（loopback）必须显式 allowlist 并在证据中声明软/硬能力边界（见 Section 12.1）。
 
 P3（上下文工程：Capsule + 指纹缓存 + compaction 合并）：
 - 目标：把“省 token / 高命中 / 超长上下文”做到工程可控。
 - 交付：
-  - Capsule（关键事实+指针）作为默认输入层；与 `SessionCompaction`/`SessionSummary` 联动。
-  - Context Pack 指纹（模板版本+摘要版本+文件哈希）用于复用与命中统计。
-  - scoped LRU/TTL（文件内容/检索结果/上下文包）与命中率统计面板（至少日志可查）。
-  - 前缀确定性落地：toolsetFingerprint + block fingerprints + MCP toolset freeze（见 Section 16.4），让 prompt caching 命中稳定可解释。
+  - **Context Pack SSOT**：落地 `context-pack.json（v1）` schema（计数器与可审计性的 SSOT，见 Section 16.2.1），并做到 UI/CLI “非黑盒”可解释展示（见 Section 16.2.2）。
+  - Capsule（关键事实+指针）作为默认输入层；与 `SessionCompaction`/`SessionSummary` 联动，且 compaction 输出必须含证据指针（避免摘要漂移）。
+  - Context Pack 指纹（模板版本+摘要版本+文件哈希）用于复用与命中统计；本地缓存为 SSOT，provider prompt caching 只作为加速器（见 Section 3.2/21.3）。
+  - scoped LRU/TTL（文件内容/检索结果/上下文包）与命中率统计面板（至少日志可查、可 grep）。
+  - 前缀确定性（prefix determinism）落地：toolsetFingerprint + block fingerprints + MCP toolset freeze（见 Section 16.4），并补齐回归测试（同输入 → 同 cacheKey）。
+  - 抗提示注入与消耗治理：把“默认安全（safe timeline + 指针化）”做成机制，而非靠提示词约定（见 Section 16.3.3）。
 
 P4（生产级/企业级增强）：
 - 目标：把“可观测、可治理、可合规”做全。
 - 交付：
-  - OTel tracing 与 Evidence Pack 的 traceId/spanId 关联。
-  - 组织级策略模板（域名白名单、敏感路径、命令黑名单、脱敏规则），支持远端归档与保留周期。
-  - 可选对接 SLSA/in-toto attestation（将 Evidence Pack 映射为更标准的 provenance/attestation bundle）。
+  - **硬沙盒后端**：Linux(bwrap/nsjail)/macOS(sandbox-exec)/Windows(Job Object 等) 统一抽象，且后端必须声明真实能力（backendCaps），避免“写了 allowlist 但实际绕过”。
+  - **可观测性**：OTel tracing 与 Evidence Pack 的 traceId/spanId 关联；建议对齐 OTel GenAI SemConv（见 Section 8.2），内容外置为 artifacts。
+  - **企业级治理**：requirements（不可覆盖）+ managed defaults（可覆盖但下次启动重置）（见 Section 17.2），组织级策略模板（域名白名单、敏感路径、命令黑名单、脱敏规则）。
+  - **远端归档与保留周期**：Evidence Pack 可选远端归档（对象存储/WORM 可选）、Retention、访问审计（谁查看了什么）。
+  - **供应链与合规**：可选对接 SLSA/in-toto attestation；Python/工具链 SBOM（CycloneDX/SPDX）作为 artifact 进入 Evidence Pack（见 Section 14.2）。
+  - **运维与单人体验（必须可长期用）**（见 Section 19）：
+    - 一键清理：`opencode evidence clean --older-than <days>`、`opencode cache clear`（示例）
+    - 索引与检索：evidence 本地索引（按 sessionId/时间/claim 类型检索），避免用户手动翻目录
+    - 故障自救：缓存/compaction 异常时提供“禁用缓存/强制重建 context-pack”的开关与证据化说明
 
 验收建议（每个阶段都可验收）：
 - P0：能跑 bash 工具且生成 evidence；产物指针可点击可复验（默认在 `.opencode/`，需要时可导出到 `./evidence/`）。
 - P1：能跑 python 且子会话也能生成 micro evidence（micro-pack 可合并）。
-- P2：并行跑多个子任务，最终合并到主 workdir，并通过门禁（tests/lint）。
-- P3：同类任务重复执行能稳定命中（上下文指纹命中率可观测）。
+- P1.5：证据失败可复盘（evidence.write_failed）；每次 tool run 最多一次审批；pack.json provenance 补齐；隔离 workdir 有可复验 patch；提供最小 evidence export。
+- P2：并行跑多个子任务（含 worker 并行），最终合并到主 workdir，并通过门禁（tests/lint/format 至少一项，结果写入 checks）。
+- P3：同类任务重复执行能稳定命中（上下文指纹命中率可观测）；context-pack 计数器可解释。
+- P4：硬沙盒后端可声明能力边界；OTel 关联可用；企业策略可下发与审计。
 
 ## Section 12 — 威胁模型与默认安全决策（生产级/企业级）
 
@@ -2134,7 +2190,7 @@ OpenCode/oh-my-opencode 的天然优势是：能在你的电脑上读写文件�
    - 风险：artifact 一旦在代码里被“随手改字段”，缓存 key 会难命中、UI/审计解析会崩、插件/核心会漂移。
    - 补强：
      - 引入统一的 `ProtocolArtifactWriter/Reader`（或等价模块）：写入前 `schema.parse()`，读取后同样 parse。
-     - 一旦 parse 失败：必须写 `events: protocol_violation`，并产出“失败 artifact”（包含错误摘要与指针），保证 Evidence Pack 不断链。
+     - 一旦 parse 失败：必须写 `events: protocol.violation`，并产出“失败 artifact”（包含错误摘要与指针），保证 Evidence Pack 不断链。
    - 阶段建议：P0-P1 就做（这是后续一切的地基）。
    - 验收：任意 routing/context-pack/worker-result artifact 的 unknown key 或缺字段都会导致门禁失败（可通过契约测试复现）。
 
