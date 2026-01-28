@@ -56,6 +56,8 @@ export const SandboxRunner = {
     const req = RunInput.parse(input)
     const writer = await EvidenceWriter.open({ sessionId: req.sessionId })
     const shell = Shell.acceptable()
+    const backend = "soft"
+    const enforcement = "soft"
     const startedAt = new Date().toISOString()
     await writer.event({
       specVersion: "event/1.0",
@@ -65,6 +67,25 @@ export const SandboxRunner = {
       actor: `tool:${req.toolName}`,
       type: "tool.started",
       summary: "tool started",
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: req.sessionId,
+      severity: "info",
+      actor: "sandbox:runner",
+      type: "sandbox.backend_selected",
+      summary: "sandbox backend selected",
+      data: {
+        backend,
+        enforcement,
+        network: req.capability.network,
+        workdirMode: req.capability.workdirMode,
+        readonlyPaths: req.capability.readonlyPaths,
+        writePaths: req.capability.writePaths,
+        exportPaths: req.capability.exportPaths,
+      },
       redaction: { applied: true, policyVersion: "v1" },
     })
 
@@ -140,11 +161,26 @@ export const SandboxRunner = {
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
+    const evidence = { finalized: true, error: undefined as string | undefined }
+    try {
+      await writer.pack({
+        handoff: failure ? "tool failed" : "ok",
+        execution: {
+          kind: "sandbox",
+          id: `sandbox:${req.sessionId}`,
+          backend,
+          enforcement,
+        },
+      })
+    } catch (error) {
+      evidence.finalized = false
+      evidence.error = error instanceof Error ? error.message : String(error)
+    }
     if (failure) throw failure
 
     return {
-      backend: "soft",
-      enforcement: "soft",
+      backend,
+      enforcement,
       exitCode: proc.exitCode ?? -1,
       timedOut,
       aborted,
@@ -156,6 +192,7 @@ export const SandboxRunner = {
         { path: stdoutEntry.path, sha256: stdoutEntry.sha256, kind: "stdout" },
         { path: stderrEntry.path, sha256: stderrEntry.sha256, kind: "stderr" },
       ],
+      evidence,
     }
   },
 }

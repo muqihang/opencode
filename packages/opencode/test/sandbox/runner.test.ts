@@ -56,6 +56,18 @@ describe("sandbox.runner", () => {
         const stderrEntry = manifest.entries.find((entry) => entry.path === stderrRel)
         expect(stdoutEntry).toBeDefined()
         expect(stderrEntry).toBeDefined()
+
+        const evidenceDir = path.join(
+          Instance.worktree,
+          ".opencode",
+          "evidence",
+          "session_test",
+        )
+        expect(await Bun.file(path.join(evidenceDir, "pack.json")).exists()).toBe(true)
+        expect(await Bun.file(path.join(evidenceDir, "pack.md")).exists()).toBe(true)
+
+        const eventsText = await Bun.file(path.join(evidenceDir, "events.jsonl")).text()
+        expect(eventsText).toContain("sandbox.backend_selected")
       },
     })
   })
