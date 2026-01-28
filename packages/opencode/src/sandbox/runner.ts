@@ -89,15 +89,25 @@ export const SandboxRunner = {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    const proc = spawn(req.command, {
-      shell,
-      cwd: req.cwd,
-      env: {
-        ...process.env,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    })
+    const proc = req.args
+      ? spawn(req.command, req.args, {
+          shell: false,
+          cwd: req.cwd,
+          env: {
+            ...process.env,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+          detached: process.platform !== "win32",
+        })
+      : spawn(req.command, {
+          shell,
+          cwd: req.cwd,
+          env: {
+            ...process.env,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+          detached: process.platform !== "win32",
+        })
 
     let stdout = ""
     let stderr = ""
