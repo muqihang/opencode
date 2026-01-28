@@ -91,7 +91,7 @@ async function safePath(base: string, rel: string) {
 async function writeAtomic(file: string, data: string) {
   const dir = path.dirname(file)
   await fs.mkdir(dir, { recursive: true })
-  const tmp = `${file}.${Identifier.ascending("tmp")}.tmp`
+  const tmp = `${file}.${Identifier.ascending("tool")}.tmp`
   await Bun.write(tmp, data)
   const hash = sha(data)
   const size = Buffer.byteLength(data, "utf-8")
@@ -176,7 +176,7 @@ export const EvidenceWriter = {
 
     async function artifact(inputArtifact: z.infer<typeof ArtifactInput>) {
       const data = ArtifactInput.parse(inputArtifact)
-      const name = data.path ?? `${Identifier.ascending("artifact")}.txt`
+      const name = data.path ?? `${Identifier.ascending("tool")}.txt`
       const target = await safePath(artifacts, name)
       const result = await writeAtomic(target, data.data)
       const entry = Entry.parse({

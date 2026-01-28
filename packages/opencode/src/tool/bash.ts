@@ -21,6 +21,16 @@ const MAX_METADATA_LENGTH = 30_000
 const MAX_INLINE_OUTPUT_BYTES = 100 * 1024
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 
+type BashMetadata = {
+  output: string
+  exit: number
+  description: string
+  artifact: string
+  errorArtifact: string
+  truncated?: boolean
+  pointerized?: boolean
+}
+
 export const log = Log.create({ service: "bash-tool" })
 
 const resolveWasm = (asset: string) => {
@@ -192,30 +202,32 @@ export const BashTool = Tool.define("bash", async () => {
           )
         }
         const pointerMessage = pointerLines.join("\n")
-        return {
-          title: params.description,
-          metadata: {
-            output: pointerMessage,
-            exit: run.exitCode,
-            description: params.description,
-            artifact: run.stdoutArtifactPath,
-            errorArtifact: run.stderrArtifactPath,
-            truncated: true,
-            pointerized: true,
-          },
+        const metadata: BashMetadata = {
           output: pointerMessage,
-        }
-      }
-
-      return {
-        title: params.description,
-        metadata: {
-          output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
           exit: run.exitCode,
           description: params.description,
           artifact: run.stdoutArtifactPath,
           errorArtifact: run.stderrArtifactPath,
-        },
+          truncated: true,
+          pointerized: true,
+        }
+        return {
+          title: params.description,
+          metadata,
+          output: pointerMessage,
+        }
+      }
+
+      const metadata: BashMetadata = {
+        output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
+        exit: run.exitCode,
+        description: params.description,
+        artifact: run.stdoutArtifactPath,
+        errorArtifact: run.stderrArtifactPath,
+      }
+      return {
+        title: params.description,
+        metadata,
         output,
       }
     },
