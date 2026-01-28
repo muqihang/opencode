@@ -5,6 +5,7 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import type { PermissionNext } from "../../src/permission/next"
 import { Truncate } from "../../src/tool/truncation"
+import { EventV1 } from "../../src/protocol/event"
 
 const ctx = {
   sessionID: "test",
@@ -33,6 +34,40 @@ describe("tool.bash", () => {
         )
         expect(result.metadata.exit).toBe(0)
         expect(result.metadata.output).toContain("test")
+        expect(result.metadata.artifact).toBeDefined()
+
+        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", ctx.sessionID, "events.jsonl")
+        const text = await Bun.file(eventsPath).text()
+        const lines = text
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+        const types = lines.map((line) => {
+          const data = JSON.parse(line) as unknown
+          const event = EventV1.parse(data)
+          return event.type
+        })
+        expect(types).toContain("tool.started")
+        expect(types).toContain("tool.completed")
+      },
+    })
+  })
+
+  test("basic outside git repo", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const result = await bash.execute(
+          {
+            command: "echo 'nongit'",
+            description: "Echo nongit message",
+          },
+          ctx,
+        )
+        expect(result.metadata.exit).toBe(0)
+        expect(result.metadata.output).toContain("nongit")
       },
     })
   })
@@ -110,6 +145,7 @@ describe("tool.bash permissions", () => {
         await bash.execute(
           {
             command: "cd ../",
+            workdir: tmp.path,
             description: "Change to parent directory",
           },
           testCtx,

@@ -16,7 +16,7 @@
 为避免“大家理解一致但实现跑偏”，这里把关键默认值写成可对账的决策清单：
 
 - 默认执行形态：`CLI -> server(daemon) -> SandboxRunner`（避免 UI 侧重复实现上下文/沙盒/证据）
-- 默认 workdir：`isolated`（并行安全）；必要时可切 `shared`（并行读、串行写 + 锁/队列）
+- 默认 workdir：`isolated`（并行安全，**默认实现采用 git worktree**）；必要时可切 `shared`（并行读、串行写 + 锁/队列）
 - 默认网络：`deny_all`（plan）；需要外部资源时切 `allowlist`（limited）；`full` 必须显式开启且审计
 - 默认产物位置：`.opencode/`（不污染仓库根目录，支持保留周期与清理）；交付/归档用显式 export
 - 默认上下文策略：Capsule/Manifest/pointers 优先；“结果指针化”优先于“原文回填”
@@ -24,6 +24,73 @@
 - 默认子代理行为：子代理只拿“子上下文包”，禁止直接读取全量会话；产出 micro-pack，主会话合并
 - 默认路由与并行：用户只提问题，系统自动并行启动 3 类 worker（LSP/KB/Graph）；worker 输出只允许“结构化结果 + capsule + 指针”
 - 默认模型分层：重模型只用于最终决策与关键代码；worker 优先用工具直出或轻量模型（抽取/压缩/对账），以换取速度与低幻觉
+
+## 2026-01-28 评审增补（定稿前的关键补丁）
+
+本节用于把评审结论“锁死”到设计里，避免实现阶段再出现跑偏。若后续实现与本节冲突，以本节为准（除非显式更新本节并记录原因）。
+
+### A+ 路线：先把“证据链/协议/统一执行”打通，再逐步加硬隔离后端
+
+我们采用 **A+** 的工程路线（更适合单人自用 → 逐步企业化）：
+
+- **P0 优先级**：协议门禁（Zod + contract tests）+ `events.jsonl` 时间线 SSOT + Evidence Pack v1 + BashTool 统一走 SandboxRunner（backend 先 `soft`）。
+- **P1/P2**：在接口稳定后再补 **硬隔离后端**（Linux: bwrap/nsjail；macOS: sandbox-exec；Windows: Job Object 等）。
+- **强制透明**：任何执行都必须在证据中记录 `sandbox.backend` 与 `sandbox.enforcement = soft|hard`，避免“假安全感”。
+
+这条路线的目标是：先让系统“可交付、可复盘、可演进”，再逐步收紧执行面的 OS 级强制能力。
+
+### `isolated` workdir 的默认实现：git worktree（定案）
+
+为了让隔离模式不仅能“只读检索”，还能真正“改代码/跑门禁/产出可复验变更集”，`isolated` workdir 采用 **git worktree** 作为默认实现：
+
+- 每个 session 分配一个 worktree 目录（建议落在 `.opencode/worktrees/<sessionId>/`，或等价的 state 目录）。
+- 沙盒内把该 worktree 作为可写工作区（例如挂到 `/workspace/work`），工具默认在此目录执行。
+- 会话结束时变更集以 `git diff`（或 patch）作为 artifact 落盘，并登记到 Evidence Pack（避免“目录拷贝 + 盲合并”的不可控）。
+- `shared` workdir 仍可作为按需模式，但必须有写入协调（锁/队列）与审计事件。
+
+备注：git worktree 是“工作区隔离/回滚”的工程措施；Execution Sandbox 是“进程/网络/文件边界”的安全措施。两者都叫 sandbox 但关注点不同，需在事件与文档中明确区分。
+
+### “软/硬隔离”语义（必须写进证据）
+
+为避免跨平台差异导致安全语义漂移，统一定义：
+
+- `enforcement=hard`：后端具备 OS 级强制隔离能力（至少能阻断：越界写入、进程树失控；网络能力按后端声明）。
+- `enforcement=soft`：仅做 **治理与审计**（路径边界校验、命令策略评估、超时/kill tree、输出落盘与脱敏、显式 approvals），不承诺 OS 级阻断。
+
+要求：
+- 每次 tool 执行必须产出 `events: sandbox.backend_selected` 与 `events: tool.started/tool.completed`，并在 pack.environment 中记录。
+- UI/CLI 默认展示 “soft/hard” 状态（默认安全展示，不泄露敏感原文）。
+
+### 关键不变量（Invariants）：写成门禁，避免“越迭代越乱”
+
+这些不变量是 P0 就必须落地并用测试/门禁保护的工程契约：
+
+1) **Artifacts 不断链**：任何落盘 artifact 必须登记到 `manifest.json`（path + sha256 + kind + size）；否则视为 Evidence 写入失败并记录 `events: evidence_write_failed`。
+2) **事件必成对**：每次 tool 调用至少有 `tool.started` 与 `tool.completed`（失败也要 completed，状态=error/degraded），否则 UI/审计无法可靠复盘。
+3) **协议强校验**：routing/context-pack/worker-result/events/pack/manifest 等协议文件写入前 `schema.parse()`；读取后同样 parse。失败必须写 `events: protocol_violation` 并生成失败 artifact（错误摘要 + 指针）。
+4) **边界可解释**：每次执行必须在证据中记录：`workdirMode`、可写路径集合、网络模式、命令策略评估结果（至少路径/命令/网络三维）。
+
+### 路径与 symlink 安全（导出/打包阶段的真实漏洞点）
+
+必须显式治理 “symlink/路径逃逸”：
+
+- 所有路径判断必须先 `realpath/resolve` 再做 `containsPath`（防 `..` 与符号链接绕过）。
+- Evidence/Artifacts writer 与 export 阶段默认 **不跟随 symlink**（使用 `lstat`）；遇到链接必须拒绝或要求显式 allow（并写入审计事件）。
+- `manifest.json` 中记录的 path 必须是项目内相对路径；任何绝对路径、驱动器前缀、`..` 都视为协议违规。
+
+### 网络 allowlist 的工程语义（避免“写了 allowlist 但实际绕过”）
+
+域名 allowlist 是策略表达，但是否能被强制执行取决于沙盒后端与网络实现方式：
+
+- 在 `enforcement=soft` 阶段：allowlist 主要用于 **审批/审计/提示**，不承诺 OS 级阻断；必须把该风险写入 `risks`（默认项）。
+- 在 `enforcement=hard` 阶段：若要做到“域名级强制”，通常需要 **受控代理/受控解析**（否则可用直连 IP 绕过）。后端应在 `backendCaps` 中声明真实能力（例如 `network.enforced=true|false`），并写入证据。
+
+### PermissionNext / ExecPolicy / Capability 的统一决策优先级
+
+为避免多重弹窗与规则冲突，统一优先级与交互：
+
+- 决策优先级：`forbidden/deny` > `prompt/ask` > `allow`（最严格优先）。
+- 每次 tool run 最多允许一次“最终审批”交互：把触发原因合并展示（命令规则、路径扩张、网络访问等），并将评估结果写入 artifact（例如 `execpolicy.eval.json`）。
 
 ## Section 1 — Architecture（基于现有 OpenCode 架构）
 
@@ -88,7 +155,7 @@ artifacts 与 claims 记录，主代理只接收“结果指针 + 关键摘要�
 1) **隔离 workdir（默认）**：每个 session（主会话/子会话）都有独立可写工作区，源码以只读方式挂载。
    - 优点：并行安全、不会互相覆盖、失败/中断可独立回滚；适合自动并行与后台任务。
    - 风险：需要“合并回主工作区”的机制（patch/merge），增加一个收敛步骤。
-   - 推荐实现：为每个 session 创建独立目录（例如 state 目录下 `sandboxes/<sessionID>/workdir`），或使用 git worktree。
+   - 推荐实现（定案）：**git worktree 作为默认隔离 workdir**（建议目录：`.opencode/worktrees/<sessionId>/`）；目录隔离作为 fallback。
 
 2) **共享 workdir（按需切换）**：多个 session 共享同一个可写工作区（通常是用户当前工作目录）。
    - 优点：适合强协作（例如多代理同时改一个 feature），减少合并步骤。
@@ -628,6 +695,58 @@ Artifacts 包含日志、diff、扫描结果与命令输出；L4 Provenance 记�
    - 机制：CLI/UI 展示“阶段/预算/证据/缓存命中”的时间线；细节展示分级（safe/verbose/audited），默认不泄露敏感内容。
    - 验收：时间线来自同一套 events/trace spans；每个阶段都能点回 Evidence Pack artifacts；并记录脱敏策略版本（见 Section 16.2.2 / Section 8）。
 
+### Section 5.2 — 从 OpenAI Codex 开源实现/官方文档汲取的“可验证机制”（补强本设计的工程落点）
+
+你这次明确要求“既然开源了，就尽量把好的机制吸收进来”。这里把从 `openai/codex` 仓库与官方文档中能直接验证、且与我们目标高度一致的机制补齐到设计里（不靠猜测）。
+
+**(1) Sandbox/Approvals 两层模型（能力 vs 何时询问），并提供“read-only”一键切换**
+- Codex 的安全模型把“能不能做”（sandbox mode）与“什么时候必须停下来问你”（approval policy）拆开，这比把一切塞进同一个 permission 更清晰，也更利于企业治理（requirements/managed config）。
+- 对我们设计的落点：
+  - `SandboxCapability` 继续表达“可执行边界”；`ApprovalPolicy` 单独作为“交互门禁策略”。
+  - 提供 `/approvals` 或等价 UI 入口把会话切到 `read-only`（只读聊天/规划），让用户可控地“随时收紧”。
+
+**(2) 明确承认：只有内置 shell/exec 工具能被 OS 沙盒强约束；MCP 工具必须自证/自限**
+- Codex 在工程上明确区分：CLI 自带的 `shell` 工具在 OS 沙盒内执行；而 MCP 工具不由 Codex 统一沙盒化，必须由 MCP server 自己做 guardrails。
+- 对我们设计的落点：
+  - 把“哪些工具是 sandboxed / 哪些是 external”写进 `context-pack.json` 与 `events.jsonl`（provenance），避免安全边界成为隐性假设。
+  - 对外部工具（MCP/HTTP）引入 `toolIdentity` 与 allowlist：不在 allowlist 的 MCP 工具默认禁用或降级为“只读查询 + 输出脱敏”。
+
+**(3) 配置层叠（workspace/repo/home/system）与“Profile + Feature flags + Maturity”体系**
+- Codex 的配置不是单文件，而是“按目录向上查找 + repo root + 用户目录 + 系统目录”的 stack，并且有 profile 与 feature flags（含成熟度标签：Experimental/Beta/Stable）。
+- 对我们设计的落点：
+  - 把 `.opencode/opencode.json(c)` 的加载策略升级为“可层叠”，并提供 `opencode config show --effective` 以便对账（见 Section 17）。
+  - 所有高风险/易变能力（sandbox 后端、unified exec、remote compaction、undo 等）必须有 feature flag，并标注成熟度，避免 PoC 与生产混用。
+
+**(4) 企业级强约束：requirements（不可覆盖）+ managed defaults（可覆盖但下次启动重置）**
+- Codex 支持 `requirements.toml` 这类“管理员强制策略”，以及 `managed_config.toml` 这类“企业默认值”；并支持对 MCP server 进行 identity allowlist。
+- 对我们设计的落点：
+  - 预留 `requirements.*` 与 `managed.*` 配置层（见 Section 17），让未来商用/企业版能“从一开始就可治理”，而不是后补。
+  - 默认建议：`network_access=false`、`log_user_prompt=false`、MCP allowlist 空=全部禁用（更安全的企业默认）。
+
+**(5) ExecPolicy（prefix-rule）把“允许/询问/禁止”做成 policy-as-code，并内置 rule 测试向量**
+- Codex 的 `execpolicy` 采用 prefix rules（按 token 序列前缀匹配），decision 取 `allow/prompt/forbidden`，并支持 `match/not_match` 作为加载时的“单元测试”（规则本身自带测试用例）。
+- 对我们设计的落点：
+  - 在 PermissionNext 之上增加“命令级 execpolicy”一层（见 Section 13.1.1），实现更细的“命令白名单/黑名单/解释性拒绝”。
+  - 把 policy 文件与它的测试向量一起纳入 Evidence Pack provenance（policyVersion + policyHash）。
+
+**(6) Shell Snapshot / 统一 Exec（PTY-backed）类能力：用“环境快照 + 标准化 IO”换性能与稳定性**
+- Codex 的 feature flags 中包含 `shell_snapshot`（加速重复命令）与 `unified_exec`（统一 PTY-backed exec）等概念。
+- 对我们设计的落点（不强制 P0 实现，但必须在路线图留钩子）：
+  - 把“命令执行环境”显式化：env forwarding policy（include_only/denylist），并将“环境指纹”纳入 cacheKey/configFingerprint。
+  - 让 SandboxRunner 的 IO 捕获标准化（stdout/stderr/exit/timedOut），为“可解释时间线 + 可复验产物”打地基。
+
+**(7) Undo（per-turn git ghost snapshots）：把“可回滚”作为默认安全网**
+- Codex 把 undo 当成一等能力（每轮 turn 做 git 级快照，必要时可回滚），这在商用/企业落地时极其重要：可以显著降低“自动化误改”的心理门槛。
+- 对我们设计的落点：
+  - P1/P2 引入 `opencode undo`（可选、默认开启、可配置），并把快照引用写入 Evidence Pack（provenance + events）。
+  - 在 shared workdir 模式下更关键：回滚是“并行写入事故”的最后保险。
+
+**(8) 非交互模式（Non-interactive exec）与“输入附件化”（图片/文件）**
+- Codex CLI 文档把“非交互 exec”作为一等用例；社区也大量使用 `codex exec --image ...` 这类模式来做“截图→分析→修复”的闭环。
+- 对我们设计的落点：
+  - 在 CLI 侧提供 `opencode exec`（非交互），并把 stdin/stdout 都产物化（artifact + schema），适配 CI/脚本化工作流。
+  - “文件输入/图片输入”直接进入资料工作台（inputs/derived），而不是要求把内容粘到 prompt（见 Section 13.2）。
+
 ## Section 6 — 沙盒内外的上下文与缓存边界
 
 执行与产物应在沙盒内完成，但上下文构建与缓存更适合在 daemon 层集中管理。原因：上下文复用、
@@ -824,13 +943,25 @@ PoC v1 不是“跑一个命令就算完成”，而必须覆盖以下链路：
 
 ### 11.2 P0-P4 路线图（每阶段都有“能用 + 可验证”产出）
 
+**最佳实践分期说明（已确认）**：
+P0–P4 的分期是本设计稿的**最佳实践推进**：先把“协议/证据链/统一执行入口”打牢（P0/P1），再做并行与写入协调（P2），随后才是上下文工程（P3）与生产级治理（P4）。该顺序可以最大化早期可用性，最小化返工与安全风险。后续若需调整分期，必须在此处更新并记录原因。
+
+**执行勾选清单（每完成一个阶段请勾选）**：
+- [ ] **P0**：软沙盒 + Evidence Pack v1 + BashTool 统一执行 + git worktree 隔离落地
+- [ ] **P1**：PythonTool + 子会话沙盒一致性 + micro-pack
+- [ ] **P2**：并行写入协调（隔离/共享 workdir）+ 自动合并 + 冲突 artifacts
+- [ ] **P3**：Context Pack + 指纹缓存 + compaction 联动
+- [ ] **P4**：硬沙盒后端 + OTel + 企业治理/合规
+
 P0（打底：Execution Sandbox + Evidence Pack 框架）：
 - 目标：让单人能跑“主会话工具执行 → 生成证据 → 导出到项目目录”。
 - 交付：
   - Execution Sandbox 抽象（先实现“受限目录 + 资源限制 + 审计”软隔离，后续接 bwrap/nsjail 等硬隔离）。
+  - `isolated` workdir 的骨架（git worktree）：为 session 创建 `.opencode/worktrees/<sessionId>/` 并记录 provenance；先以“产出 patch/diff artifact”为主，自动合并/冲突处理留到 P2 完整化。
   - `BashTool` 通过 Sandbox Runner 执行（至少在 server 侧统一入口，保留现有 PermissionNext 询问）。
   - Evidence Pack Writer 最小版（pack.json/pack.md/manifest.json），落盘到 `.opencode/evidence/<sessionId>/...`。
   - 规则：工具输出超过阈值时只写 artifact 文件并返回指针。
+  - 配置对账最小闭环：提供 `opencode config show --effective`（或 UI 等价），为后续企业治理与排障打基础（见 Section 17.1）。
 
 P1（PythonTool + 子会话沙盒一致性）：
 - 目标：把“Python 脚本执行”纳入同一沙盒与证据链，并保证子会话与主会话行为一致。
@@ -838,11 +969,12 @@ P1（PythonTool + 子会话沙盒一致性）：
   - `PythonTool`（沙盒内执行，输入/输出以文件与 JSON 为主），默认禁网，资源上限与超时。
   - 子 session 工具调用也走 Sandbox Runner，并生成 micro Evidence Pack（每个子 session 一份）。
   - 主会话能汇总子会话 micro-pack 的指针（不粘贴全文）。
+  - 可选但强烈推荐：`undo`（per-turn git 快照/回滚，feature flag，见 Section 5.2/17.3），降低“自动化误改”的心理成本。
 
 P2（并行与写入协调：隔离 workdir 默认 + 可切共享 workdir）：
 - 目标：让“并行”真正可用，同时避免多代理写入冲突造成不可控。
 - 交付：
-  - 默认隔离 workdir（每个 session 一个可写工作区），子任务结束输出 patch + manifest。
+  - 默认隔离 workdir（git worktree；每个 session 一个可写工作区），子任务结束输出 patch + manifest，并支持主会话自动合并回主 workdir。
   - 合并回主 workdir 的机制（可回滚、可验证），冲突生成 artifact 并要求决策。
   - 共享 workdir 模式（按需开启），并发写入采用“并行读、串行写”（锁/队列）。
 
@@ -852,6 +984,7 @@ P3（上下文工程：Capsule + 指纹缓存 + compaction 合并）：
   - Capsule（关键事实+指针）作为默认输入层；与 `SessionCompaction`/`SessionSummary` 联动。
   - Context Pack 指纹（模板版本+摘要版本+文件哈希）用于复用与命中统计。
   - scoped LRU/TTL（文件内容/检索结果/上下文包）与命中率统计面板（至少日志可查）。
+  - 前缀确定性落地：toolsetFingerprint + block fingerprints + MCP toolset freeze（见 Section 16.4），让 prompt caching 命中稳定可解释。
 
 P4（生产级/企业级增强）：
 - 目标：把“可观测、可治理、可合规”做全。
@@ -911,7 +1044,7 @@ Execution Sandbox 是“执行隔离”的统一抽象，必须支持：按 sess
 建议采用以下目录布局（宿主侧）：
 
 - `.opencode/sandboxes/<sessionId>/root/`：沙盒根（可选，取决于后端）
-- `.opencode/sandboxes/<sessionId>/workdir/`：可写工作区（默认隔离模式）
+- `.opencode/worktrees/<sessionId>/`：**git worktree 工作区（默认隔离模式，可写）**
 - `.opencode/artifacts/<sessionId>/`：执行产物输出目录（日志、stdout/stderr、临时文件、patch）
 - `.opencode/evidence/<sessionId>/`：Evidence Pack 输出目录（pack.json/pack.md/manifest.json）
 
@@ -937,6 +1070,8 @@ Execution Sandbox 是“执行隔离”的统一抽象，必须支持：按 sess
 
 ```ts
 export type SandboxBackend = 'auto' | 'soft' | 'bwrap' | 'nsjail' | 'sandbox-exec' | 'job-object';
+
+export type SandboxEnforcement = 'soft' | 'hard';
 
 export type SandboxNetworkPolicy =
   | { mode: 'deny_all' }
@@ -976,6 +1111,8 @@ export type SandboxRunRequest = {
 };
 
 export type SandboxRunResult = {
+  backend: SandboxBackend; // resolved backend (after auto selection / fallback)
+  enforcement: SandboxEnforcement; // MUST be recorded to Evidence Pack for transparency
   exitCode: number;
   timedOut: boolean;
   stdoutArtifactPath: string;
@@ -993,6 +1130,39 @@ export interface SandboxRunner {
 - **sessionId 是一等公民**：让每个 session 都能拥有自己的隔离 workdir、产物目录与证据目录。
 - **capability = 权限的可执行形态**：PermissionNext 的 ask/allow/deny 最终必须映射为 capability（可执行的边界），并写入 Evidence Pack provenance。
 - **输出必须“产物化”**：stdout/stderr 默认落盘并返回路径（指针），避免直接把大段输出塞回上下文。
+
+#### Section 13.1.1 — ExecPolicy（prefix-rule）与 SandboxPermission：把“可执行权限”工程化（借鉴 Codex 的落点）
+
+你关心“生产级/企业级”时，最容易踩坑的是：权限系统停留在“口头约定”，最后变成“看似有权限弹窗，但实际边界不清晰”。
+Codex 的开源仓库里提供了一个非常可借鉴的思路：把命令治理做成**可解释、可测试、可合并**的 policy-as-code。
+
+**A) 命令级 ExecPolicy：prefix-rule + allow/prompt/forbidden**
+- 思路：把 shell 命令先 token 化（类似 `shlex`），然后用“前缀规则”匹配。例如：
+  - `["git", "status"]` 可能默认 allow
+  - `["git", "push"]` 可能 prompt
+  - `["rm", "-rf"]` 可能 forbidden
+- 规则文件允许：
+  - `decision = allow|prompt|forbidden`
+  - `justification`（为什么有这条规则；当 forbidden 时给出替代方案）
+  - `match/not_match` 示例（作为“规则自带单测”，加载时验证）
+- 这套机制与 PermissionNext 不冲突：PermissionNext 仍做“高层能力询问”（例如是否允许运行 shell、是否允许访问某目录/网络），
+  ExecPolicy 做“命令级细粒度门禁”，让“默认值更安全、拒绝更可解释”。
+
+**B) SandboxPermission（可执行能力枚举）：把 capability 拆成可审计的 permission set**
+- Codex 社区讨论中出现了很清晰的枚举：Disk 读写范围（cwd/指定目录/全盘）、临时目录写入、网络访问等。
+- 对我们落地的建议：
+  - `SandboxCapability` 保留“路径/网络/命令”三大维，但在 Evidence Pack 中同时写入一个离散的 `sandboxPermissions[]`（便于审计与企业策略约束）。
+  - `sandboxPermissions[]` 是“语义层”，backend 负责映射到具体实现（bwrap/nsjail/sandbox-exec/job-object）。
+
+**C) 协议化输出：每次 execpolicy 评估都产出 JSON 结果并进入 Evidence Pack**
+- Codex 的 execpolicy CLI 会输出 JSON 评估结果（匹配了哪些规则、最终 decision 是什么）。
+- 我们同样要求：每次 Shell/Python 执行前，把“策略评估结果”写成 artifact（例如 `execpolicy.eval.json`），并记录：
+  - matchedRules（含 justification）
+  - decision（最终最严格：forbidden > prompt > allow）
+  - policyHash/policyVersion
+  - commandFingerprint（stable tokenization + stableJson）
+
+这样做的收益是：你未来要做企业版时，才有可能实现“requirements/managed policy 下发 + 审计复盘 + 合规证明”。
 
 ### Section 13.2 — “文件/资料工作台”（像 GPT Web UI 一样用沙盒管理上传文件，避免 token 爆炸）
 
@@ -1105,6 +1275,76 @@ export interface SandboxRunner {
 - 所有工具都必须走 Sandbox Runner（统一超时/资源/网络/文件写权限），并写 events 形成可解释时间线。
 - 对于可能泄露敏感信息的工具输出（例如 `git diff`、日志、PDF 原文），默认只写 artifact 并在 UI 里展示“指针 + 摘要”（见 Section 16.2.2）。
 - 工具版本应尽量锁定并写入 Provenance（企业级可进一步做 SBOM/签名），保证可复现与可审计。
+
+### Section 13.4 — 产物可检索写作规范（rg-friendly artifacts）：把“输出”也做成上下文工程
+
+你提到的点非常关键：**不仅要让系统会 `rg` 检索代码/资料，我们生成的产物（尤其是 `.md`）本身也要“易检索、易对账、易压缩”。**
+这本质上是“上下文工程”的最后一公里：把输出变成“可反复召回的结构化资产”，而不是一次性阅读的作文。
+
+**核心原则（强烈建议写进规范，P0 就执行）**：
+1) **稳定前缀 + 稳定字段名**：关键行必须用固定前缀（从行首开始），避免“同义反复”导致检索召回不稳定。
+2) **少即是多**：`.md` 里只放摘要/结论/指针；长内容落到 `.json/.txt/.patch` artifact，再引用 path+sha256。
+3) **可机器解析**：每个 Markdown artifact 都要有统一的元信息块（frontmatter）与稳定的段落结构。
+4) **ID 可追溯**：每个重要结论/任务节点都带 `ulid` 或稳定 id，且 id 必须来自 session/routingRun，不得随机生成后丢失上下文。
+
+**双层写作（推荐最佳实践：机器优先英文、人类阅读中文）**：
+- **机器可读层（Machine Index）**：关键行前缀固定为英文大写（`CLAIM:` / `EVIDENCE:` / `RISK:` / `NEXT_ACTION:` 等），以便：
+  - `rg '^CLAIM:'` 一把搜出所有结论
+  - compaction 能稳定抽取要点（不靠自由写作摘要）
+  - 后续可演进到“半结构化解析”（即使不用 LLM 也能提取）
+- **人类可读层（Human Notes）**：正文解释、背景、推理过程用中文；但尽量把“长原文/长日志/大输出”落盘为 artifact，正文只引用指针。
+- **关键细节**：前缀必须保持英文（ASCII + `:`），但冒号后面的内容可以是中文；这样同时满足“AI 好解析/好检索”和“你读起来舒服”。
+- UI/CLI 展示可以本地化：例如把 `CLAIM` 在 UI 显示为“结论”，但底层文件仍保留 `CLAIM:` 行首，保证检索与稳定性。
+
+**推荐的 Markdown artifact 模板（v1）**（所有 `capsule.md`/`pack.md`/`routing.capsule.md` 都尽量贴这个结构）：
+
+```md
+---
+specVersion: artifact-md/1.0
+artifactKind: capsule|pack|routing-capsule|note|report
+artifactId: "<ulid>"
+sessionId: "<sessionId>"
+createdAtUtc: "<iso8601>"
+source: "opencode"
+redactionPolicyVersion: "<string>"
+langPrimary: "zh"            # 人类阅读的主要语言
+machineTags: "en"            # 行首前缀语言（固定英文，利于 rg/解析）
+---
+
+# <title>
+
+## Machine Index (stable prefixes; values can be zh)
+DECISION: <one-line decision>            # 可选
+CLAIM: <one-line claim>                  # 可多条，每条一行
+EVIDENCE: <manifestRef or path#Lx>       # 每条 CLAIM 至少一条 EVIDENCE（不确定就写 UNKNOWN）
+RISK: <one-line risk>                    # 可多条
+OPEN_QUESTION: <one-line question>       # 可多条
+NEXT_ACTION: <one-line next step>        # 可多条
+
+## 说明（中文，面向你阅读；长内容落盘为 artifact）
+- 背景：...
+- 取舍：...
+- 约束：...
+
+## Pointers
+- ARTIFACT: .opencode/artifacts/... (sha256=...)
+- EVENT: .opencode/evidence/.../events.jsonl (filter: traceId=...)
+```
+
+**为何这能提升“超长上下文体验”**：
+- `rg '^CLAIM:'` / `rg '^EVIDENCE:'` 能直接把“关键事实与证据指针”召回给 worker/主代理，避免把全文塞进 prompt。
+- compaction 时可以稳定保留这些“结构化要点”，而不是让模型自由发挥写摘要（降低摘要漂移与幻觉）。
+- cacheKey 相关的内容（claims/pointers）更稳定，复用更可靠。
+
+**推荐内置的检索 query（便于用户与 agent 形成习惯）**：
+- 找本项目所有关键结论：`rg -n \"^CLAIM:\" .opencode/evidence`
+- 找所有风险：`rg -n \"^RISK:\" .opencode/evidence`
+- 找待办/后续：`rg -n \"^NEXT_ACTION:\" .opencode/evidence`
+- 找引用链：`rg -n \"^EVIDENCE:\" .opencode/evidence`
+
+**注意**：
+- 不要在这些关键前缀行里放动态时间戳/随机数；时间线属于 `events.jsonl` 的职责。
+- 不要在 `.md` 里粘贴大段工具输出；大段输出要落盘为 artifact（并登记 sha256），`.md` 只放“摘要 + 指针”。
 
 ## Section 14 — BashTool + PythonTool（沙盒内执行）落地规范
 
@@ -1238,6 +1478,8 @@ micro/macro 合并规则（多代理并行的关键）：
 规范要点（保证“省 token + 高命中 + 可合并”）：
 - `pack.json` 必须使用稳定序列化（canonical JSON：稳定键顺序、稳定数组排序规则、换行/缩进固定），避免前缀缓存失效。
 - 所有 `artifacts[].path` 必须是项目内相对路径，且存在于 `manifest.json`；导出时仍需 allowlist 校验。
+- **写入必须原子化**：artifact/pack/manifest 建议采用 `write tmp → sha256 校验 → rename → 更新 manifest` 的顺序；manifest 作为 SSOT，避免“半文件/断链”。
+- **默认不跟随 symlink**：writer/export 阶段使用 `lstat`；遇到符号链接必须拒绝或显式 allow，并写入审计事件（避免路径逃逸）。
 
 ### Section 15.2 — manifest.json（L1 索引）最小示例（v1）
 
@@ -1614,11 +1856,106 @@ micro/macro 合并规则（多代理并行的关键）：
 这三类手段的共同点是：它们都把“不可控的对话”变成“可验证的资产流”（artifacts + pointers + schema + events），
 从而同时改善：上下文长度、成本、幻觉与可解释性。
 
+### Section 16.4 — Prompt/Tools 的“前缀确定性”细节：把缓存命中做成工程纪律（对齐 Codex Harness 的可验证做法）
+
+你在 Codex/GPT-5.x 体验里观察到“token 用量会突然从 50% 掉回 10%”，其背后的通用解释通常是：
+系统没有把“完整对话历史”继续塞给模型，而是通过**按调用重建 Context Pack + compaction + 指针化产物**把有效上下文压缩为“短摘要 + 索引指针”。
+要让这套机制同时做到“高缓存命中”，关键不是“更大上下文窗口”，而是**前缀确定性**。
+
+结合 OpenAI 对 Codex Harness 的公开说明（prompt caching 依赖 exact prefix match），我们在实现上必须额外落以下纪律（否则 cacheKey 再漂亮也会被 prompt 前缀抖动毁掉）：
+
+1) **把“调用前缀”拆成稳定 Block，并给每个 Block 单独 fingerprint**
+   - 推荐的调用前缀顺序（必须固定，且写入 `context-pack.json` 作为 SSOT）：
+     1) `permissions_instructions`（仅对 sandboxed shell/exec 工具生效；包含 sandbox_mode + approval_policy 概述）
+     2) `developer_instructions`（来自全局配置/团队策略）
+     3) `user_instructions`（AGENTS.md/目录级规则聚合后的最终结果）
+     4) `toolset`（工具列表与 schema；见下一条）
+     5) `environment_context`（cwd/worktree + runtime 信息）
+     6) `capsule + pointers`（本轮任务证据摘要与指针）
+   - 每个 block 都计算 `sha256(stableText/stableJson)` 并记入 context pack，这样你能解释“为什么这次 cache miss”（哪个 block 变了）。
+
+2) **工具列表必须稳定排序（toolset determinism），并将“toolsetFingerprint”纳入 cacheKey**
+   - prompt caching 对 tool 列表同样敏感：工具的顺序、描述文本的小变化、甚至 MCP 的动态变更，都可能导致前缀不一致。
+   - 要求：
+     - tool list 必须按稳定键排序（例如 `toolName asc`），禁止“发现顺序”决定最终顺序。
+     - 对每个 tool 的 schema 做 canonicalization（stableJson），生成 `toolSchemaFingerprint`。
+     - 汇总为 `toolsetFingerprint = sha256(stableJson({ tools: [{name, schemaHash, version}] }))`。
+     - toolsetFingerprint 必须进入 `context-pack.json.totals.fingerprints`，并且进入本地 cacheKey 的 `configFingerprint`。
+   - MCP 工具变更治理：
+     - 任何 `tools/list_changed`（或等价事件）必须写入 events，并触发“本轮之后再生效”的 freeze 策略（避免 mid-turn cache 抖动）。
+     - 企业/商用默认：MCP 工具集变更需要重新开始 session（或至少重新建 routingRun），避免隐式工具注入。
+
+3) **当 sandbox/approval/cwd 变化时：更新对应 block，但不要让无关内容跟着抖**
+   - sandbox_mode/approval_policy 变化，只应影响 `permissions_instructions` block；cwd 变化，只应影响 `environment_context` block。
+   - 其它 block（AGENTS、toolset、capsule 模板）必须保持不变，否则每次目录切换都会把缓存全打碎。
+
+4) **compaction 的输出必须“结构化 + 可追溯”，并且可作为下一轮 stable prefix 的一部分**
+   - compaction 不是“让模型写一段更短的话”，而是产出：
+     - `capsule.md`（按 Section 13.4 的 rg-friendly 格式）
+     - `facts.json`（key-value SSOT）
+     - `manifest pointers`（引用链）
+   - 这些都要落盘并登记 sha256：未来“跨轮次记忆”优先引用这些产物，而不是重新把对话粘回去。
+
+5) **把“动态噪声”从前缀移走：时间戳、traceId、随机 id 都应该出现在 events/manifest，而不是 system 前缀**
+   - 这条看似细节，但决定了你能不能稳定拿到 prefix cache hit。
+   - 规则：凡是不影响语义、仅用于观测/追踪的字段，都写入 `events.jsonl`；不要写进 system/developer instructions 的稳定段落。
+
+以上规则的目的很朴素：让“缓存命中/超长上下文/低幻觉”变成可复现的工程结果，而不是靠模型大小与运气。
+
 ## Section 17 — 配置与治理（对齐 OpenCode 现有 Config 分层）
 
 为避免把能力“写死在代码里”，所有关键策略必须可配置，并且遵循 OpenCode 现有配置加载机制：
 远端 well-known（组织默认）→ 用户全局配置 → 自定义 config path → 项目配置 → `.opencode/opencode.json(c)` → 环境变量覆盖。
 （见 `packages/opencode/src/config/config.ts` 的加载顺序）
+
+### Section 17.1 — 借鉴 Codex：配置层叠（workspace/repo/home/system）与优先级（必须可对账）
+
+Codex 的公开配置体系有两个对我们非常有价值的点：**配置层叠（stack）**与**可输出 effective config**。
+这会直接决定你未来做团队协作/企业版时，能不能“可运维、可治理、可排障”。
+
+对 OpenCode 现有加载机制的适配建议（优先复用现有 JSON/C config，不强制换格式）：
+
+- **来源优先级（从高到低）**：
+  1) CLI flags / 一次性覆盖（例如 `--sandbox`、`--approval-policy`）
+  2) Profile（例如 `--profile dev|work|safe`，只覆盖差异项）
+  3) 项目/工作区配置：`.opencode/opencode.json(c)`
+  4) 目录向上查找的团队 defaults：`$CWD/.opencode/` → ... → `$REPO_ROOT/.opencode/`
+  5) 用户全局：`~/.opencode/`
+  6) 系统：`/etc/opencode/`（企业分发）
+  7) 内置默认值
+
+- **目录向上查找（Team Config 语义）**：
+  - 当 cwd 在 repo/worktree 内时，从 `$CWD` 向上查找 `.opencode/`，直到 repo root。
+  - 合并顺序建议：“离 cwd 越近优先级越高”，方便在子目录做局部覆盖（例如 `apps/mobile/.opencode/...`）。
+
+- **必须提供“对账接口”**：
+  - CLI：`opencode config show --effective`（示例）
+  - 输出：最终值 + 每个字段来源（source path）+ policyVersion/policyHash
+
+### Section 17.2 — 企业级治理钩子：requirements（不可覆盖）与 managed defaults（可覆盖但下次启动重置）
+
+为了让未来商用/企业版可控，建议从第一天就预留两层治理钩子（即便 P0-P1 先不实现，也要把接口/语义定下来）：
+
+- **requirements（强约束）**
+  - 限制允许的 `approval_policy` 与 `sandbox_mode`（例如禁止 `never` 与 `danger-full-access`）。
+  - 可选限制 `mcpServers` allowlist：按“工具身份”匹配（stdio server 按 command；http server 按 url），不匹配则禁用。
+  - 任何不满足 requirements 的请求必须拒绝，并写入 `events: policy_rejected`（字段名 + 原因）。
+
+- **managed defaults（企业默认值）**
+  - 管理员设置启动默认值（例如默认 `workspace-write` + `on-request` + `network_access=false`）。
+  - 用户可在运行时临时切换（例如安装依赖），但下次启动回到 managed defaults（企业可控性关键）。
+
+### Section 17.3 — Feature flags + Maturity（避免 PoC/实验能力污染生产）
+
+借鉴 Codex：把易变/高风险能力全部放进 feature flags，并标注成熟度（Experimental/Beta/Stable）。
+对我们而言，最值得立刻纳入 feature flags 的包括：
+
+- `exec_policy`：命令级 ExecPolicy（见 Section 13.1.1）
+- `unified_exec`：统一 PTY-backed exec（更稳定 stdout/stderr 采集）
+- `shell_snapshot`：对重复命令做环境快照（加速与复现）
+- `undo`：每 turn 自动快照与回滚（降低误改风险）
+- `remote_compaction`：可选远端 compaction（provider/部署支持时）
+- `web_search_request`：允许模型发起 web search（仅在 `limited/full` 且审计开启时）
 
 建议新增/扩展的配置项（示例命名，最终以 schema 为准）：
 - `sandbox`：
@@ -1652,6 +1989,19 @@ micro/macro 合并规则（多代理并行的关键）：
 - `providers`（可选，按 adapter 支持）：
   - `promptCaching`: true/false（默认 true 但仅作为加速器）
   - `cacheHints`: provider-specific（例如 prompt_cache_key 等；不可作为正确性依赖）
+ - `approvals`（建议显式分组，避免与 sandbox 混淆）：
+   - `policy`: `untrusted|on-request|on-failure|never`（企业用 requirements 约束可选值）
+   - `readOnlyMode`: `on|off`（也可通过 `/approvals` 动态切换）
+ - `shellEnvironmentPolicy`：
+   - `includeOnly[]`: 仅转发这些 env var（默认推荐 `PATH`、`HOME` 等最小集合）
+   - `denyPatterns[]`: 禁止转发敏感 env（如 `*_TOKEN`、`*_KEY`）
+ - `features`：
+   - `execPolicy/unifiedExec/shellSnapshot/undo/remoteCompaction/webSearchRequest` 等 boolean 开关，并标注 maturity
+ - `otel` / `telemetry`（企业强烈建议预留）：
+   - `enabled`: true/false
+   - `exporter`: `otlp-http|otlp-grpc|console`
+   - `environment`: `dev|prod`
+   - `logUserPrompt`: true/false（企业默认 false）
 
 组织级策略（企业）建议由远端 well-known 下发默认值，并在 Evidence Pack 记录“策略版本/策略来源”。
 
@@ -1704,6 +2054,7 @@ micro/macro 合并规则（多代理并行的关键）：
 - 一键导出：将 `.opencode/evidence/<sessionId>` 导出到仓库可提交目录，用于 PR/CI 归档
 - 索引与检索：本地索引 evidence（按 sessionId/时间/claim 类型检索），避免用户手动翻目录
 - 故障自救：当 compaction/缓存导致行为异常时，提供“禁用缓存/强制重建上下文包”的开关
+- 通知钩子（可选但很实用）：当一个 turn 或长任务完成时运行 notify hook（脚本/系统通知），避免用户一直盯着终端
 
 企业场景扩展：
 - evidence 远端归档（对象存储）与保留策略（WORM 可选）
@@ -1844,6 +2195,18 @@ OpenCode/oh-my-opencode 的天然优势是：能在你的电脑上读写文件�
 
 ## 外部参考
 
+- OpenAI Codex（开源仓库：CLI harness / execpolicy / AGENTS.md / TUI 设计等）
+  - https://github.com/openai/codex
+- OpenAI Engineering：Unrolling the Codex agent loop（缓存命中、context window、tools 顺序、compaction 等关键工程点）
+  - https://openai.com/index/unrolling-the-codex-agent-loop/
+- OpenAI Developers：Codex Security（sandbox mode + approval policy、requirements/managed config、MCP allowlist 等企业治理点）
+  - https://developers.openai.com/codex/security/
+- OpenAI Developers：Codex Config basics（配置层叠/优先级、profiles、feature flags/maturity）
+  - https://developers.openai.com/codex/config-basic
+- codex-execpolicy（prefix-rule + match/not_match 规则自带测试用例；policy-as-code 的可借鉴实现）
+  - https://github.com/openai/codex/blob/main/codex-rs/execpolicy/README.md
+- Codex CLI SandboxPermission（社区讨论摘录的权限枚举：磁盘读写范围、网络等；适合作为 capability 语义层）
+  - https://github.com/openai/codex/discussions/1174
 - BentoML LLM Inference Handbook: Prefix caching（解释“共享前缀可跳过计算”“必须完全一致”“确定性序列化”等实践）
   - https://bentoml.com/llm/inference-optimization/prefix-caching
 - OpenAI API: Prompt caching（exact prefix match、cached_tokens、24h retention 等）

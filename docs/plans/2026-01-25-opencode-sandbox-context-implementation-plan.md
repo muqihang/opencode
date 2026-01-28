@@ -10,6 +10,27 @@
 
 ---
 
+## Status Note（同步上游后建议先阅读）
+
+为避免“计划与现状脱节”，这里记录本仓库已落地的协议打底（这些是后续 Evidence/Timeline/Cache 的基础）：
+
+- 已落地：protocol schemas（Zod + TypeScript types）
+  - `packages/opencode/src/protocol/routing-run-request.ts`
+  - `packages/opencode/src/protocol/routing-worker-result.ts`
+  - `packages/opencode/src/protocol/context-pack.ts`
+  - `packages/opencode/src/protocol/event.ts`（`event/1.0`）
+- 已落地：contract tests（避免协议漂移）
+  - `packages/opencode/test/protocol/protocol-contract.test.ts`
+  - `packages/opencode/test/protocol/event-contract.test.ts`
+
+验证命令（建议在开始 Task 1 前先跑一遍）：
+
+```bash
+cd opencode-zh-build/opencode_src/packages/opencode
+bun test test/protocol/protocol-contract.test.ts
+bun test test/protocol/event-contract.test.ts
+```
+
 ## Task 0: 先对齐“目录与约定”（避免落地分叉）
 
 **Files:**
@@ -30,6 +51,7 @@
 **Files:**
 - Create: `opencode-zh-build/opencode_src/packages/opencode/src/evidence/evidence-pack.ts`
 - Create: `opencode-zh-build/opencode_src/packages/opencode/src/evidence/manifest.ts`
+- Create: `opencode-zh-build/opencode_src/packages/opencode/src/evidence/events.ts` (events.jsonl writer)
 - Create: `opencode-zh-build/opencode_src/packages/opencode/src/evidence/writer.ts`
 - Create: `opencode-zh-build/opencode_src/packages/opencode/src/evidence/paths.ts`
 - Test: `opencode-zh-build/opencode_src/packages/opencode/test/evidence/evidence-pack.test.ts`
@@ -38,7 +60,7 @@
 - 在 `opencode-zh-build/opencode_src/packages/opencode/test/evidence/evidence-pack.test.ts`：
   - 构造一个最小 pack 对象
   - 断言 `stableStringify(pack)` 在多次调用下输出一致（稳定键顺序）
-  - 断言 `manifest.entries[]` 包含 pack.json/pack.md
+  - 断言 `manifest.entries[]` 包含 pack.json/pack.md/events.jsonl（时间线 SSOT，schema=event/1.0）
 
 Run:
 ```bash
@@ -48,14 +70,19 @@ bun test test/evidence/evidence-pack.test.ts
 Expected: FAIL（文件/导出不存在）
 
 **Step 2: 实现最小 schema + stable stringify**
-- `evidence-pack.ts`：定义最小类型（specVersion、packId、task、environment、claims、artifacts、checks、events、capsule、risks、rollback）。
+- `evidence-pack.ts`：定义最小类型（specVersion、packId、task、environment、claims、artifacts、checks、timeline、capsule、risks、rollback）。
 - `writer.ts`：提供 `writePack({ sessionId, pack, viewMarkdown, manifestEntries })`：
   - 生成 `.opencode/evidence/<sessionId>/pack.json`（canonical）
   - 生成 `.opencode/evidence/<sessionId>/pack.md`（view）
+  - 生成 `.opencode/evidence/<sessionId>/events.jsonl`（JSONL，作为时间线 SSOT；每行必须符合 `event/1.0`）
   - 生成 `.opencode/evidence/<sessionId>/manifest.json`
 - `paths.ts`：集中提供目录：
   - `evidenceDir(sessionId)`、`artifactsDir(sessionId)`、`sandboxesDir(sessionId)`
   - 基于 `Instance.worktree`（repo 有 vcs）或降级到 `Global.Path.data`（无 vcs）与 OpenCode 现有逻辑保持一致
+
+事件 writer 最小要求（PoC v1）：
+- 不要求把所有细节塞进 pack.json 的 `events[]`；相反，以 `events.jsonl` 为 SSOT（与设计稿 Section 8.1/15 对齐）。
+- 每条事件写入前都用 `packages/opencode/src/protocol/event.ts` 的 `EventV1.parse()` 校验；失败必须作为 artifact 记录并打 `protocol_violation`。
 
 **Step 3: 跑测试**
 Run:

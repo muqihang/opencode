@@ -1,5 +1,4 @@
 import z from "zod"
-import { spawn } from "child_process"
 import { Tool } from "./tool"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
@@ -12,7 +11,8 @@ import { $ } from "bun"
 import { Filesystem } from "@/util/filesystem"
 import { fileURLToPath } from "url"
 import { Flag } from "@/flag/flag.ts"
-import { Shell } from "@/shell/shell"
+import { SandboxRunner } from "@/sandbox/runner"
+import { SessionWorktree } from "@/worktree/session"
 
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
@@ -52,8 +52,7 @@ const parser = lazy(async () => {
 
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
-  const shell = Shell.acceptable()
-  log.info("bash tool using shell", { shell })
+  log.info("bash tool using sandbox runner")
 
   return {
     description: DESCRIPTION.replaceAll("${directory}", Instance.directory)
@@ -75,7 +74,9 @@ export const BashTool = Tool.define("bash", async () => {
         ),
     }),
     async execute(params, ctx) {
-      const cwd = params.workdir || Instance.directory
+      const workdir =
+        params.workdir ??
+        (Instance.project.vcs === "git" ? await SessionWorktree.ensure({ sessionId: ctx.sessionID }) : Instance.directory)
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
       }
@@ -85,7 +86,7 @@ export const BashTool = Tool.define("bash", async () => {
         throw new Error("Failed to parse command")
       }
       const directories = new Set<string>()
-      if (!Instance.containsPath(cwd)) directories.add(cwd)
+      if (!Instance.containsPath(workdir)) directories.add(workdir)
       const patterns = new Set<string>()
       const always = new Set<string>()
 
@@ -112,7 +113,7 @@ export const BashTool = Tool.define("bash", async () => {
           for (const arg of command.slice(1)) {
             if (arg.startsWith("-") || (command[0] === "chmod" && arg.startsWith("+"))) continue
             const resolved = await $`realpath ${arg}`
-              .cwd(cwd)
+              .cwd(workdir)
               .quiet()
               .nothrow()
               .text()
@@ -154,102 +155,35 @@ export const BashTool = Tool.define("bash", async () => {
         })
       }
 
-      const proc = spawn(params.command, {
-        shell,
-        cwd,
-        env: {
-          ...process.env,
+      const run = await SandboxRunner.run({
+        sessionId: ctx.sessionID,
+        toolName: "bash",
+        command: params.command,
+        cwd: workdir,
+        capability: {
+          readonlyPaths: [Instance.worktree],
+          writePaths: [workdir, path.join(Instance.worktree, ".opencode")],
+          exportPaths: [],
+          network: { mode: "deny_all" },
+          workdirMode: Instance.project.vcs === "git" ? "isolated" : "shared",
         },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: process.platform !== "win32",
+        limits: { timeoutMs: timeout },
+        abort: ctx.abort,
       })
 
-      let output = ""
-
-      // Initialize metadata with empty output
-      ctx.metadata({
-        metadata: {
-          output: "",
-          description: params.description,
-        },
-      })
-
-      const append = (chunk: Buffer) => {
-        output += chunk.toString()
-        ctx.metadata({
-          metadata: {
-            // truncate the metadata to avoid GIANT blobs of data (has nothing to do w/ what agent can access)
-            output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
-            description: params.description,
-          },
-        })
-      }
-
-      proc.stdout?.on("data", append)
-      proc.stderr?.on("data", append)
-
-      let timedOut = false
-      let aborted = false
-      let exited = false
-
-      const kill = () => Shell.killTree(proc, { exited: () => exited })
-
-      if (ctx.abort.aborted) {
-        aborted = true
-        await kill()
-      }
-
-      const abortHandler = () => {
-        aborted = true
-        void kill()
-      }
-
-      ctx.abort.addEventListener("abort", abortHandler, { once: true })
-
-      const timeoutTimer = setTimeout(() => {
-        timedOut = true
-        void kill()
-      }, timeout + 100)
-
-      await new Promise<void>((resolve, reject) => {
-        const cleanup = () => {
-          clearTimeout(timeoutTimer)
-          ctx.abort.removeEventListener("abort", abortHandler)
-        }
-
-        proc.once("exit", () => {
-          exited = true
-          cleanup()
-          resolve()
-        })
-
-        proc.once("error", (error) => {
-          exited = true
-          cleanup()
-          reject(error)
-        })
-      })
-
-      const resultMetadata: string[] = []
-
-      if (timedOut) {
-        resultMetadata.push(`bash tool terminated command after exceeding timeout ${timeout} ms`)
-      }
-
-      if (aborted) {
-        resultMetadata.push("User aborted the command")
-      }
-
-      if (resultMetadata.length > 0) {
-        output += "\n\n<bash_metadata>\n" + resultMetadata.join("\n") + "\n</bash_metadata>"
+      let output = run.stdout + run.stderr
+      if (run.timedOut) {
+        output += `\n\n<bash_metadata>\nbash tool terminated command after exceeding timeout ${timeout} ms\n</bash_metadata>`
       }
 
       return {
         title: params.description,
         metadata: {
           output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
-          exit: proc.exitCode,
+          exit: run.exitCode,
           description: params.description,
+          artifact: run.stdoutArtifactPath,
+          errorArtifact: run.stderrArtifactPath,
         },
         output,
       }
