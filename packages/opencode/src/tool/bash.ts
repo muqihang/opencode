@@ -18,6 +18,7 @@ import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
 
 const MAX_METADATA_LENGTH = 30_000
+const MAX_INLINE_OUTPUT_BYTES = 100 * 1024
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 
 export const log = Log.create({ service: "bash-tool" })
@@ -174,6 +175,36 @@ export const BashTool = Tool.define("bash", async () => {
       let output = run.stdout + run.stderr
       if (run.timedOut) {
         output += `\n\n<bash_metadata>\nbash tool terminated command after exceeding timeout ${timeout} ms\n</bash_metadata>`
+      }
+
+      const outputBytes = Buffer.byteLength(output, "utf-8")
+      if (outputBytes > MAX_INLINE_OUTPUT_BYTES) {
+        const stdoutArtifact = run.producedArtifacts.find((item) => item.kind === "stdout")
+        const stderrArtifact = run.producedArtifacts.find((item) => item.kind === "stderr")
+        const pointerLines = [
+          "Output too large; see artifacts:",
+          stdoutArtifact ? `- stdout: ${stdoutArtifact.path} (${stdoutArtifact.sha256})` : "- stdout: unavailable",
+          stderrArtifact ? `- stderr: ${stderrArtifact.path} (${stderrArtifact.sha256})` : "- stderr: unavailable",
+        ]
+        if (run.timedOut) {
+          pointerLines.push(
+            `- note: bash tool terminated command after exceeding timeout ${timeout} ms`,
+          )
+        }
+        const pointerMessage = pointerLines.join("\n")
+        return {
+          title: params.description,
+          metadata: {
+            output: pointerMessage,
+            exit: run.exitCode,
+            description: params.description,
+            artifact: run.stdoutArtifactPath,
+            errorArtifact: run.stderrArtifactPath,
+            truncated: true,
+            pointerized: true,
+          },
+          output: pointerMessage,
+        }
       }
 
       return {

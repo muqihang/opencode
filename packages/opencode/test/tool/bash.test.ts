@@ -6,6 +6,7 @@ import { tmpdir } from "../fixture/fixture"
 import type { PermissionNext } from "../../src/permission/next"
 import { Truncate } from "../../src/tool/truncation"
 import { EventV1 } from "../../src/protocol/event"
+import { EvidenceManifest } from "../../src/protocol/evidence-manifest"
 
 const ctx = {
   sessionID: "test",
@@ -350,6 +351,50 @@ describe("tool.bash truncation", () => {
         expect(lines.length).toBe(lineCount)
         expect(lines[0]).toBe("1")
         expect(lines[lineCount - 1]).toBe(String(lineCount))
+      },
+    })
+  })
+})
+
+describe("tool.bash pointers", () => {
+  test("returns pointers for large output", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const payloadSize = 120_000
+        const result = await bash.execute(
+          {
+            command: `bun -e "process.stdout.write('a'.repeat(${payloadSize}))"`,
+            description: "Large output",
+          },
+          ctx,
+        )
+
+        const artifactPath = (result.metadata as any).artifact
+        expect(artifactPath).toBeDefined()
+        const absoluteArtifactPath = path.isAbsolute(artifactPath)
+          ? artifactPath
+          : path.join(Instance.worktree, artifactPath)
+        expect(await Bun.file(absoluteArtifactPath).exists()).toBe(true)
+
+        const manifestPath = path.join(
+          Instance.worktree,
+          ".opencode",
+          "evidence",
+          ctx.sessionID,
+          "manifest.json",
+        )
+        const manifestText = await Bun.file(manifestPath).text()
+        const manifest = EvidenceManifest.parse(JSON.parse(manifestText))
+        const artifactRel = path.isAbsolute(artifactPath)
+          ? path.relative(Instance.worktree, artifactPath)
+          : artifactPath
+        const stdoutEntry = manifest.entries.find((entry) => entry.path === artifactRel)
+        expect(stdoutEntry).toBeDefined()
+        expect(result.output).toContain(stdoutEntry!.path)
+        expect(result.output).toContain(stdoutEntry!.sha256)
+        expect(result.output).not.toContain("a".repeat(2000))
       },
     })
   })
