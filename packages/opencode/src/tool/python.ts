@@ -1,6 +1,7 @@
 import z from "zod"
 import path from "path"
 import fs from "fs/promises"
+import { spawn } from "child_process"
 import { Tool } from "./tool"
 import DESCRIPTION from "./python.txt"
 import { Config } from "@/config/config"
@@ -21,6 +22,7 @@ type PythonMetadata = {
   input_artifact: string
   output_artifact: string
   python_path: string
+  python_version_artifact?: string
   truncated?: boolean
 }
 
@@ -34,6 +36,42 @@ function outputName(value: string | undefined) {
     throw new Error("output_name must be a simple filename")
   }
   return name
+}
+
+async function pythonVersion(pythonPath: string) {
+  return new Promise<{ text?: string; error?: string }>((resolve) => {
+    let stdout = ""
+    let stderr = ""
+    let settled = false
+    const proc = spawn(pythonPath, ["--version"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      proc.kill("SIGKILL")
+      resolve({ error: "timeout" })
+    }, 5000)
+    proc.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString()
+    })
+    proc.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString()
+    })
+    proc.once("error", (err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      resolve({ error: err instanceof Error ? err.message : String(err) })
+    })
+    proc.once("exit", () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      const text = (stdout || stderr).trim()
+      resolve(text ? { text } : { error: "empty output" })
+    })
+  })
 }
 
 export const PythonTool = Tool.define("python", async () => {
@@ -65,6 +103,30 @@ export const PythonTool = Tool.define("python", async () => {
       await fs.mkdir(path.dirname(outputPath), { recursive: true })
 
       const writer = await EvidenceWriter.open({ sessionId: ctx.sessionID })
+      const version = await pythonVersion(pythonPath)
+      const versionEntry = version.text
+        ? await writer.artifact({
+            kind: "python-version",
+            path: "python/python-version.txt",
+            data: version.text,
+          })
+        : undefined
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: ctx.sessionID,
+        severity: version.text ? "info" : "warn",
+        actor: "tool:python",
+        type: "tool.python.env",
+        summary: version.text ? "python version recorded" : "python version unavailable",
+        data: {
+          python_path: pythonPath,
+          version: version.text,
+          artifact: versionEntry?.path,
+          error: version.text ? undefined : version.error,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
       const inputData = params.input_json ?? {}
       const inputEntry = await writer.artifact({
         kind: "python-input",
@@ -169,6 +231,7 @@ export const PythonTool = Tool.define("python", async () => {
         input_artifact: inputEntry.path,
         output_artifact: outputEntry.path,
         python_path: pythonPath,
+        python_version_artifact: versionEntry?.path,
       }
       return {
         title: params.description,
