@@ -97,6 +97,14 @@ function toRelativePath(raw: string) {
   return path.relative(root, raw)
 }
 
+function pointerPath(sessionId: string, entryPath: string) {
+  if (entryPath.startsWith(".opencode/") || entryPath.startsWith(".opencode\\")) {
+    return entryPath
+  }
+  const normalized = entryPath.replace(/\\/g, "/")
+  return `.opencode/artifacts/${sessionId}/${normalized}`
+}
+
 function isTraversal(rel: string) {
   if (path.isAbsolute(rel)) return true
   const parts = rel.split(path.sep)
@@ -396,10 +404,14 @@ export const EvidenceWriter = {
         packId,
       )
       const pointers = entries
-        .filter((entry) => ["event-log", "stdout", "stderr"].includes(entry.kind))
+        .filter((entry) =>
+          ["event-log", "stdout", "stderr", "execpolicy-eval", "worktree-patch"].includes(
+            entry.kind,
+          ),
+        )
         .map((entry) => ({
           kind: entry.kind,
-          path: entry.path,
+          path: pointerPath(sessionId, entry.path),
           sha256: entry.sha256,
         }))
       const packView = renderEvidencePackViewMarkdown({
