@@ -61,6 +61,12 @@ function sha(input: string) {
   return hash.digest("hex")
 }
 
+function toRelativePath(raw: string) {
+  if (!path.isAbsolute(raw)) return raw
+  const root = path.parse(raw).root || "/"
+  return path.relative(root, raw)
+}
+
 function isTraversal(rel: string) {
   if (path.isAbsolute(rel)) return true
   const parts = rel.split(path.sep)
@@ -230,16 +236,54 @@ export const EvidenceWriter = {
     async function artifact(inputArtifact: z.infer<typeof ArtifactInput>) {
       const data = ArtifactInput.parse(inputArtifact)
       const name = data.path ?? `${Identifier.ascending("tool")}.txt`
-      const target = await safePath(artifacts, name)
-      const result = await writeAtomic(target, data.data)
-      const entry = Entry.parse({
-        path: path.relative(base, target),
-        sha256: result.hash,
-        kind: data.kind,
-        size: result.size,
-      })
-      await upsert(entry, packId)
-      return entry
+      const requestedPath = toRelativePath(name)
+      try {
+        const target = await safePath(artifacts, name)
+        const result = await writeAtomic(target, data.data)
+        const entry = Entry.parse({
+          path: path.relative(base, target),
+          sha256: result.hash,
+          kind: data.kind,
+          size: result.size,
+        })
+        await upsert(entry, packId)
+        return entry
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const failurePath = path.join(
+          artifacts,
+          `errors/write-failed-${Identifier.ascending("tool")}.json`,
+        )
+        const failureData = stableJson({
+          error: message,
+          kind: data.kind,
+          requested_path: requestedPath,
+        })
+        const failureWrite = await writeAtomic(failurePath, failureData)
+        const failureEntry = Entry.parse({
+          path: path.relative(base, failurePath),
+          sha256: failureWrite.hash,
+          kind: "evidence-error",
+          size: failureWrite.size,
+        })
+        await upsert(failureEntry, packId)
+        await event({
+          specVersion: "event/1.0",
+          ts: new Date().toISOString(),
+          sessionId,
+          severity: "error",
+          actor: "evidence:writer",
+          type: "evidence.write_failed",
+          summary: "artifact rejected",
+          data: {
+            kind: data.kind,
+            requested_path: requestedPath,
+            error_artifact: failureEntry.path,
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        })
+        throw error instanceof Error ? error : new Error(String(error))
+      }
     }
 
     async function readEventsFromDisk() {
