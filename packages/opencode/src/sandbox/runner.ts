@@ -5,6 +5,8 @@ import { $ } from "bun"
 import { Shell } from "@/shell/shell"
 import { EvidenceWriter } from "@/evidence/writer"
 import { captureWorktreePatch } from "@/worktree/changes"
+import { buildExecPolicyEval } from "@/sandbox/execpolicy"
+import { stableJson } from "@/util/stable-json"
 
 const NetworkPolicy = z.union([
   z.object({ mode: z.literal("deny_all") }).strict(),
@@ -112,6 +114,40 @@ export const SandboxRunner = {
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
+
+    const execPolicy = buildExecPolicyEval({
+      toolName: req.toolName,
+      command: req.command,
+      args: req.args,
+      cwd: runCwd,
+      backend,
+      enforcement,
+      capability: req.capability,
+      limits: req.limits,
+    })
+    try {
+      const entry = await writer.artifact({
+        kind: "execpolicy-eval",
+        path: "policy/execpolicy.eval.json",
+        data: stableJson(execPolicy),
+      })
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: req.sessionId,
+        severity: "info",
+        actor: "sandbox:runner",
+        type: "policy.exec_evaluated",
+        summary: "exec policy evaluated",
+        data: {
+          artifact: entry.path,
+          sha256: entry.sha256,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    } catch {
+      // Best-effort: failures are recorded by EvidenceWriter when possible.
+    }
 
     const proc = req.args
       ? spawn(req.command, req.args, {
