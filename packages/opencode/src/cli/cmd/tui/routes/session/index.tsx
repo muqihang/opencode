@@ -320,6 +320,7 @@ export function Session() {
         dialog.clear()
       },
     },
+    {
       title: "重命名会话",
       value: "session.rename",
       keybind: "session_rename",
