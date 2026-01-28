@@ -163,22 +163,68 @@ export const EvidenceWriter = {
     }
 
     async function event(inputEvent: z.infer<typeof EventV1>) {
-      const eventData = EventV1.parse(inputEvent)
-      events.push(eventData)
-      await fs.mkdir(path.dirname(eventsPath), { recursive: true })
-      await fs.appendFile(eventsPath, JSON.stringify(eventData) + "\n")
-      const text = await Bun.file(eventsPath).text()
-      const hash = sha(text)
-      const size = Buffer.byteLength(text, "utf-8")
-      await upsert(
-        Entry.parse({
-          path: path.relative(base, eventsPath),
-          sha256: hash,
-          kind: "event-log",
-          size,
-        }),
-        packId,
-      )
+      try {
+        const eventData = EventV1.parse(inputEvent)
+        events.push(eventData)
+        await fs.mkdir(path.dirname(eventsPath), { recursive: true })
+        await fs.appendFile(eventsPath, JSON.stringify(eventData) + "\n")
+        const text = await Bun.file(eventsPath).text()
+        const hash = sha(text)
+        const size = Buffer.byteLength(text, "utf-8")
+        await upsert(
+          Entry.parse({
+            path: path.relative(base, eventsPath),
+            sha256: hash,
+            kind: "event-log",
+            size,
+          }),
+          packId,
+        )
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const rawInput = (() => {
+          try {
+            return JSON.stringify(inputEvent)
+          } catch {
+            return String(inputEvent)
+          }
+        })()
+        const errorEntry = await artifact({
+          kind: "protocol-violation",
+          path: `errors/protocol-violation-${Identifier.ascending("tool")}.json`,
+          data: stableJson({ error: message, input: rawInput }),
+        })
+        const violation = EventV1.parse({
+          specVersion: "event/1.0",
+          ts: new Date().toISOString(),
+          sessionId,
+          severity: "error",
+          actor: "evidence:writer",
+          type: "protocol.violation",
+          summary: "invalid event rejected",
+          data: {
+            error: message,
+            artifact: errorEntry.path,
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        })
+        events.push(violation)
+        await fs.mkdir(path.dirname(eventsPath), { recursive: true })
+        await fs.appendFile(eventsPath, JSON.stringify(violation) + "\n")
+        const text = await Bun.file(eventsPath).text()
+        const hash = sha(text)
+        const size = Buffer.byteLength(text, "utf-8")
+        await upsert(
+          Entry.parse({
+            path: path.relative(base, eventsPath),
+            sha256: hash,
+            kind: "event-log",
+            size,
+          }),
+          packId,
+        )
+        throw error instanceof Error ? error : new Error(String(error))
+      }
     }
 
     async function artifact(inputArtifact: z.infer<typeof ArtifactInput>) {
