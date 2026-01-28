@@ -29,12 +29,20 @@ export const SessionWorktree = {
     if (exists) return directory
     await fs.mkdir(root, { recursive: true })
 
+    // Worktrees can become stale (e.g., tests or crashes leaving prunable entries behind).
+    // If a worktree is registered but its directory is missing, `git worktree add` will fail.
+    // Prune before creating to make this operation resilient and deterministic.
+    await $`git worktree prune`.quiet().nothrow().cwd(Instance.worktree)
+
     const add = await $`git worktree add --no-checkout --detach ${directory}`
       .quiet()
       .nothrow()
       .cwd(Instance.worktree)
     if (add.exitCode !== 0) {
-      throw new Error("Failed to create session worktree")
+      const details = [add.stdout?.toString().trim(), add.stderr?.toString().trim()]
+        .filter(Boolean)
+        .join("\n")
+      throw new Error(details ? `Failed to create session worktree: ${details}` : "Failed to create session worktree")
     }
     const reset = await $`git reset --hard`.quiet().nothrow().cwd(directory)
     if (reset.exitCode !== 0) {
