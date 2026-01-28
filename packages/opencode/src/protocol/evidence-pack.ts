@@ -31,12 +31,36 @@ const Execution = z
   })
   .strict()
 
+const OsInfo = z
+  .object({
+    platform: z.string().min(1),
+    arch: z.string().min(1),
+    release: z.string().min(1).optional(),
+  })
+  .strict()
+
+const RuntimeInfo = z
+  .object({
+    node: z.string().min(1).optional(),
+    bun: z.string().min(1).optional(),
+  })
+  .strict()
+
+const RepoInfo = z
+  .object({
+    root: z.string().min(1).optional(),
+    worktree: z.string().min(1).optional(),
+    commit: z.string().min(1),
+    dirty: z.boolean(),
+  })
+  .strict()
+
 const Environment = z
   .object({
     execution: Execution,
-    os: z.string().min(1).optional(),
-    runtime: z.record(z.string(), z.string()).optional(),
-    repo: z.record(z.string(), z.string()).optional(),
+    os: OsInfo.optional(),
+    runtime: RuntimeInfo.optional(),
+    repo: RepoInfo.optional(),
   })
   .strict()
 

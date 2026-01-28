@@ -37,6 +37,35 @@ const PackInput = z
       })
       .strict()
       .optional(),
+    environment: z
+      .object({
+        os: z
+          .object({
+            platform: z.string().min(1),
+            arch: z.string().min(1),
+            release: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
+        runtime: z
+          .object({
+            node: z.string().min(1).optional(),
+            bun: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
+        repo: z
+          .object({
+            root: z.string().min(1).optional(),
+            worktree: z.string().min(1).optional(),
+            commit: z.string().min(1),
+            dirty: z.boolean(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 
@@ -322,6 +351,9 @@ export const EvidenceWriter = {
             backend: execution.backend,
             enforcement: execution.enforcement,
           },
+          os: data.environment?.os,
+          runtime: data.environment?.runtime,
+          repo: data.environment?.repo,
         },
         claims: [],
         artifacts: [],
