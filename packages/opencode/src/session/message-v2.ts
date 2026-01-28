@@ -36,6 +36,10 @@ export namespace MessageV2 {
   )
   export type APIError = z.infer<typeof APIError.Schema>
 
+  export function renderMicroPackPointer(path: string) {
+    return ["<micro_pack>", `path: ${path}`, "merge_policy: micro-only", "</micro_pack>"].join("\n")
+  }
+
   const PartBase = z.object({
     id: z.string(),
     sessionID: z.string(),

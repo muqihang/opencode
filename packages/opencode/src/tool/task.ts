@@ -11,6 +11,8 @@ import { iife } from "@/util/iife"
 import { defer } from "@/util/defer"
 import { Config } from "../config/config"
 import { PermissionNext } from "@/permission/next"
+import { EvidenceWriter } from "@/evidence/writer"
+import path from "path"
 
 const parameters = z.object({
   description: z.string().describe("A short (3-5 words) description of the task"),
@@ -161,6 +163,26 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         parts: promptParts,
       })
       unsub()
+      const microWriter = await EvidenceWriter.open({ sessionId: session.id })
+      await microWriter.microPack({ parentSessionId: ctx.sessionID })
+      const microPath = path.posix.join(".opencode", "evidence", session.id, "micro-pack.json")
+      const pointer = MessageV2.renderMicroPackPointer(microPath)
+      const parentWriter = await EvidenceWriter.open({ sessionId: ctx.sessionID })
+      await parentWriter.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: ctx.sessionID,
+        severity: "info",
+        actor: "tool:task",
+        type: "evidence.micro_pack_emitted",
+        summary: "micro-pack emitted",
+        data: {
+          childSessionId: session.id,
+          path: microPath,
+          merge_policy: "micro-only",
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
       const messages = await Session.messages({ sessionID: session.id })
       const summary = messages
         .filter((x) => x.info.role === "assistant")
@@ -175,7 +197,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         }))
       const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
 
-      const output = text + "\n\n" + ["<task_metadata>", `session_id: ${session.id}`, "</task_metadata>"].join("\n")
+      const output =
+        text +
+        "\n\n" +
+        pointer +
+        "\n\n" +
+        ["<task_metadata>", `session_id: ${session.id}`, "</task_metadata>"].join("\n")
 
       return {
         title: params.description,
