@@ -1032,6 +1032,14 @@ export namespace Config {
       instructions: z.array(z.string()).optional().describe("Additional instruction files or patterns to include"),
       layout: Layout.optional().describe("@deprecated Always uses stretch layout."),
       permission: Permission.optional(),
+      python: z
+        .object({
+          allowProjectScripts: z.boolean().default(false),
+          allowNetwork: z.boolean().default(false),
+          allowedDomains: z.array(z.string()).optional(),
+          pythonPath: z.string().optional(),
+        })
+        .optional(),
       tools: z.record(z.string(), z.boolean()).optional(),
       enterprise: z
         .object({
