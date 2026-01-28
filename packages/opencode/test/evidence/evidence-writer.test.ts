@@ -5,6 +5,7 @@ import { EvidenceWriter } from "../../src/evidence/writer"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { EventV1 } from "../../src/protocol/event"
+import { EvidencePack } from "../../src/protocol/evidence-pack"
 
 describe("evidence.writer", () => {
   test("writes pack + manifest + events", async () => {
@@ -34,10 +35,36 @@ describe("evidence.writer", () => {
           redaction: { applied: true, policyVersion: "v1" },
         })
 
-        const pack = await writer.pack({ handoff: "ok" })
+        const pack = await writer.pack({
+          handoff: "ok",
+          execution: {
+            id: "sandbox:session_test",
+            kind: "sandbox",
+            backend: "soft",
+            enforcement: "soft",
+          },
+        })
         const manifest = await writer.manifest()
         expect(pack.specVersion).toBe("evidence-pack/1.0")
         expect(manifest.entries.length).toBeGreaterThan(0)
+
+        const evidenceDir = path.join(
+          Instance.worktree,
+          ".opencode",
+          "evidence",
+          "session_test",
+        )
+        const packJsonPath = path.join(evidenceDir, "pack.json")
+        const packMdPath = path.join(evidenceDir, "pack.md")
+
+        expect(await Bun.file(packJsonPath).exists()).toBe(true)
+        expect(await Bun.file(packMdPath).exists()).toBe(true)
+
+        const packText = await Bun.file(packJsonPath).text()
+        expect(packText.includes("\n")).toBe(false)
+        const packFromFile = EvidencePack.parse(JSON.parse(packText))
+        expect(packFromFile.environment.execution.enforcement).toBe("soft")
+        expect(packFromFile.environment.execution.backend).toBe("soft")
 
         const eventsPath = path.join(
           Instance.worktree,

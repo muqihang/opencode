@@ -7,6 +7,8 @@ import { Identifier } from "@/id/id"
 import { EvidencePack } from "@/protocol/evidence-pack"
 import { EvidenceManifest } from "@/protocol/evidence-manifest"
 import { EventV1 } from "@/protocol/event"
+import { renderEvidencePackViewMarkdown } from "@/evidence/pack-view"
+import { stableJson } from "@/util/stable-json"
 
 const OpenInput = z
   .object({
@@ -25,6 +27,15 @@ const ArtifactInput = z
 const PackInput = z
   .object({
     handoff: z.string().min(1),
+    execution: z
+      .object({
+        id: z.string().min(1),
+        kind: z.string().min(1),
+        backend: z.enum(["soft", "hard"]).optional(),
+        enforcement: z.enum(["soft", "hard"]).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 
@@ -113,6 +124,7 @@ export const EvidenceWriter = {
     const eventsPath = path.join(evidence, "events.jsonl")
     const manifestPath = path.join(evidence, "manifest.json")
     const packPath = path.join(evidence, "pack.json")
+    const packViewPath = path.join(evidence, "pack.md")
 
     await fs.mkdir(evidence, { recursive: true })
     await fs.mkdir(artifacts, { recursive: true })
@@ -129,7 +141,7 @@ export const EvidenceWriter = {
         generatedAtUtc: new Date().toISOString(),
         entries,
       })
-      await writeAtomic(manifestPath, JSON.stringify(manifest, null, 2))
+      await writeAtomic(manifestPath, stableJson(manifest))
       return manifest
     }
 
@@ -177,9 +189,27 @@ export const EvidenceWriter = {
       return entry
     }
 
+    async function readEventsFromDisk() {
+      const text = await Bun.file(eventsPath).text().catch(() => "")
+      if (!text) return []
+      return text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const data = JSON.parse(line) as unknown
+          return EventV1.parse(data)
+        })
+    }
+
     async function pack(inputPack: z.infer<typeof PackInput>) {
       const data = PackInput.parse(inputPack)
       const packId = `EP-${sessionId}`
+      const execution = data.execution ?? {
+        kind: "sandbox",
+        id: `sandbox:${sessionId}`,
+      }
+      const eventsFromDisk = await readEventsFromDisk()
       const pack = EvidencePack.parse({
         specVersion: "evidence-pack/1.0",
         packId,
@@ -190,14 +220,16 @@ export const EvidenceWriter = {
         },
         environment: {
           execution: {
-            kind: "sandbox",
-            id: `sandbox:${sessionId}`,
+            kind: execution.kind,
+            id: execution.id,
+            backend: execution.backend,
+            enforcement: execution.enforcement,
           },
         },
         claims: [],
         artifacts: [],
         checks: [],
-        events,
+        events: eventsFromDisk,
         capsule: {
           handoff: data.handoff,
           pointers: [],
@@ -209,12 +241,38 @@ export const EvidenceWriter = {
           steps: [],
         },
       })
-      await writeAtomic(packPath, JSON.stringify(pack, null, 2))
+      const packText = stableJson(pack)
+      const packWrite = await writeAtomic(packPath, packText)
       await upsert(
         Entry.parse({
           path: path.relative(base, packPath),
-          sha256: sha(JSON.stringify(pack, null, 2)),
+          sha256: packWrite.hash,
           kind: "evidence-pack",
+          size: packWrite.size,
+        }),
+        packId,
+      )
+      const pointers = entries
+        .filter((entry) => ["event-log", "stdout", "stderr"].includes(entry.kind))
+        .map((entry) => ({
+          kind: entry.kind,
+          path: entry.path,
+          sha256: entry.sha256,
+        }))
+      const packView = renderEvidencePackViewMarkdown({
+        sessionId,
+        packId,
+        backend: execution.backend ?? "soft",
+        enforcement: execution.enforcement ?? "soft",
+        pointers,
+      })
+      const packViewWrite = await writeAtomic(packViewPath, packView)
+      await upsert(
+        Entry.parse({
+          path: path.relative(base, packViewPath),
+          sha256: packViewWrite.hash,
+          kind: "evidence-view",
+          size: packViewWrite.size,
         }),
         packId,
       )

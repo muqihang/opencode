@@ -26,8 +26,8 @@ const Execution = z
   .object({
     kind: z.string().min(1),
     id: z.string().min(1),
-    backend: z.string().min(1).optional(),
-    enforcement: z.string().min(1).optional(),
+    backend: z.enum(["soft", "hard"]).optional(),
+    enforcement: z.enum(["soft", "hard"]).optional(),
   })
   .strict()
 
