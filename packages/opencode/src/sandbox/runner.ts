@@ -4,6 +4,7 @@ import { spawn } from "child_process"
 import { $ } from "bun"
 import { Shell } from "@/shell/shell"
 import { EvidenceWriter } from "@/evidence/writer"
+import { captureWorktreePatch } from "@/worktree/changes"
 
 const NetworkPolicy = z.union([
   z.object({ mode: z.literal("deny_all") }).strict(),
@@ -194,6 +195,13 @@ export const SandboxRunner = {
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
+    if (req.capability.workdirMode === "isolated") {
+      await captureWorktreePatch({
+        workdir: runCwd,
+        sessionId: req.sessionId,
+        writer,
+      })
+    }
     const evidence = { finalized: true, error: undefined as string | undefined }
     try {
       const repoInfo = await readRepoInfo(runCwd)
