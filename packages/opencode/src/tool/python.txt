@@ -1,0 +1,5 @@
+Runs allowlisted Python scripts in a sandboxed environment. Use script_id to select a built-in or project script.
+
+Guidelines:
+- Provide input_json when the script expects input.
+- Outputs are written to artifacts; this tool returns a pointer to the output file.
