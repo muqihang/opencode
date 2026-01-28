@@ -52,6 +52,17 @@ const ExecPolicyEval = z
 
 export type ExecPolicyEval = z.infer<typeof ExecPolicyEval>
 
+function buildNotes(input: { enforcement: "soft" | "hard"; backend: "soft" | "hard" }) {
+  if (input.enforcement === "soft") {
+    return [
+      "enforcement=soft does not provide OS-level isolation; boundaries are governance/audit only.",
+    ]
+  }
+  return [
+    `enforcement=hard relies on backend=${input.backend} capabilities; isolation is not absolute and should be verified.`,
+  ]
+}
+
 export function buildExecPolicyEval(input: {
   toolName: string
   command: string
@@ -72,8 +83,6 @@ export function buildExecPolicyEval(input: {
     enforcement: input.enforcement,
     capability: input.capability,
     limits: input.limits,
-    notes: [
-      "enforcement=soft does not provide OS-level isolation; boundaries are governance/audit only.",
-    ],
+    notes: buildNotes({ enforcement: input.enforcement, backend: input.backend }),
   })
 }

@@ -115,20 +115,21 @@ export const SandboxRunner = {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    const execPolicy = buildExecPolicyEval({
-      toolName: req.toolName,
-      command: req.command,
-      args: req.args,
-      cwd: runCwd,
-      backend,
-      enforcement,
-      capability: req.capability,
-      limits: req.limits,
-    })
     try {
+      const execPolicy = buildExecPolicyEval({
+        toolName: req.toolName,
+        command: req.command,
+        args: req.args,
+        cwd: runCwd,
+        backend,
+        enforcement,
+        capability: req.capability,
+        limits: req.limits,
+      })
       const entry = await writer.artifact({
         kind: "execpolicy-eval",
         path: "policy/execpolicy.eval.json",
+        manifestPath: "policy/execpolicy.eval.json",
         data: stableJson(execPolicy),
       })
       await writer.event({

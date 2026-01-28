@@ -21,6 +21,7 @@ const ArtifactInput = z
   .object({
     kind: z.string().min(1),
     path: z.string().min(1).optional(),
+    manifestPath: z.string().min(1).optional(),
     data: z.string(),
   })
   .strict()
@@ -100,6 +101,16 @@ function isTraversal(rel: string) {
   if (path.isAbsolute(rel)) return true
   const parts = rel.split(path.sep)
   return parts.includes("..")
+}
+
+function safeManifestPath(rel: string) {
+  if (isTraversal(rel)) {
+    throw new Error("Manifest path traversal is not allowed")
+  }
+  if (path.isAbsolute(rel)) {
+    throw new Error("Manifest path must be relative")
+  }
+  return rel
 }
 
 async function hasSymlink(base: string, target: string) {
@@ -269,8 +280,11 @@ export const EvidenceWriter = {
       try {
         const target = await safePath(artifacts, name)
         const result = await writeAtomic(target, data.data)
+        const manifestPath = data.manifestPath
+          ? safeManifestPath(data.manifestPath)
+          : path.relative(base, target)
         const entry = Entry.parse({
-          path: path.relative(base, target),
+          path: manifestPath,
           sha256: result.hash,
           kind: data.kind,
           size: result.size,
