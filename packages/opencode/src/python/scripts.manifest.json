@@ -2,6 +2,6 @@
   {
     "id": "summarize-json",
     "path": "scripts/summarize-json.py",
-    "sha256": "374fb075fec5dbd7378d380da8c793ea3835525f27ecc0fb92f29337440d48ed"
+    "sha256": "74fbd41d4b671306ecd31db77dfdffb2abba2df7a1cf202f76897f9228d655ad"
   }
 ]
