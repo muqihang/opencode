@@ -7,6 +7,7 @@ import { Identifier } from "@/id/id"
 import { EvidencePack } from "@/protocol/evidence-pack"
 import { EvidenceManifest } from "@/protocol/evidence-manifest"
 import { EventV1 } from "@/protocol/event"
+import { EvidenceMicroPack } from "@/protocol/evidence-micro-pack"
 import { renderEvidencePackViewMarkdown } from "@/evidence/pack-view"
 import { stableJson } from "@/util/stable-json"
 
@@ -36,6 +37,12 @@ const PackInput = z
       })
       .strict()
       .optional(),
+  })
+  .strict()
+
+const MicroPackInput = z
+  .object({
+    parentSessionId: z.string().min(1).optional(),
   })
   .strict()
 
@@ -279,6 +286,41 @@ export const EvidenceWriter = {
       return pack
     }
 
+    async function microPack(input: z.infer<typeof MicroPackInput>) {
+      const data = MicroPackInput.parse(input)
+      const microPackId = `MP-${sessionId}`
+      const eventsFromDisk = await readEventsFromDisk()
+      const micro = EvidenceMicroPack.parse({
+        specVersion: "evidence-micro-pack/1.0",
+        packId: microPackId,
+        sessionId,
+        parentSessionId: data.parentSessionId,
+        generatedAtUtc: new Date().toISOString(),
+        artifacts: entries.map((entry) => ({
+          path: entry.path,
+          sha256: entry.sha256,
+          kind: entry.kind,
+          size: entry.size,
+        })),
+        claims: [],
+        checks: [],
+        events: eventsFromDisk,
+      })
+      const microPath = path.join(evidence, "micro-pack.json")
+      const microText = stableJson(micro)
+      const microWrite = await writeAtomic(microPath, microText)
+      await upsert(
+        Entry.parse({
+          path: path.relative(base, microPath),
+          sha256: microWrite.hash,
+          kind: "evidence-micro-pack",
+          size: microWrite.size,
+        }),
+        packId,
+      )
+      return micro
+    }
+
     async function manifest() {
       return writeManifest(packId)
     }
@@ -287,6 +329,7 @@ export const EvidenceWriter = {
       event,
       artifact,
       pack,
+      microPack,
       manifest,
     }
   },
