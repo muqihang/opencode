@@ -357,9 +357,138 @@ export function Autocomplete(props: {
         },
       })
     }
+    const s = props.sessionID ? sync.data.session.find((x) => x.id === props.sessionID) : undefined
 
-    results.sort((a, b) => a.display.localeCompare(b.display))
+    if (s) {
+      results.push(
+        {
+          display: "/undo (撤销)",
+          description: "undo the last message (撤销上一条消息)",
+          onSelect: () => command.trigger("session.undo"),
+        },
+        {
+          display: "/redo (重做)",
+          description: "redo the last message (重做上一条消息)",
+          onSelect: () => command.trigger("session.redo"),
+        },
+        {
+          display: "/compact (压缩)",
+          aliases: ["/summarize"],
+          description: "compact the session (压缩/总结会话)",
+          onSelect: () => command.trigger("session.compact"),
+        },
+        {
+          display: "/unshare (取消分享)",
+          disabled: !s.share,
+          description: "unshare a session (取消会话分享)",
+          onSelect: () => command.trigger("session.unshare"),
+        },
+        {
+          display: "/rename (重命名)",
+          description: "rename session (重命名会话)",
+          onSelect: () => command.trigger("session.rename"),
+        },
+        {
+          display: "/copy (复制)",
+          description: "copy session transcript to clipboard (复制会话记录)",
+          onSelect: () => command.trigger("session.copy"),
+        },
+        {
+          display: "/export (导出)",
+          description: "export session transcript to file (导出会话记录)",
+          onSelect: () => command.trigger("session.export"),
+        },
+        {
+          display: "/timeline (时间轴)",
+          description: "jump to message (跳转到消息)",
+          onSelect: () => command.trigger("session.timeline"),
+        },
+        {
+          display: "/fork (分叉)",
+          description: "fork from message (从消息处分叉)",
+          onSelect: () => command.trigger("session.fork"),
+        },
+        {
+          display: "/thinking (思考过程)",
+          description: "toggle thinking visibility (切换思考过程可见性)",
+          onSelect: () => command.trigger("session.toggle.thinking"),
+        },
+      )
+      if (sync.data.config.share !== "disabled") {
+        results.push({
+          display: "/share (分享)",
+          disabled: !!s.share?.url,
+          description: "share a session (分享会话)",
+          onSelect: () => command.trigger("session.share"),
+        })
+      }
+    }
 
+    results.push(
+      {
+        display: "/new (新建)",
+        aliases: ["/clear"],
+        description: "create a new session (新建会话)",
+        onSelect: () => command.trigger("session.new"),
+      },
+      {
+        display: "/models (模型)",
+        description: "list models (模型列表)",
+        onSelect: () => command.trigger("model.list"),
+      },
+      {
+        display: "/agents (智能体)",
+        description: "list agents (智能体列表)",
+        onSelect: () => command.trigger("agent.list"),
+      },
+      {
+        display: "/session (会话)",
+        aliases: ["/resume", "/continue"],
+        description: "list sessions (历史会话)",
+        onSelect: () => command.trigger("session.list"),
+      },
+      {
+        display: "/status (状态)",
+        description: "show status (当前状态)",
+        onSelect: () => command.trigger("opencode.status"),
+      },
+      {
+        display: "/mcp (MCP工具)",
+        description: "toggle MCPs (MCP 工具管理)",
+        onSelect: () => command.trigger("mcp.list"),
+      },
+      {
+        display: "/theme (主题)",
+        description: "toggle theme (切换主题)",
+        onSelect: () => command.trigger("theme.switch"),
+      },
+      {
+        display: "/editor (编辑器)",
+        description: "open editor (打开编辑器)",
+        onSelect: () => command.trigger("prompt.editor"),
+      },
+      {
+        display: "/connect (连接)",
+        description: "connect to a provider (连接提供商)",
+        onSelect: () => command.trigger("provider.connect"),
+      },
+      {
+        display: "/help (帮助)",
+        description: "show help (帮助信息)",
+        onSelect: () => command.trigger("help.show"),
+      },
+      {
+        display: "/commands (命令)",
+        description: "show all commands (查看所有命令)",
+        onSelect: () => command.show(),
+      },
+      {
+        display: "/exit (退出)",
+        aliases: ["/quit", "/q"],
+        description: "exit the app (退出程序)",
+        onSelect: () => command.trigger("app.exit"),
+      },
+    )
     const max = firstBy(results, [(x) => x.display.length, "desc"])?.display.length
     if (!max) return results
     return results.map((item) => ({

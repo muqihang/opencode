@@ -193,106 +193,100 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
         />
       </Match>
       <Match when={store.stage === "permission"}>
-        {(() => {
-          const body = (
-            <Prompt
-              title="需要权限"
-              body={
-                <Switch>
-                  <Match when={props.request.permission === "edit"}>
-                    <EditBody request={props.request} />
-                  </Match>
-                  <Match when={props.request.permission === "read"}>
-                    <TextBody icon="→" title={`读取 ` + normalizePath(input().filePath as string)} />
-                  </Match>
-                  <Match when={props.request.permission === "glob"}>
-                    <TextBody icon="✱" title={`文件搜索 (Glob) "` + (input().pattern ?? "") + `"`} />
-                  </Match>
-                  <Match when={props.request.permission === "grep"}>
-                    <TextBody icon="✱" title={`内容搜索 (Grep) "` + (input().pattern ?? "") + `"`} />
-                  </Match>
-                  <Match when={props.request.permission === "list"}>
-                    <TextBody icon="→" title={`列出 ` + normalizePath(input().path as string)} />
-                  </Match>
-                  <Match when={props.request.permission === "bash"}>
-                    <TextBody
-                      icon="#"
-                      title={(input().description as string) ?? ""}
-                      description={("$ " + input().command) as string}
-                    />
-                  </Match>
-                  <Match when={props.request.permission === "task"}>
-                    <TextBody
-                      icon="#"
-                      title={`${Locale.titlecase((input().subagent_type as string) ?? "Unknown")} 任务`}
-                      description={"◉ " + input().description}
-                    />
-                  </Match>
-                  <Match when={props.request.permission === "webfetch"}>
-                    <TextBody icon="%" title={`网页获取 ` + (input().url ?? "")} />
-                  </Match>
-                  <Match when={props.request.permission === "websearch"}>
-                    <TextBody icon="◈" title={`Exa 网络搜索 "` + (input().query ?? "") + `"`} />
-                  </Match>
-                  <Match when={props.request.permission === "codesearch"}>
-                    <TextBody icon="◇" title={`Exa 代码搜索 "` + (input().query ?? "") + `"`} />
-                  </Match>
-                  <Match when={props.request.permission === "external_directory"}>
-                    {(() => {
-                      const meta = props.request.metadata ?? {}
-                      const parent = typeof meta["parentDir"] === "string" ? meta["parentDir"] : undefined
-                      const filepath = typeof meta["filepath"] === "string" ? meta["filepath"] : undefined
-                      const pattern = props.request.patterns?.[0]
-                      const derived =
-                        typeof pattern === "string"
-                          ? pattern.includes("*")
-                            ? path.dirname(pattern)
-                            : pattern
-                          : undefined
+        <Prompt
+          title="需要权限"
+          body={
+            <Switch>
+              <Match when={props.request.permission === "edit"}>
+                <EditBody request={props.request} />
+              </Match>
+              <Match when={props.request.permission === "read"}>
+                <TextBody icon="→" title={`读取 ` + normalizePath(input().filePath as string)} />
+              </Match>
+              <Match when={props.request.permission === "glob"}>
+                <TextBody icon="✱" title={`文件搜索 (Glob) "` + (input().pattern ?? "") + `"`} />
+              </Match>
+              <Match when={props.request.permission === "grep"}>
+                <TextBody icon="✱" title={`内容搜索 (Grep) "` + (input().pattern ?? "") + `"`} />
+              </Match>
+              <Match when={props.request.permission === "list"}>
+                <TextBody icon="→" title={`列出 ` + normalizePath(input().path as string)} />
+              </Match>
+              <Match when={props.request.permission === "bash"}>
+                <TextBody
+                  icon="#"
+                  title={(input().description as string) ?? ""}
+                  description={("$ " + input().command) as string}
+                />
+              </Match>
+              <Match when={props.request.permission === "task"}>
+                <TextBody
+                  icon="#"
+                  title={`${Locale.titlecase((input().subagent_type as string) ?? "Unknown")} 任务`}
+                  description={"◉ " + input().description}
+                />
+              </Match>
+              <Match when={props.request.permission === "webfetch"}>
+                <TextBody icon="%" title={`网页获取 ` + (input().url ?? "")} />
+              </Match>
+              <Match when={props.request.permission === "websearch"}>
+                <TextBody icon="◈" title={`Exa 网络搜索 "` + (input().query ?? "") + `"`} />
+              </Match>
+              <Match when={props.request.permission === "codesearch"}>
+                <TextBody icon="◇" title={`Exa 代码搜索 "` + (input().query ?? "") + `"`} />
+              </Match>
+              <Match when={props.request.permission === "external_directory"}>
+                {(() => {
+                  const meta = props.request.metadata ?? {}
+                  const parent = typeof meta["parentDir"] === "string" ? meta["parentDir"] : undefined
+                  const filepath = typeof meta["filepath"] === "string" ? meta["filepath"] : undefined
+                  const pattern = props.request.patterns?.[0]
+                  const derived =
+                    typeof pattern === "string"
+                      ? pattern.includes("*")
+                        ? path.dirname(pattern)
+                        : pattern
+                      : undefined
 
-                      const raw = parent ?? filepath ?? derived
-                      const dir = normalizePath(raw)
+                  const raw = parent ?? filepath ?? derived
+                  const dir = normalizePath(raw)
 
-                      return <TextBody icon="←" title={`访问外部目录 ` + dir} />
-                    })()}
-                  </Match>
-                  <Match when={props.request.permission === "doom_loop"}>
-                    <TextBody icon="⟳" title="重复失败后继续" />
-                  </Match>
-                  <Match when={true}>
-                    <TextBody icon="⚙" title={`调用工具 ` + props.request.permission} />
-                  </Match>
-                </Switch>
+                  return <TextBody icon="←" title={`访问外部目录 ` + dir} />
+                })()}
+              </Match>
+              <Match when={props.request.permission === "doom_loop"}>
+                <TextBody icon="⟳" title="重复失败后继续" />
+              </Match>
+              <Match when={true}>
+                <TextBody icon="⚙" title={`调用工具 ` + props.request.permission} />
+              </Match>
+            </Switch>
+          }
+          options={{ once: "允许一次", always: "总是允许", reject: "拒绝" }}
+          escapeKey="reject"
+          fullscreen
+          onSelect={(option) => {
+            if (option === "always") {
+              setStore("stage", "always")
+              return
+            }
+            if (option === "reject") {
+              if (session()?.parentID) {
+                setStore("stage", "reject")
+                return
               }
-              options={{ once: "允许一次", always: "总是允许", reject: "拒绝" }}
-              escapeKey="reject"
-              fullscreen
-              onSelect={(option) => {
-                if (option === "always") {
-                  setStore("stage", "always")
-                  return
-                }
-                if (option === "reject") {
-                  if (session()?.parentID) {
-                    setStore("stage", "reject")
-                    return
-                  }
-                  sdk.client.permission.reply({
-                    reply: "reject",
-                    requestID: props.request.id,
-                  })
-                  return
-                }
-                sdk.client.permission.reply({
-                  reply: "once",
-                  requestID: props.request.id,
-                })
-              }}
-            />
-          )
-
-          return body
-        })()}
+              sdk.client.permission.reply({
+                reply: "reject",
+                requestID: props.request.id,
+              })
+              return
+            }
+            sdk.client.permission.reply({
+              reply: "once",
+              requestID: props.request.id,
+            })
+          }}
+        />
       </Match>
     </Switch>
   )

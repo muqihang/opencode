@@ -2,7 +2,7 @@ import { For } from "solid-js"
 import { DEFAULT_THEMES, useTheme } from "@tui/context/theme"
 
 const themeCount = Object.keys(DEFAULT_THEMES).length
-const themeTip = `使用 {highlight}/theme{/highlight} 或 {highlight}Ctrl+X T{/highlight} 在 ${themeCount} 个内置主题之间切换`
+const themeTip = `使用 {highlight}/theme{/highlight} 或 {highlight}Ctrl+X T{/highlight} 预览并切换 ${themeCount}+ 种内置主题。`
 
 type TipPart = { text: string; highlight: boolean }
 

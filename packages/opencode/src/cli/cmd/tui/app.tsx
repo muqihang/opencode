@@ -331,7 +331,8 @@ function App() {
       },
     },
     {
-      title: "Model cycle (最近模型轮询)",
+      title: "Model cycle (模型轮询 - 最近)",
+      disabled: true,
       value: "model.cycle_recent",
       keybind: "model_cycle_recent",
       category: "Agent",
@@ -341,7 +342,8 @@ function App() {
       },
     },
     {
-      title: "Model cycle reverse (最近模型轮询 - 反向)",
+      title: "Model cycle reverse (模型轮询 - 最近 - 反向)",
+      disabled: true,
       value: "model.cycle_recent_reverse",
       keybind: "model_cycle_recent_reverse",
       category: "Agent",

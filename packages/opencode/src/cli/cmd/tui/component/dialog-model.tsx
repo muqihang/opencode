@@ -5,8 +5,8 @@ import { map, pipe, flatMap, entries, filter, sortBy, take } from "remeda"
 import { DialogSelect, type DialogSelectRef } from "@tui/ui/dialog-select"
 import { useDialog } from "@tui/ui/dialog"
 import { createDialogProviderOptions, DialogProvider } from "./dialog-provider"
-import { useKeybind } from "../context/keybind"
 import * as fuzzysort from "fuzzysort"
+import { Keybind } from "@/util/keybind"
 
 export function useConnected() {
   const sync = useSync()
@@ -19,7 +19,6 @@ export function DialogModel(props: { providerID?: string }) {
   const local = useLocal()
   const sync = useSync()
   const dialog = useDialog()
-  const keybind = useKeybind()
   const [ref, setRef] = createSignal<DialogSelectRef<unknown>>()
   const [query, setQuery] = createSignal("")
 
@@ -208,14 +207,14 @@ export function DialogModel(props: { providerID?: string }) {
     <DialogSelect
       keybind={[
         {
-          keybind: keybind.all.model_provider_list?.[0],
+          keybind: Keybind.parse("ctrl+a")[0]!,
           title: connected() ? "Connect provider (连接模型提供商)" : "View all providers (查看所有提供商)",
           onTrigger() {
             dialog.replace(() => <DialogProvider />)
           },
         },
         {
-          keybind: keybind.all.model_favorite_toggle?.[0],
+          keybind: Keybind.parse("ctrl+f")[0]!,
           title: "Favorite (收藏)",
           disabled: !connected(),
           onTrigger: (option) => {

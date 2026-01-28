@@ -320,7 +320,6 @@ export function Session() {
         dialog.clear()
       },
     },
-    {
       title: "重命名会话",
       value: "session.rename",
       keybind: "session_rename",
@@ -598,28 +597,6 @@ export function Session() {
       hidden: true,
       onSelect: (dialog) => {
         scroll.scrollBy(scroll.height / 2)
-        dialog.clear()
-      },
-    },
-    {
-      title: "向上移动一行",
-      value: "session.line.up",
-      keybind: "messages_line_up",
-      category: "Session",
-      disabled: true,
-      onSelect: (dialog) => {
-        scroll.scrollBy(-1)
-        dialog.clear()
-      },
-    },
-    {
-      title: "向下移动一行",
-      value: "session.line.down",
-      keybind: "messages_line_down",
-      category: "Session",
-      disabled: true,
-      onSelect: (dialog) => {
-        scroll.scrollBy(1)
         dialog.clear()
       },
     },

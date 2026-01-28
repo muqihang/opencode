@@ -20,6 +20,8 @@ export function DialogSessionList() {
   const { theme } = useTheme()
   const sdk = useSDK()
   const kv = useKV()
+  const deleteKeybind = keybind.all.session_delete?.[0]
+  const renameKeybind = keybind.all.session_rename?.[0]
 
   const [toDelete, setToDelete] = createSignal<string>()
   const [search, setSearch] = createDebouncedSignal("", 150)
@@ -88,7 +90,7 @@ export function DialogSessionList() {
       }}
       keybind={[
         {
-          keybind: keybind.all.session_delete?.[0],
+          ...(deleteKeybind ? { keybind: deleteKeybind } : {}),
           title: "delete (删除)",
           onTrigger: async (option) => {
             if (toDelete() === option.value) {
@@ -102,7 +104,7 @@ export function DialogSessionList() {
           },
         },
         {
-          keybind: keybind.all.session_rename?.[0],
+          ...(renameKeybind ? { keybind: renameKeybind } : {}),
           title: "rename (重命名)",
           onTrigger: async (option) => {
             dialog.replace(() => <DialogSessionRename session={option.value} />)

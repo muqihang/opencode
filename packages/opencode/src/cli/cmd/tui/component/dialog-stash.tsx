@@ -31,6 +31,7 @@ export function DialogStash(props: { onSelect: (entry: StashEntry) => void }) {
   const stash = usePromptStash()
   const { theme } = useTheme()
   const keybind = useKeybind()
+  const deleteKeybind = keybind.all.stash_delete?.[0]
 
   const [toDelete, setToDelete] = createSignal<number>()
 
@@ -72,7 +73,7 @@ export function DialogStash(props: { onSelect: (entry: StashEntry) => void }) {
       }}
       keybind={[
         {
-          keybind: keybind.all.stash_delete?.[0],
+          ...(deleteKeybind ? { keybind: deleteKeybind } : {}),
           title: "delete (删除)",
           onTrigger: (option) => {
             if (toDelete() === option.value) {
