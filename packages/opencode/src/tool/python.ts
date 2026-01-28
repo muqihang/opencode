@@ -141,12 +141,13 @@ export const PythonTool = Tool.define("python", async () => {
             : { mode: "full" as const, note: "python.allowNetwork enabled without allowlist" }
           : { mode: "deny_all" as const }
 
+      const workdirMode = Instance.project.vcs === "git" ? ("isolated" as const) : ("shared" as const)
       const capability = {
         readonlyPaths: [Instance.worktree],
         writePaths: [workdir, path.join(Instance.worktree, ".opencode")],
         exportPaths: [],
         network,
-        workdirMode: Instance.project.vcs === "git" ? "isolated" : "shared",
+        workdirMode,
       }
 
       await ctx.ask({

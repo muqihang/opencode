@@ -19,7 +19,9 @@ describe("python.registry", () => {
   })
 
   test("project scripts require explicit config flag", async () => {
-    await using tmp = await tmpdir({ config: { python: { allowProjectScripts: false } } })
+    await using tmp = await tmpdir({
+      config: { python: { allowProjectScripts: false, allowNetwork: false } },
+    })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {

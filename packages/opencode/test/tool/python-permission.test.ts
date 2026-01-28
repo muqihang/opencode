@@ -27,7 +27,9 @@ describe("tool.python permission", () => {
         const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
         const testCtx = {
           ...ctx,
-          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => requests.push(req),
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
         }
         await tool.execute(
           { script_id: "summarize-json", input_json: { ok: true }, description: "Summarize JSON" },

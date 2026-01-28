@@ -9,6 +9,7 @@ describe("config.python", () => {
       config: {
         python: {
           allowProjectScripts: true,
+          allowNetwork: false,
         },
       },
     })
