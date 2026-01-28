@@ -33,3 +33,7 @@ packages/opencode/bin/opencode.backup
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+.bun-cache/
+.opencode/evidence/
+.opencode/worktrees/
+.opencode/artifacts/
