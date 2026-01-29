@@ -52,8 +52,13 @@ describe("sandbox execpolicy eval artifact", () => {
         expect(artifact.stdout).toBeUndefined()
         expect(artifact.stderr).toBeUndefined()
         expect(artifact.fileContents).toBeUndefined()
-        expect(Array.isArray(artifact.notes)).toBe(true)
-        expect(artifact.notes?.some((note) => String(note).includes("enforcement=soft"))).toBe(true)
+        const notes = (artifact as Record<string, unknown>).notes
+        expect(Array.isArray(notes)).toBe(true)
+        expect(
+          (notes as unknown[]).some((note: unknown) =>
+            String(note).includes("enforcement=soft"),
+          ),
+        ).toBe(true)
 
         const eventsPath = path.join(
           Instance.worktree,

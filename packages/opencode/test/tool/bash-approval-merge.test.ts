@@ -18,7 +18,9 @@ describe("tool.bash approval consolidation", () => {
           agent: "build",
           abort: AbortSignal.any([]),
           metadata: () => {},
-          ask: async (req: any) => calls.push(req),
+          ask: async (req: any) => {
+            calls.push(req)
+          },
         }
         await tool.execute(
           { command: "cat /tmp", description: "Read temp dir (permission merge)" },
