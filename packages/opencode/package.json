@@ -6,7 +6,7 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "node node_modules/@typescript/native-preview/bin/tsgo.js --noEmit",
     "test": "bun test",
     "build": "bun run script/build.ts",
     "dev": "bun run --conditions=browser ./src/index.ts",
