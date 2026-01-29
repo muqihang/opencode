@@ -1,7 +1,12 @@
 import z from "zod"
+import os from "os"
 import { spawn } from "child_process"
+import { $ } from "bun"
 import { Shell } from "@/shell/shell"
 import { EvidenceWriter } from "@/evidence/writer"
+import { captureWorktreePatch } from "@/worktree/changes"
+import { buildExecPolicyEval } from "@/sandbox/execpolicy"
+import { stableJson } from "@/util/stable-json"
 
 const NetworkPolicy = z.union([
   z.object({ mode: z.literal("deny_all") }).strict(),
@@ -51,6 +56,26 @@ const RunInput = z
   })
   .strict()
 
+async function readRepoInfo(cwd: string) {
+  const head = await $`git rev-parse HEAD`.quiet().nothrow().cwd(cwd)
+  if (head.exitCode !== 0) return undefined
+  const commit = head.stdout?.toString().trim()
+  if (!commit) return undefined
+
+  const status = await $`git status --porcelain`.quiet().nothrow().cwd(cwd)
+  const dirty = status.exitCode === 0 && status.stdout?.toString().trim().length > 0
+
+  const root = await $`git rev-parse --show-toplevel`.quiet().nothrow().cwd(cwd)
+  const rootPath = root.exitCode === 0 ? root.stdout?.toString().trim() : undefined
+
+  return {
+    commit,
+    dirty,
+    root: rootPath || undefined,
+    worktree: cwd,
+  }
+}
+
 export const SandboxRunner = {
   async run(input: z.infer<typeof RunInput>) {
     const req = RunInput.parse(input)
@@ -58,6 +83,7 @@ export const SandboxRunner = {
     const shell = Shell.acceptable()
     const backend = "soft"
     const enforcement = "soft"
+    const runCwd = req.cwd ?? process.cwd()
     const startedAt = new Date().toISOString()
     await writer.event({
       specVersion: "event/1.0",
@@ -89,10 +115,45 @@ export const SandboxRunner = {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
+    try {
+      const execPolicy = buildExecPolicyEval({
+        toolName: req.toolName,
+        command: req.command,
+        args: req.args,
+        cwd: runCwd,
+        backend,
+        enforcement,
+        capability: req.capability,
+        limits: req.limits,
+      })
+      const entry = await writer.artifact({
+        kind: "execpolicy-eval",
+        path: "policy/execpolicy.eval.json",
+        manifestPath: "policy/execpolicy.eval.json",
+        data: stableJson(execPolicy),
+      })
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: req.sessionId,
+        severity: "info",
+        actor: "sandbox:runner",
+        type: "policy.exec_evaluated",
+        summary: "exec policy evaluated",
+        data: {
+          artifact: entry.path,
+          sha256: entry.sha256,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    } catch {
+      // Best-effort: failures are recorded by EvidenceWriter when possible.
+    }
+
     const proc = req.args
       ? spawn(req.command, req.args, {
           shell: false,
-          cwd: req.cwd,
+          cwd: runCwd,
           env: {
             ...process.env,
           },
@@ -101,7 +162,7 @@ export const SandboxRunner = {
         })
       : spawn(req.command, {
           shell,
-          cwd: req.cwd,
+          cwd: runCwd,
           env: {
             ...process.env,
           },
@@ -171,8 +232,29 @@ export const SandboxRunner = {
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
+    if (req.capability.workdirMode === "isolated") {
+      await captureWorktreePatch({
+        workdir: runCwd,
+        sessionId: req.sessionId,
+        writer,
+      })
+    }
     const evidence = { finalized: true, error: undefined as string | undefined }
     try {
+      const repoInfo = await readRepoInfo(runCwd)
+      const runtimeInfo = {
+        node: process.version,
+        bun: typeof Bun !== "undefined" ? Bun.version : undefined,
+      }
+      const runtime =
+        runtimeInfo.node || runtimeInfo.bun
+          ? { node: runtimeInfo.node, bun: runtimeInfo.bun }
+          : undefined
+      const osInfo = {
+        platform: process.platform,
+        arch: process.arch,
+        release: os.release(),
+      }
       await writer.pack({
         handoff: failure ? "tool failed" : "ok",
         execution: {
@@ -180,6 +262,11 @@ export const SandboxRunner = {
           id: `sandbox:${req.sessionId}`,
           backend,
           enforcement,
+        },
+        environment: {
+          os: osInfo,
+          runtime,
+          repo: repoInfo,
         },
       })
     } catch (error) {

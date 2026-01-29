@@ -21,6 +21,7 @@ const ArtifactInput = z
   .object({
     kind: z.string().min(1),
     path: z.string().min(1).optional(),
+    manifestPath: z.string().min(1).optional(),
     data: z.string(),
   })
   .strict()
@@ -34,6 +35,35 @@ const PackInput = z
         kind: z.string().min(1),
         backend: z.enum(["soft", "hard"]).optional(),
         enforcement: z.enum(["soft", "hard"]).optional(),
+      })
+      .strict()
+      .optional(),
+    environment: z
+      .object({
+        os: z
+          .object({
+            platform: z.string().min(1),
+            arch: z.string().min(1),
+            release: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
+        runtime: z
+          .object({
+            node: z.string().min(1).optional(),
+            bun: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
+        repo: z
+          .object({
+            root: z.string().min(1).optional(),
+            worktree: z.string().min(1).optional(),
+            commit: z.string().min(1),
+            dirty: z.boolean(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -61,10 +91,34 @@ function sha(input: string) {
   return hash.digest("hex")
 }
 
+function toRelativePath(raw: string) {
+  if (!path.isAbsolute(raw)) return raw
+  const root = path.parse(raw).root || "/"
+  return path.relative(root, raw)
+}
+
+function pointerPath(sessionId: string, entryPath: string) {
+  if (entryPath.startsWith(".opencode/") || entryPath.startsWith(".opencode\\")) {
+    return entryPath
+  }
+  const normalized = entryPath.replace(/\\/g, "/")
+  return `.opencode/artifacts/${sessionId}/${normalized}`
+}
+
 function isTraversal(rel: string) {
   if (path.isAbsolute(rel)) return true
   const parts = rel.split(path.sep)
   return parts.includes("..")
+}
+
+function safeManifestPath(rel: string) {
+  if (isTraversal(rel)) {
+    throw new Error("Manifest path traversal is not allowed")
+  }
+  if (path.isAbsolute(rel)) {
+    throw new Error("Manifest path must be relative")
+  }
+  return rel
 }
 
 async function hasSymlink(base: string, target: string) {
@@ -230,16 +284,57 @@ export const EvidenceWriter = {
     async function artifact(inputArtifact: z.infer<typeof ArtifactInput>) {
       const data = ArtifactInput.parse(inputArtifact)
       const name = data.path ?? `${Identifier.ascending("tool")}.txt`
-      const target = await safePath(artifacts, name)
-      const result = await writeAtomic(target, data.data)
-      const entry = Entry.parse({
-        path: path.relative(base, target),
-        sha256: result.hash,
-        kind: data.kind,
-        size: result.size,
-      })
-      await upsert(entry, packId)
-      return entry
+      const requestedPath = toRelativePath(name)
+      try {
+        const target = await safePath(artifacts, name)
+        const result = await writeAtomic(target, data.data)
+        const manifestPath = data.manifestPath
+          ? safeManifestPath(data.manifestPath)
+          : path.relative(base, target)
+        const entry = Entry.parse({
+          path: manifestPath,
+          sha256: result.hash,
+          kind: data.kind,
+          size: result.size,
+        })
+        await upsert(entry, packId)
+        return entry
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const failurePath = path.join(
+          artifacts,
+          `errors/write-failed-${Identifier.ascending("tool")}.json`,
+        )
+        const failureData = stableJson({
+          error: message,
+          kind: data.kind,
+          requested_path: requestedPath,
+        })
+        const failureWrite = await writeAtomic(failurePath, failureData)
+        const failureEntry = Entry.parse({
+          path: path.relative(base, failurePath),
+          sha256: failureWrite.hash,
+          kind: "evidence-error",
+          size: failureWrite.size,
+        })
+        await upsert(failureEntry, packId)
+        await event({
+          specVersion: "event/1.0",
+          ts: new Date().toISOString(),
+          sessionId,
+          severity: "error",
+          actor: "evidence:writer",
+          type: "evidence.write_failed",
+          summary: "artifact rejected",
+          data: {
+            kind: data.kind,
+            requested_path: requestedPath,
+            error_artifact: failureEntry.path,
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        })
+        throw error instanceof Error ? error : new Error(String(error))
+      }
     }
 
     async function readEventsFromDisk() {
@@ -278,6 +373,9 @@ export const EvidenceWriter = {
             backend: execution.backend,
             enforcement: execution.enforcement,
           },
+          os: data.environment?.os,
+          runtime: data.environment?.runtime,
+          repo: data.environment?.repo,
         },
         claims: [],
         artifacts: [],
@@ -306,10 +404,14 @@ export const EvidenceWriter = {
         packId,
       )
       const pointers = entries
-        .filter((entry) => ["event-log", "stdout", "stderr"].includes(entry.kind))
+        .filter((entry) =>
+          ["event-log", "stdout", "stderr", "execpolicy-eval", "worktree-patch"].includes(
+            entry.kind,
+          ),
+        )
         .map((entry) => ({
           kind: entry.kind,
-          path: entry.path,
+          path: pointerPath(sessionId, entry.path),
           sha256: entry.sha256,
         }))
       const packView = renderEvidencePackViewMarkdown({

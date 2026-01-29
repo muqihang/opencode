@@ -27,6 +27,7 @@ import { WebCommand } from "./cli/cmd/web"
 import { PrCommand } from "./cli/cmd/pr"
 import { SessionCommand } from "./cli/cmd/session"
 import { ConfigCommand } from "./cli/cmd/config"
+import { EvidenceCommand } from "./cli/cmd/evidence"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -95,6 +96,7 @@ const cli = yargs(hideBin(process.argv))
   .command(StatsCommand)
   .command(ExportCommand)
   .command(ImportCommand)
+  .command(EvidenceCommand)
   .command(GithubCommand)
   .command(PrCommand)
   .command(SessionCommand)

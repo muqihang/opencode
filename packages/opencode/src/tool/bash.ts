@@ -16,6 +16,10 @@ import { SessionWorktree } from "@/worktree/session"
 
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
+import { Agent } from "@/agent/agent"
+import { Session } from "@/session"
+import { PermissionNext } from "@/permission/next"
+import { Wildcard } from "@/util/wildcard"
 
 const MAX_METADATA_LENGTH = 30_000
 const MAX_INLINE_OUTPUT_BYTES = 100 * 1024
@@ -148,21 +152,57 @@ export const BashTool = Tool.define("bash", async () => {
         }
       }
 
-      if (directories.size > 0) {
-        await ctx.ask({
-          permission: "external_directory",
-          patterns: Array.from(directories),
-          always: Array.from(directories).map((x) => path.dirname(x) + "*"),
-          metadata: {},
-        })
-      }
+      // permissions handled after consolidation
 
-      if (patterns.size > 0) {
+      const externalDirectories = Array.from(directories)
+      const bashPatterns = Array.from(patterns)
+      const bashAlways = Array.from(always)
+      const shouldAsk = externalDirectories.length > 0 || bashPatterns.length > 0
+
+      if (shouldAsk) {
+        try {
+          const agentInfo = await Agent.get(ctx.agent)
+          const sessionInfo = await Session.get(ctx.sessionID).catch(() => undefined)
+          const ruleset = PermissionNext.merge(agentInfo.permission, sessionInfo?.permission ?? [])
+
+          for (const dir of externalDirectories) {
+            const rule = PermissionNext.evaluate("external_directory", dir, ruleset)
+            if (rule.action === "deny") {
+              const relevant = ruleset.filter((r) => Wildcard.match("external_directory", r.permission))
+              throw new PermissionNext.DeniedError(relevant)
+            }
+          }
+
+          for (const pattern of bashPatterns) {
+            const rule = PermissionNext.evaluate("bash", pattern, ruleset)
+            if (rule.action === "deny") {
+              const relevant = ruleset.filter((r) => Wildcard.match("bash", r.permission))
+              throw new PermissionNext.DeniedError(relevant)
+            }
+          }
+        } catch (error) {
+          if (error instanceof PermissionNext.DeniedError) throw error
+        }
+
+        const askPatterns = bashPatterns.length > 0 ? bashPatterns : externalDirectories
+        const askAlways = new Set<string>(bashAlways)
+        if (externalDirectories.length > 0) {
+          for (const dir of externalDirectories) {
+            askAlways.add(path.dirname(dir) + "*")
+          }
+        }
+
         await ctx.ask({
           permission: "bash",
-          patterns: Array.from(patterns),
-          always: Array.from(always),
-          metadata: {},
+          patterns: askPatterns,
+          always: Array.from(askAlways),
+          metadata: {
+            external_directories: externalDirectories,
+            bash_patterns: bashPatterns,
+            network: { mode: "deny_all" },
+            workdirMode: Instance.project.vcs === "git" ? "isolated" : "shared",
+            timeoutMs: timeout,
+          },
         })
       }
 

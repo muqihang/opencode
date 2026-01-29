@@ -130,7 +130,7 @@ describe("tool.bash permissions", () => {
     })
   })
 
-  test("asks for external_directory permission when cd to parent", async () => {
+  test("asks for consolidated permission when cd to parent", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -151,13 +151,14 @@ describe("tool.bash permissions", () => {
           },
           testCtx,
         )
-        const extDirReq = requests.find((r) => r.permission === "external_directory")
-        expect(extDirReq).toBeDefined()
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("bash")
+        expect(requests[0].metadata.external_directories.length).toBeGreaterThan(0)
       },
     })
   })
 
-  test("asks for external_directory permission when workdir is outside project", async () => {
+  test("asks for consolidated permission when workdir is outside project", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -178,14 +179,15 @@ describe("tool.bash permissions", () => {
           },
           testCtx,
         )
-        const extDirReq = requests.find((r) => r.permission === "external_directory")
-        expect(extDirReq).toBeDefined()
-        expect(extDirReq!.patterns).toContain("/tmp")
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("bash")
+        expect(requests[0].metadata.external_directories).toContain("/tmp")
+        expect(requests[0].metadata.bash_patterns).toContain("ls")
       },
     })
   })
 
-  test("does not ask for external_directory permission when rm inside project", async () => {
+  test("does not include external directories when rm inside project", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -209,8 +211,9 @@ describe("tool.bash permissions", () => {
           testCtx,
         )
 
-        const extDirReq = requests.find((r) => r.permission === "external_directory")
-        expect(extDirReq).toBeUndefined()
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("bash")
+        expect(requests[0].metadata.external_directories.length).toBe(0)
       },
     })
   })
