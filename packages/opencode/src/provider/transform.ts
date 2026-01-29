@@ -567,7 +567,8 @@ export namespace ProviderTransform {
       }
     }
 
-    if (input.model.providerID === "openai" || input.providerOptions?.setCacheKey) {
+    const wireApi = input.providerOptions?.wireApi ?? input.providerOptions?.wire_api
+    if (input.model.providerID === "openai" || input.providerOptions?.setCacheKey || wireApi === "responses") {
       result["promptCacheKey"] = input.sessionID
     }
 
