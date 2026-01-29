@@ -37,6 +37,7 @@ import { createPerplexity } from "@ai-sdk/perplexity"
 import { createVercel } from "@ai-sdk/vercel"
 import { createGitLab } from "@gitlab/gitlab-ai-provider"
 import { ProviderTransform } from "./transform"
+import { resolveOpenAIModelFromWireApi } from "./openai-wire-api"
 
 export namespace Provider {
   const log = Log.create({ service: "provider" })
@@ -1091,6 +1092,15 @@ export namespace Provider {
     const sdk = await getSDK(model)
 
     try {
+      const wireApi = provider.options?.["wireApi"] ?? provider.options?.["wire_api"]
+      if (model.api.npm === "@ai-sdk/openai") {
+        const resolved = resolveOpenAIModelFromWireApi(sdk, model.api.id, wireApi)
+        if (resolved) {
+          s.models.set(key, resolved)
+          return resolved
+        }
+      }
+
       const language = s.modelLoaders[model.providerID]
         ? await s.modelLoaders[model.providerID](sdk, model.api.id, provider.options)
         : sdk.languageModel(model.api.id)

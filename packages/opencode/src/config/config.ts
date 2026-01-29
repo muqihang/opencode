@@ -857,6 +857,14 @@ export namespace Config {
           baseURL: z.string().optional(),
           enterpriseUrl: z.string().optional().describe("GitHub Enterprise URL for copilot authentication"),
           setCacheKey: z.boolean().optional().describe("Enable promptCacheKey for this provider (default false)"),
+          wireApi: z
+            .enum(["responses", "chat"])
+            .optional()
+            .describe("OpenAI wire API to use (responses or chat)"),
+          wire_api: z
+            .enum(["responses", "chat"])
+            .optional()
+            .describe("Legacy spelling for wireApi (responses or chat)"),
           timeout: z
             .union([
               z
