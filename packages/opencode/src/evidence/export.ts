@@ -65,6 +65,10 @@ async function copyChecked(options: {
   destinationPath: string
   expectedSha?: string
 }) {
+  const existing = await fs.lstat(options.destinationPath).catch(() => null)
+  if (existing?.isSymbolicLink()) {
+    throw new Error("Symlink targets are not allowed")
+  }
   if (!Filesystem.contains(options.base, options.sourcePath)) {
     throw new Error("Source path outside repository")
   }

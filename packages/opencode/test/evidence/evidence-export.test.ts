@@ -90,4 +90,41 @@ describe("evidence export", () => {
       },
     })
   })
+
+  test("rejects export when destination file is a symlink", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Bun.write(path.join(Instance.worktree, "hello.txt"), "hi")
+
+        await SandboxRunner.run({
+          sessionId: "symlink",
+          toolName: "bash",
+          command: "echo ok",
+          cwd: Instance.worktree,
+          capability: {
+            readonlyPaths: [Instance.worktree],
+            writePaths: [path.join(Instance.worktree, ".opencode")],
+            exportPaths: [],
+            network: { mode: "deny_all" },
+            workdirMode: "isolated",
+          },
+          limits: { timeoutMs: 5000 },
+        })
+
+        const outDir = path.join(tmp.path, "exported", "symlink")
+        const linkPath = path.join(outDir, "artifacts", "worktree", "changes.patch")
+        const victim = path.join(outDir, "victim.txt")
+
+        await fs.mkdir(path.dirname(linkPath), { recursive: true })
+        await fs.writeFile(victim, "original")
+        await fs.symlink(victim, linkPath)
+
+        await expect(exportEvidence({ sessionId: "symlink", outDir })).rejects.toThrow()
+        const victimContent = await fs.readFile(victim, "utf8")
+        expect(victimContent).toBe("original")
+      },
+    })
+  })
 })
