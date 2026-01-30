@@ -953,12 +953,40 @@ P0–P4 的分期是本设计稿的**最佳实践推进**：先把“协议/证�
 该顺序可以最大化早期可用性、最小化返工与安全风险。后续若需调整分期，必须在此处更新并记录原因。
 
 **执行勾选清单（每完成一个阶段请勾选）**：
-- [ ] **P0**：软沙盒 + Evidence Pack v1 + BashTool 统一执行 + git worktree 隔离落地
-- [ ] **P1**：PythonTool + 子会话沙盒一致性 + micro-pack
-- [ ] **P1.5**：P0/P1 收口门禁（协议/证据/审批/变更集/导出）→ P2 强制前置
+- [x] **P0**：软沙盒 + Evidence Pack v1 + BashTool 统一执行 + git worktree 隔离落地
+- [x] **P1**：PythonTool + 子会话沙盒一致性 + micro-pack
+- [x] **P1.5**：P0/P1 收口门禁（协议/证据/审批/变更集/导出）→ P2 强制前置
+- [x] **P1.6**：Token Economy（Sub2API 兼容缓存/粘性会话）+ 注入确定性 + 指针化（为 P2/P3 铺路）
 - [ ] **P2**：并行与写入协调（隔离/共享 workdir）+ 自动合并 + 冲突 artifacts + worker 并行协议骨架
 - [ ] **P3**：Context Pack（schema+计数器 SSOT）+ 指纹缓存 + compaction 联动 + prefix determinism
 - [ ] **P4**：硬沙盒后端 + OTel + 企业治理/合规 + 远端归档/保留周期 + Attestation（可选）
+
+### 11.2.1 状态更新（2026-01-30）：P1.6 已完成（并明确 P3 待办，防遗漏）
+
+P1.6 的目标不是“某一家模型的缓存命中”，而是把 **OpenCode / oh-my-opencode / Sub2API** 三段链路打通，
+使其具备与 Codex CLI 类似的 **token economy 基础能力**：更稳定的会话粘性、可复用的缓存 key、注入有预算且不抖动，
+从而让上游/网关侧的前缀缓存（如果支持）有机会被命中。
+
+**P1.6 已落地（Done）**：
+- OpenCode：
+  - 支持 `wire_api=responses`，并在走 Responses 线路时注入 `promptCacheKey=sessionID`（用于 Sub2API/OpenAI 前缀缓存命中）。
+  - 新增可控的 `stickySessionHeaders`：对 OpenAI 默认发送 `session_id/conversation_id`，并可对非 OpenAI 网关强制开启。
+  - DeepSeek usage 统计归一：把 `cached_tokens` 映射到 `cache.read`，并避免把 `reasoning_content` 回放进历史（降低 token 膨胀与提示词漂移）。
+- oh-my-opencode：
+  - 修复跨 session 注入兜底风险（缺失 sessionID 时不再回退主会话 pending），避免“并行子会话”污染主会话上下文。
+  - 同优先级注入改为确定性排序（按 source+id），降低并发注册导致的前缀抖动。
+  - 增加注入预算与指针化（Pointers-not-Paste）：超长内容落盘为 `.opencode/context-capsules/<sha>.md`，提示词只注入 `<context_pointer>`（稳定前缀 + 降 token）。
+- Sub2API：
+  - OpenAI：sticky-session 增加 `x-opencode-session` 兜底；保证同一会话稳定命中同一上游账户/连接池。
+  - Gemini v1beta：优先使用 `session_id` 生成 sticky hash（避免多账号轮询导致的上下文漂移）。
+  - Anthropic `/v1/messages`：优先 `session_id` header 做 sticky-session，确保同会话稳定。
+- 端到端验收（蓝绿双跑）：新环境 18081 已验证 OpenAI/Codex Responses 的真实 `cached_tokens` 命中；旧 18080 未受影响。
+
+**P1.6 明确推迟到 P3 的点（TODO / 不要遗忘）**：
+- Gemini：Cached Content（缓存内容）的自动创建/复用/失效管理仍未接入（P3 需要设计“缓存对象生命周期 + 预算策略 + 可观测性”）。
+- Claude/Anthropic：若走其 prompt cache / cache-control（ephemeral 等）能力，需要在 Context Pack 与 tool schema 层做规范化适配与观测。
+- 多模型统一：DeepSeek / GLM / MiniMax / Gemini/Antigravity 的缓存字段与 usage 口径需要统一的归一层（SSOT），并把命中率写入 Evidence/Tracing。
+- Context Pack + prefix determinism：P3 仍需把“上下文构建/压缩/前缀稳定”做成可解释、可测试、可观测的一等公民（P1.6 只是铺路）。
 
 **跨阶段硬门禁（P0 起始即强制；避免越迭代越乱）**：
 这些门禁是“底座工程契约”，不是某个阶段的可选功能；任何阶段的实现若破坏这些门禁，都必须阻塞合并。
