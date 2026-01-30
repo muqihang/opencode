@@ -113,6 +113,28 @@ describe("evidence.writer", () => {
     })
   })
 
+  test("evidence.writer supports binary artifacts", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const writer = await EvidenceWriter.open({ sessionId: "binary" })
+        const bytes = new Uint8Array([1, 2, 3, 4])
+        const entry = await writer.artifact({
+          kind: "binary",
+          path: "inputs/binary.bin",
+          data: bytes,
+        })
+        const file = Bun.file(
+          path.join(tmp.path, ".opencode", "artifacts", "binary", "inputs/binary.bin"),
+        )
+        const got = new Uint8Array(await file.arrayBuffer())
+        expect([...got]).toEqual([...bytes])
+        expect(entry.path).toContain(".opencode/artifacts/binary/inputs/binary.bin")
+      },
+    })
+  })
+
   test("rejects traversal and does not add manifest entry", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

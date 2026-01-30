@@ -23,7 +23,7 @@ const ArtifactInput = z
     kind: z.string().min(1),
     path: z.string().min(1).optional(),
     manifestPath: z.string().min(1).optional(),
-    data: z.string(),
+    data: z.union([z.string(), z.instanceof(Uint8Array)]),
   })
   .strict()
 
@@ -120,9 +120,13 @@ const Entry = z
   })
   .strict()
 
-function sha(input: string) {
+function sha(input: string | Uint8Array) {
   const hash = new Bun.CryptoHasher("sha256")
-  hash.update(input)
+  if (typeof input === "string") {
+    hash.update(input)
+    return hash.digest("hex")
+  }
+  hash.update(Buffer.from(input))
   return hash.digest("hex")
 }
 
@@ -184,13 +188,13 @@ async function safePath(base: string, rel: string) {
   return target
 }
 
-async function writeAtomic(file: string, data: string) {
+async function writeAtomic(file: string, data: string | Uint8Array) {
   const dir = path.dirname(file)
   await fs.mkdir(dir, { recursive: true })
   const tmp = `${file}.${Identifier.ascending("tool")}.tmp`
   await Bun.write(tmp, data)
   const hash = sha(data)
-  const size = Buffer.byteLength(data, "utf-8")
+  const size = typeof data === "string" ? Buffer.byteLength(data, "utf-8") : data.byteLength
   await fs.rename(tmp, file)
   return { hash, size }
 }
