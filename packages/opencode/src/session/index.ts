@@ -426,15 +426,19 @@ export namespace Session {
       metadata: z.custom<ProviderMetadata>().optional(),
     }),
     (input) => {
-      const cachedInputTokens = input.usage.cachedInputTokens ?? 0
-      const excludesCachedTokens = !!(input.metadata?.["anthropic"] || input.metadata?.["bedrock"])
-      const adjustedInputTokens = excludesCachedTokens
-        ? (input.usage.inputTokens ?? 0)
-        : (input.usage.inputTokens ?? 0) - cachedInputTokens
       const safe = (value: number) => {
         if (!Number.isFinite(value)) return 0
         return value
       }
+      const deepseekCacheHit =
+        input.model.providerID === "deepseek"
+          ? Number((input.usage as Record<string, unknown>)["prompt_cache_hit_tokens"] ?? 0)
+          : 0
+      const cachedInputTokens = safe(input.usage.cachedInputTokens ?? deepseekCacheHit ?? 0)
+      const excludesCachedTokens = !!(input.metadata?.["anthropic"] || input.metadata?.["bedrock"])
+      const adjustedInputTokens = excludesCachedTokens
+        ? (input.usage.inputTokens ?? 0)
+        : (input.usage.inputTokens ?? 0) - cachedInputTokens
 
       const tokens = {
         input: safe(adjustedInputTokens),
