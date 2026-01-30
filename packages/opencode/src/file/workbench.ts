@@ -1,5 +1,9 @@
+import { $ } from "bun"
+import fs from "fs/promises"
+import os from "os"
 import path from "path"
 import z from "zod"
+import { Archive } from "@/util/archive"
 import { EvidenceWriter } from "@/evidence/writer"
 import { Instance } from "@/project/instance"
 import { stableJson } from "@/util/stable-json"
@@ -137,6 +141,15 @@ function isTextLike(name: string, bytes: Uint8Array) {
   return isUtf8(bytes)
 }
 
+function archiveKind(name: string) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith(".zip")) return "zip"
+  if (lower.endsWith(".tar")) return "tar"
+  if (lower.endsWith(".tar.gz")) return "tar"
+  if (lower.endsWith(".tgz")) return "tar"
+  return
+}
+
 async function readInputs(file: string) {
   const text = await Bun.file(file).text().catch(() => "")
   if (!text) {
@@ -172,6 +185,18 @@ function applyCacheHit(entry: z.infer<typeof InputEntry>) {
   return { ...entry, events: [...existing, "cache_hit"] }
 }
 
+async function collectFiles(dir: string, files: string[]) {
+  const entries = await fs.readdir(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    const target = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      await collectFiles(target, files)
+      continue
+    }
+    if (entry.isFile()) files.push(target)
+  }
+}
+
 async function deriveText(options: {
   writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
   inputId: string
@@ -196,6 +221,109 @@ async function deriveText(options: {
     kind: "file-derived-chunks",
     path: `derived/${options.inputId}/chunks.json`,
     data: stableJson([chunk]),
+  })
+}
+
+async function extractArchive(kind: "zip" | "tar", source: string, destination: string) {
+  if (kind === "zip") {
+    return Archive.extractZip(source, destination)
+      .then(() => ({ ok: true }))
+      .catch((error) => ({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }))
+  }
+
+  const result = await $`tar -xf ${source}`.cwd(destination).quiet().nothrow()
+  if (result.exitCode === 0) return { ok: true }
+  const message = result.stderr?.toString().trim() || `tar exit ${result.exitCode}`
+  return { ok: false, error: message }
+}
+
+async function deriveArchive(options: {
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  sessionId: string
+  inputId: string
+  name: string
+}) {
+  const kind = archiveKind(options.name)
+  if (!kind) return
+  const base = baseDir()
+  const source = path.join(
+    base,
+    ".opencode",
+    "artifacts",
+    options.sessionId,
+    "inputs",
+    options.inputId,
+    options.name,
+  )
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-unpack-"))
+  const extracted = await extractArchive(kind, source, tempRoot)
+
+  if (!extracted.ok) {
+    const errorEntry = await options.writer.artifact({
+      kind: "file-unpack-error",
+      path: `derived/${options.inputId}/unpacked/unpack.error.json`,
+      data: stableJson({
+        error: extracted.error ?? "unknown",
+        input: options.name,
+      }),
+    })
+    await options.writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: options.sessionId,
+      severity: "error",
+      actor: "file:workbench",
+      type: "doc.unpack_archive",
+      summary: "archive unpack failed",
+      data: {
+        inputId: options.inputId,
+        error_artifact: errorEntry.path,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    return
+  }
+
+  const files: string[] = []
+  await collectFiles(tempRoot, files)
+  const entries: Array<{ path: string; sha256: string }> = []
+  for (const file of files) {
+    const rel = path.relative(tempRoot, file).replaceAll("\\", "/")
+    const bytes = await Bun.file(file).bytes()
+    await options.writer.artifact({
+      kind: "file-unpacked",
+      path: `derived/${options.inputId}/unpacked/${rel}`,
+      data: bytes,
+    })
+    entries.push({
+      path: rel,
+      sha256: sha(bytes),
+    })
+  }
+
+  const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path))
+  const listEntry = await options.writer.artifact({
+    kind: "file-unpacked-list",
+    path: `derived/${options.inputId}/unpacked/filelist.json`,
+    data: stableJson(sorted),
+  })
+  await options.writer.event({
+    specVersion: "event/1.0",
+    ts: new Date().toISOString(),
+    sessionId: options.sessionId,
+    severity: "info",
+    actor: "file:workbench",
+    type: "doc.unpack_archive",
+    summary: "archive unpacked",
+    data: {
+      inputId: options.inputId,
+      filelist: listEntry.path,
+      entries: sorted.length,
+    },
+    redaction: { applied: true, policyVersion: "v1" },
   })
 }
 
@@ -261,6 +389,13 @@ export const Workbench = {
       inputId,
       name: payload.name,
       bytes: payload.bytes,
+    })
+
+    await deriveArchive({
+      writer,
+      sessionId: data.sessionId,
+      inputId,
+      name: payload.name,
     })
   },
 }
