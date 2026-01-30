@@ -10,6 +10,22 @@
 
 ---
 
+## Design Coverage Index (P1.6 items, no omissions)
+
+This plan is a “foundation patch” aligned with the sandbox-context design:
+- `docs/plans/2026-01-25-opencode-sandbox-context-design.md`
+
+Covered design sections (P1.6 scope):
+- Section 3.2: provider prompt caching alignment (use deterministic keys + stable sticky session signals)
+- Section 16.4: prefix determinism (reduce prefix jitter so caching can actually hit)
+- Section 5: “Pointers-not-Paste” + budget discipline for injected context (spill to file pointers)
+- Section 7: oh-my-opencode orchestration safety (no cross-session injection; deterministic ordering)
+- Section 17 (partial): configs/behavior must remain forward-compatible with P2/P3 (no new uncontrolled config drift)
+
+Explicitly not covered (by design):
+- Section 16 (full): Context Pack SSOT, counters, compaction linkage (owned by P3)
+- Section 13 (hard backends): OS-level hard sandbox backends (owned by P4)
+
 ## Context / Evidence (read first)
 
 - Investigation doc (root cause + code references):

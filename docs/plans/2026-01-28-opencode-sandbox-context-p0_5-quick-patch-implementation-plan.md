@@ -10,7 +10,7 @@
 
 ---
 
-## Design-to-Implementation Checklist (P0 completion gates)
+## Design Coverage Index (P0.5 items, no omissions)
 
 This plan targets the **explicit P0 requirements** from `opencode-zh-build/opencode_src/docs/plans/2026-01-25-opencode-sandbox-context-design.md`:
 

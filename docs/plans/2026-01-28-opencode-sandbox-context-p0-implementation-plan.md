@@ -10,6 +10,18 @@
 
 ---
 
+## Design Coverage Index (P0 items, no omissions)
+
+This plan covers the P0-relevant requirements scattered across:
+- `docs/plans/2026-01-25-opencode-sandbox-context-design.md`
+
+Covered design sections (P0 scope):
+- Section 13: Execution Sandbox (soft backend `SandboxRunner`)
+- Section 15 + Section 8.1: Evidence Pack v1 (`pack.json` + `manifest.json` + `events.jsonl`) as SSOT
+- Section 14: BashTool runs through SandboxRunner; stdout/stderr are artifactized and referenced by pointers
+- Section 2.2: `isolated` workdir baseline via `git worktree` (`.opencode/worktrees/<sessionId>/`)
+- Section 17.1 (optional): minimal `config show --effective` for explainability/debuggability
+
 ### Task 1: Evidence Pack protocol schemas + contract tests
 
 **Files:**

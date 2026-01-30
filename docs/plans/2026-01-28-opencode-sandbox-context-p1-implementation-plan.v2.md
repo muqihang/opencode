@@ -16,6 +16,21 @@
 
 ---
 
+## Design Coverage Index (P1 items, no omissions)
+
+This plan covers the P1-relevant requirements scattered across:
+- `docs/plans/2026-01-25-opencode-sandbox-context-design.md`
+
+Covered design sections (P1 scope):
+- Section 14 + Section 14.1: PythonTool runs in the sandbox via an allowlisted ScriptRegistry (no arbitrary Python)
+- Section 2.1: child sessions also run tools in their own sandbox and produce their own evidence
+- Section 15: micro-pack schema + emission + parent pointer blocks (pointers-not-paste)
+- Section 8.1: `protocol.violation` event ensures evidence never silently breaks even on invalid inputs
+- Section 17: strict config schema to prevent “unknown config fields” drift
+
+Explicitly not covered (tracked for later phases):
+- Section 13.2.1 (P1 baseline): “资料工作台” baseline is not implemented by this plan; P2 Task 11 must verify/implement missing baseline before P3.
+
 ## Status Note（P0 已完成后的关键前置假设）
 
 本计划假设 P0 已落地并且存在以下能力（如同步上游后变化，请先校对再执行）：

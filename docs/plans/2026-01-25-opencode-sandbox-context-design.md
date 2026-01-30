@@ -2267,7 +2267,7 @@ OpenCode/oh-my-opencode 的天然优势是：能在你的电脑上读写文件�
    - 阶段建议：P2+（按需）。
    - 验收：不影响 PoC 闭环；后续引用点多了再统一。
 
-## Open Questions（明确未定项，避免“设计假完成”）
+## Section 22 — Open Questions（明确未定项，避免“设计假完成”）
 
 下面这些点不影响 PoC v1 的闭环，但会影响后续生产/企业级落地，建议在 P2-P4 阶段逐项定案：
 
@@ -2277,7 +2277,7 @@ OpenCode/oh-my-opencode 的天然优势是：能在你的电脑上读写文件�
 4) **缓存与隐私**：prompt/prefix caching 的租户边界、缓存命中统计的泄露风险与默认关闭策略（企业默认更严格）。
 5) **并行写入的最终一致性**：shared workdir 下的锁策略与用户体验（排队、合并冲突的交互方式）。
 
-## 外部参考
+## Section 23 — 外部参考
 
 - OpenAI Codex（开源仓库：CLI harness / execpolicy / AGENTS.md / TUI 设计等）
   - https://github.com/openai/codex
