@@ -436,9 +436,10 @@ export namespace Session {
           : 0
       const cachedInputTokens = safe(input.usage.cachedInputTokens ?? deepseekCacheHit ?? 0)
       const excludesCachedTokens = !!(input.metadata?.["anthropic"] || input.metadata?.["bedrock"])
+      const rawInputTokens = safe(input.usage.inputTokens ?? 0)
       const adjustedInputTokens = excludesCachedTokens
-        ? (input.usage.inputTokens ?? 0)
-        : (input.usage.inputTokens ?? 0) - cachedInputTokens
+        ? rawInputTokens
+        : Math.max(0, rawInputTokens - cachedInputTokens)
 
       const tokens = {
         input: safe(adjustedInputTokens),

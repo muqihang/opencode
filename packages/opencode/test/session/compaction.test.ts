@@ -214,6 +214,21 @@ describe("session.getUsage", () => {
     expect(result.tokens.cache.read).toBe(200)
   })
 
+  test("never makes input tokens negative when deepseek only reports cache-hit tokens", () => {
+    const model = createModel({ context: 100_000, output: 32_000, providerID: "deepseek" })
+    const usage = {
+      inputTokens: undefined,
+      outputTokens: 500,
+      totalTokens: 500,
+      prompt_cache_hit_tokens: 200,
+    } as unknown as LanguageModelUsage
+
+    const result = Session.getUsage({ model, usage })
+
+    expect(result.tokens.input).toBe(0)
+    expect(result.tokens.cache.read).toBe(200)
+  })
+
   test("handles anthropic cache write metadata", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = Session.getUsage({
