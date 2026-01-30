@@ -3,6 +3,7 @@ import path from "path"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
+import { SessionPrompt } from "../../src/session/prompt"
 import { Workbench } from "../../src/file/workbench"
 
 function sha(bytes: Uint8Array) {
@@ -61,6 +62,12 @@ describe("file.workbench inputs", () => {
         const inputId = sha(bytes)
 
         await Workbench.ingest(input)
+        const manifestPath = path.join(tmp.path, ".opencode", "evidence", session.id, "manifest.json")
+        const manifestBefore = JSON.parse(await Bun.file(manifestPath).text()) as {
+          entries: Array<{ path: string }>
+        }
+        const derivedBefore = manifestBefore.entries.filter((entry) => entry.path.includes("/derived/")).length
+
         await Workbench.ingest(input)
 
         const inputsPath = path.join(tmp.path, ".opencode", "artifacts", session.id, "inputs", "inputs.json")
@@ -81,12 +88,37 @@ describe("file.workbench inputs", () => {
           .filter((item) => item.type === "file.cache_hit")
         expect(hits.length).toBe(1)
 
-        const manifestPath = path.join(tmp.path, ".opencode", "evidence", session.id, "manifest.json")
         const manifestData = JSON.parse(await Bun.file(manifestPath).text()) as {
           entries: Array<{ path: string }>
         }
-        const derived = manifestData.entries.filter((entry) => entry.path.includes("/derived/"))
-        expect(derived.length).toBe(0)
+        const derivedAfter = manifestData.entries.filter((entry) => entry.path.includes("/derived/")).length
+        expect(derivedAfter).toBe(derivedBefore)
+      },
+    })
+  })
+
+  test("prompt file parts call workbench ingestion (inputs.json created)", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const filePath = path.join(tmp.path, "note.txt")
+        await Bun.write(filePath, "hello")
+        const part = {
+          type: "file",
+          url: `file://${filePath}`,
+          mime: "text/plain",
+          filename: "note.txt",
+        }
+
+        await SessionPrompt.ingestFilePartToWorkbench({
+          sessionId: session.id,
+          part,
+        })
+
+        const inputsPath = path.join(tmp.path, ".opencode", "artifacts", session.id, "inputs", "inputs.json")
+        expect(await Bun.file(inputsPath).exists()).toBe(true)
       },
     })
   })

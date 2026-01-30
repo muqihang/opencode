@@ -47,6 +47,7 @@ import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 import { finalizeChildSession } from "@/session/finalizer"
 import { maybeRunRoutingInjection } from "@/session/routing-injection"
+import { Workbench } from "@/file/workbench"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -149,6 +150,21 @@ export namespace SessionPrompt {
     ),
   })
   export type PromptInput = z.infer<typeof PromptInput>
+  type PromptFilePart = Extract<PromptInput["parts"][number], { type: "file" }>
+
+  export async function ingestFilePartToWorkbench(input: { sessionId: string; part: PromptFilePart }) {
+    const part = input.part
+    if (!part.url.startsWith("file://") && !part.url.startsWith("data:")) return
+    await Workbench.ingest({
+      sessionId: input.sessionId,
+      part: {
+        type: "file",
+        url: part.url,
+        mime: part.mime,
+        filename: part.filename,
+      },
+    })
+  }
 
   export const prompt = fn(PromptInput, async (input) => {
     const session = await Session.get(input.sessionID)
@@ -945,6 +961,7 @@ export namespace SessionPrompt {
 
             return pieces
           }
+          await ingestFilePartToWorkbench({ sessionId: input.sessionID, part })
           const url = new URL(part.url)
           switch (url.protocol) {
             case "data:":
