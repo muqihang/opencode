@@ -46,6 +46,7 @@ import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 import { finalizeChildSession } from "@/session/finalizer"
+import { maybeRunRoutingInjection } from "@/session/routing-injection"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -254,6 +255,19 @@ export namespace SessionPrompt {
     delete s[sessionID]
     SessionStatus.set(sessionID, { type: "idle" })
     return
+  }
+
+  function intentTextFromUserParts(parts: MessageV2.Part[]): string {
+    const chunks: string[] = []
+    for (const part of parts) {
+      if (part.type !== "text") continue
+      if (part.ignored) continue
+      if (part.synthetic) continue
+      const text = part.text.trim()
+      if (!text) continue
+      chunks.push(text)
+    }
+    return chunks.join("\n").trim()
   }
 
   export const loop = fn(Identifier.schema("session"), async (sessionID) => {
@@ -594,12 +608,26 @@ export namespace SessionPrompt {
 
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: sessionMessages })
 
+      const routingInjection = await maybeRunRoutingInjection({
+        step,
+        sessionId: sessionID,
+        messageId: lastUser.id,
+        parentSessionId: session.parentID,
+        intentText: intentTextFromUserParts(lastUserMsg?.parts ?? []),
+        tier: "plan",
+      })
+
+      const systemPrompts = [...(await SystemPrompt.environment(model)), ...(await SystemPrompt.custom())]
+      if (routingInjection.kind === "injected") {
+        systemPrompts.push(routingInjection.systemPrompt)
+      }
+
       const result = await processor.process({
         user: lastUser,
         agent,
         abort,
         sessionID,
-        system: [...(await SystemPrompt.environment(model)), ...(await SystemPrompt.custom())],
+        system: systemPrompts,
         messages: [
           ...MessageV2.toModelMessages(sessionMessages, model),
           ...(isLastStep
