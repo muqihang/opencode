@@ -5,6 +5,56 @@ import { Instance } from "@/project/instance"
 import { stableJson } from "@/util/stable-json"
 import { fileURLToPath } from "url"
 
+const TEXT_EXTENSIONS = new Set([
+  ".md",
+  ".txt",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".csv",
+  ".log",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".xml",
+  ".html",
+  ".css",
+  ".scss",
+  ".less",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".rb",
+  ".go",
+  ".rs",
+  ".java",
+  ".kt",
+  ".kts",
+  ".swift",
+  ".c",
+  ".cc",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".m",
+  ".mm",
+  ".php",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".ps1",
+  ".bat",
+  ".cmd",
+  ".sql",
+  ".r",
+  ".lua",
+])
+
 const FilePart = z
   .object({
     type: z.literal("file"),
@@ -74,6 +124,19 @@ function parseDataUrl(url: string) {
   return { mime, bytes }
 }
 
+function isUtf8(bytes: Uint8Array) {
+  if (bytes.byteLength === 0) return true
+  const text = Buffer.from(bytes).toString("utf-8")
+  const roundtrip = Buffer.from(text, "utf-8")
+  return roundtrip.equals(Buffer.from(bytes))
+}
+
+function isTextLike(name: string, bytes: Uint8Array) {
+  const ext = path.extname(name).toLowerCase()
+  if (TEXT_EXTENSIONS.has(ext)) return true
+  return isUtf8(bytes)
+}
+
 async function readInputs(file: string) {
   const text = await Bun.file(file).text().catch(() => "")
   if (!text) {
@@ -107,6 +170,33 @@ function applyCacheHit(entry: z.infer<typeof InputEntry>) {
   const existing = entry.events ?? []
   if (existing.includes("cache_hit")) return entry
   return { ...entry, events: [...existing, "cache_hit"] }
+}
+
+async function deriveText(options: {
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  inputId: string
+  name: string
+  bytes: Uint8Array
+}) {
+  if (!isTextLike(options.name, options.bytes)) return
+  const text = Buffer.from(options.bytes).toString("utf-8")
+  const chunk = {
+    chunk_index: 0,
+    start: 0,
+    end: options.bytes.byteLength,
+    content_hash: sha(options.bytes),
+    snippet_preview: text.slice(0, 200),
+  }
+  await options.writer.artifact({
+    kind: "file-derived-text",
+    path: `derived/${options.inputId}/text.txt`,
+    data: text,
+  })
+  await options.writer.artifact({
+    kind: "file-derived-chunks",
+    path: `derived/${options.inputId}/chunks.json`,
+    data: stableJson([chunk]),
+  })
 }
 
 export const Workbench = {
@@ -164,6 +254,13 @@ export const Workbench = {
       kind: "file-inputs",
       path: "inputs/inputs.json",
       data: stableJson({ specVersion: current.specVersion, inputs }),
+    })
+
+    await deriveText({
+      writer,
+      inputId,
+      name: payload.name,
+      bytes: payload.bytes,
     })
   },
 }
