@@ -147,4 +147,39 @@ describe("routing.runner", () => {
       },
     })
   })
+
+  test("non-git projects write routing cache under directory (not /)", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "src"), { recursive: true })
+        await Bun.write(path.join(dir, "src", "alpha.ts"), "export const alpha = 1\n")
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const run = await RoutingRunner.run({
+          sessionId: "session_non_git",
+          messageId: "message_non_git",
+          intentText: "Check routing",
+          tier: "plan",
+          config: {
+            workers: {
+              worker_a_repo: { enabled: false },
+            },
+          },
+        })
+
+        expect(run.routingRunId).toBeTruthy()
+        const cacheDir = path.join(tmp.path, ".opencode", "cache", "routing")
+        const glob = new Bun.Glob("*.json")
+        const hits: string[] = []
+        for await (const item of glob.scan({ cwd: cacheDir, onlyFiles: true })) {
+          hits.push(item)
+        }
+        expect(hits.length).toBeGreaterThan(0)
+      },
+    })
+  })
 })

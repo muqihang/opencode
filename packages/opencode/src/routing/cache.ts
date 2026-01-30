@@ -16,7 +16,9 @@ export const sha256Text = (text: string): string => {
   return hash.digest("hex")
 }
 
-const cacheDir = () => path.join(Instance.worktree, ".opencode", "cache", "routing")
+const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
+
+const cacheDir = () => path.join(baseDir(), ".opencode", "cache", "routing")
 
 const cachePath = (key: string) => path.join(cacheDir(), `${key}.json`)
 

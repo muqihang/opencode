@@ -204,6 +204,7 @@ export const RoutingRunner = {
   async run(input: z.infer<typeof RunInput>) {
     const data = RunInput.parse(input)
     const config = resolveRoutingConfig(data.config)
+    const worktreeRoot = Instance.worktree === "/" ? Instance.directory : Instance.worktree
     const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
     const runId = ulid()
     const started = new Date().toISOString()
@@ -223,7 +224,7 @@ export const RoutingRunner = {
 
     const intentNormalized = normalizeIntent(data.intentText)
     const intentFingerprint = sha256Text(intentNormalized + "\n" + config.versions.routingTemplate)
-    const repo = await resolveRepo(Instance.worktree)
+    const repo = await resolveRepo(worktreeRoot)
     const repoFingerprint = routingRepoFingerprint(repo)
     const configFingerprint = routingConfigFingerprint(config)
 
@@ -240,7 +241,7 @@ export const RoutingRunner = {
       },
       project: {
         projectId: Instance.project.id,
-        worktreeRoot: Instance.worktree,
+        worktreeRoot,
       },
       repo,
       budgets: {
@@ -260,7 +261,7 @@ export const RoutingRunner = {
 
     const scope = {
       projectId: Instance.project.id,
-      worktreeRoot: Instance.worktree,
+      worktreeRoot,
     }
 
     const timeoutMs = Math.min(config.workerTimeoutMs, config.maxWallClockMs)
@@ -346,7 +347,7 @@ export const RoutingRunner = {
         const start = Date.now()
         const output = await withTimeout(
           item.run({
-            root: Instance.worktree,
+            root: worktreeRoot,
             topK: item.topK,
             intent: data.intentText,
           }),
