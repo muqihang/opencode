@@ -45,6 +45,7 @@ import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
+import { finalizeChildSession } from "@/session/finalizer"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -623,6 +624,12 @@ export namespace SessionPrompt {
         })
       }
       continue
+    }
+    if (session.parentID) {
+      await finalizeChildSession({
+        parentSessionId: session.parentID,
+        childSessionId: session.id,
+      })
     }
     SessionCompaction.prune({ sessionID })
     for await (const item of MessageV2.stream(sessionID)) {
