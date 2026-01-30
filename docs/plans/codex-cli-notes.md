@@ -119,6 +119,51 @@ codex mcp list
 codex mcp get chelingxi-intel-hub
 ```
 
+## 5. OpenCode Provider Snippets（DeepSeek / GLM / MiniMax）
+
+可直接放入 `~/.opencode/opencode.json` 的 `provider` 节点：
+
+```json
+{
+  "provider": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://api.deepseek.com",
+        "apiKey": "sk-***"
+      },
+      "models": {
+        "deepseek-chat": { "name": "DeepSeek Chat" },
+        "deepseek-reasoner": { "name": "DeepSeek Reasoner" }
+      }
+    },
+    "zai": {
+      "name": "Z.AI (GLM)",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://api.z.ai/api/paas/v4",
+        "apiKey": "sk-***"
+      },
+      "models": {
+        "glm-4.7": { "name": "GLM-4.7" }
+      }
+    },
+    "minimax": {
+      "name": "MiniMax",
+      "npm": "@ai-sdk/anthropic",
+      "options": {
+        "baseURL": "https://api.minimax.io/anthropic/v1",
+        "apiKey": "sk-***"
+      },
+      "models": {
+        "MiniMax-M2.1": { "name": "MiniMax M2.1" }
+      }
+    }
+  }
+}
+```
+
 2) 用 `codex exec` 做“最小 tool call”验证（建议加 `--json` 方便证据化）：
 
 ```bash
@@ -199,4 +244,3 @@ codex sandbox --help
 3) 偏运维：重点写配置管理、安全与证据化
 
 你更希望偏哪一种？
-
