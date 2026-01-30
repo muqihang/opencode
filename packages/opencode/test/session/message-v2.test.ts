@@ -639,6 +639,45 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("does not replay reasoning parts for deepseek-reasoner", () => {
+    const reasoner: Provider.Model = {
+      ...model,
+      id: "deepseek-reasoner",
+      providerID: "deepseek",
+      api: { ...model.api, id: "deepseek-reasoner" },
+    }
+    const assistantID = "m-deepseek"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent", undefined, {
+          providerID: "deepseek",
+          modelID: "deepseek-reasoner",
+        }),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "reasoning",
+            text: "thinking",
+            time: { start: 0 },
+          },
+          {
+            ...basePart(assistantID, "a2"),
+            type: "text",
+            text: "answer",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(MessageV2.toModelMessages(input, reasoner)).toStrictEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "answer" }],
+      },
+    ])
+  })
+
   test("splits assistant messages on step-start boundaries", () => {
     const assistantID = "m-assistant"
 

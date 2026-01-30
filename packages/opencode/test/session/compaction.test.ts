@@ -7,6 +7,7 @@ import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 import { Session } from "../../src/session"
 import type { Provider } from "../../src/provider/provider"
+import type { LanguageModelUsage } from "ai"
 
 Log.init({ print: false })
 
@@ -15,10 +16,11 @@ function createModel(opts: {
   output: number
   input?: number
   cost?: Provider.Model["cost"]
+  providerID?: string
 }): Provider.Model {
   return {
     id: "test-model",
-    providerID: "test",
+    providerID: opts.providerID ?? "test",
     name: "Test",
     limit: {
       context: opts.context,
@@ -192,6 +194,21 @@ describe("session.getUsage", () => {
         cachedInputTokens: 200,
       },
     })
+
+    expect(result.tokens.input).toBe(800)
+    expect(result.tokens.cache.read).toBe(200)
+  })
+
+  test("maps deepseek prompt_cache_hit_tokens into cache.read", () => {
+    const model = createModel({ context: 100_000, output: 32_000, providerID: "deepseek" })
+    const usage = {
+      inputTokens: 1000,
+      outputTokens: 500,
+      totalTokens: 1500,
+      prompt_cache_hit_tokens: 200,
+    } as unknown as LanguageModelUsage
+
+    const result = Session.getUsage({ model, usage })
 
     expect(result.tokens.input).toBe(800)
     expect(result.tokens.cache.read).toBe(200)
