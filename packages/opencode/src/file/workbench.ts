@@ -150,6 +150,13 @@ function archiveKind(name: string) {
   return
 }
 
+function isPdf(name: string, mime: string) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith(".pdf")) return true
+  if (mime.toLowerCase().includes("pdf")) return true
+  return false
+}
+
 async function readInputs(file: string) {
   const text = await Bun.file(file).text().catch(() => "")
   if (!text) {
@@ -327,6 +334,84 @@ async function deriveArchive(options: {
   })
 }
 
+async function derivePdf(options: {
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  sessionId: string
+  inputId: string
+  name: string
+  mime: string
+}) {
+  if (!isPdf(options.name, options.mime)) return
+  const base = baseDir()
+  const source = path.join(
+    base,
+    ".opencode",
+    "artifacts",
+    options.sessionId,
+    "inputs",
+    options.inputId,
+    options.name,
+  )
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-pdf-"))
+  const output = path.join(tempRoot, "text.txt")
+  const result = await $`pdftotext ${source} ${output}`.quiet().nothrow()
+
+  if (result.exitCode === 0) {
+    const file = Bun.file(output)
+    const exists = await file.exists()
+    if (exists) {
+      const text = await file.text()
+      const textEntry = await options.writer.artifact({
+        kind: "file-derived-text",
+        path: `derived/${options.inputId}/text.txt`,
+        data: text,
+      })
+      await options.writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: options.sessionId,
+        severity: "info",
+        actor: "file:workbench",
+        type: "doc.extract_pdf_text",
+        summary: "pdf text extracted",
+        data: {
+          inputId: options.inputId,
+          text: textEntry.path,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+      return
+    }
+  }
+
+  const message =
+    result.stderr?.toString().trim() ||
+    result.stdout?.toString().trim() ||
+    `pdftotext exit ${result.exitCode}`
+  const errorEntry = await options.writer.artifact({
+    kind: "file-pdf-error",
+    path: `derived/${options.inputId}/pdf.extract.error.json`,
+    data: stableJson({
+      error: message,
+      hint: "pdftotext failed or is unavailable",
+    }),
+  })
+  await options.writer.event({
+    specVersion: "event/1.0",
+    ts: new Date().toISOString(),
+    sessionId: options.sessionId,
+    severity: "error",
+    actor: "file:workbench",
+    type: "doc.extract_pdf_text",
+    summary: "pdf text extraction failed",
+    data: {
+      inputId: options.inputId,
+      error_artifact: errorEntry.path,
+    },
+    redaction: { applied: true, policyVersion: "v1" },
+  })
+}
+
 export const Workbench = {
   async ingest(input: z.infer<typeof IngestInput>) {
     const data = IngestInput.parse(input)
@@ -396,6 +481,14 @@ export const Workbench = {
       sessionId: data.sessionId,
       inputId,
       name: payload.name,
+    })
+
+    await derivePdf({
+      writer,
+      sessionId: data.sessionId,
+      inputId,
+      name: payload.name,
+      mime: payload.mime,
     })
   },
 }
