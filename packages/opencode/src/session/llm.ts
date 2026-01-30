@@ -45,6 +45,25 @@ export namespace LLM {
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
 
+  export function buildGatewayHeaders(input: {
+    sessionID: string
+    model: Pick<Provider.Model, "api">
+    providerOptions?: Record<string, unknown>
+  }): Record<string, string> {
+    const wireApi = input.providerOptions?.["wireApi"] ?? input.providerOptions?.["wire_api"]
+    const isOpenAI = input.model.api.npm === "@ai-sdk/openai"
+    const useResponses = wireApi === "responses" || input.providerOptions?.["setCacheKey"] === true
+    const forceSticky = input.providerOptions?.["stickySessionHeaders"] === true
+
+    if ((isOpenAI && useResponses) || forceSticky) {
+      return {
+        session_id: input.sessionID,
+        conversation_id: input.sessionID,
+      }
+    }
+    return {}
+  }
+
   export async function stream(input: StreamInput) {
     const l = log
       .clone()
@@ -229,6 +248,11 @@ export namespace LLM {
                 "User-Agent": `opencode/${Installation.VERSION}`,
               }
             : undefined),
+        ...buildGatewayHeaders({
+          sessionID: input.sessionID,
+          model: input.model,
+          providerOptions: provider.options,
+        }),
         ...input.model.headers,
         ...headers,
       },

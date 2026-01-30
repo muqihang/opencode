@@ -440,6 +440,8 @@ export namespace MessageV2 {
   export function toModelMessages(input: WithParts[], model: Provider.Model): ModelMessage[] {
     const result: UIMessage[] = []
     const toolNames = new Set<string>()
+    const skipReasoning =
+      model.providerID === "deepseek" && (model.id === "deepseek-reasoner" || model.api.id === "deepseek-reasoner")
 
     const toModelOutput = (output: unknown) => {
       if (typeof output === "string") {
@@ -585,7 +587,7 @@ export namespace MessageV2 {
                 ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
               })
           }
-          if (part.type === "reasoning") {
+          if (part.type === "reasoning" && !skipReasoning) {
             assistantMessage.parts.push({
               type: "reasoning",
               text: part.text,
