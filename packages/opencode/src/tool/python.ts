@@ -6,7 +6,8 @@ import { Tool } from "./tool"
 import DESCRIPTION from "./python.txt"
 import { Config } from "@/config/config"
 import { Instance } from "@/project/instance"
-import { SessionWorktree } from "@/worktree/session"
+import { Session } from "@/session"
+import { resolveWorkdirMode, resolveWorkdirPath } from "@/workdir/resolve"
 import { SandboxRunner } from "@/sandbox/runner"
 import { ScriptRegistry } from "@/python/registry"
 import { EvidenceWriter } from "@/evidence/writer"
@@ -88,9 +89,11 @@ export const PythonTool = Tool.define("python", async () => {
     async execute(params, ctx) {
       const config = await Config.get()
       const pythonPath = config.python?.pythonPath ?? "python3"
-      const workdir =
-        params.workdir ??
-        (Instance.project.vcs === "git" ? await SessionWorktree.ensure({ sessionId: ctx.sessionID }) : Instance.directory)
+      const parsed = Session.Info.shape.id.safeParse(ctx.sessionID)
+      const info = parsed.success ? await Session.get(ctx.sessionID).catch(() => undefined) : undefined
+      const kind = info?.parentID ? "child" : "primary"
+      const mode = await resolveWorkdirMode({ kind })
+      const workdir = params.workdir ?? (await resolveWorkdirPath({ sessionId: ctx.sessionID, mode }))
       const timeout = params.timeout ?? DEFAULT_TIMEOUT
 
       const script = await ScriptRegistry.resolve({ scriptId: params.script_id })
@@ -141,13 +144,12 @@ export const PythonTool = Tool.define("python", async () => {
             : { mode: "full" as const, note: "python.allowNetwork enabled without allowlist" }
           : { mode: "deny_all" as const }
 
-      const workdirMode = Instance.project.vcs === "git" ? ("isolated" as const) : ("shared" as const)
       const capability = {
         readonlyPaths: [Instance.worktree],
         writePaths: [workdir, path.join(Instance.worktree, ".opencode")],
         exportPaths: [],
         network,
-        workdirMode,
+        workdirMode: mode,
       }
 
       await ctx.ask({
@@ -182,6 +184,7 @@ export const PythonTool = Tool.define("python", async () => {
         abort: ctx.abort,
       })
 
+      const postWriter = await EvidenceWriter.open({ sessionId: ctx.sessionID })
       const outputFileHandle = Bun.file(outputPath)
       const outputExists = await outputFileHandle.exists()
       let outputText = outputExists ? await outputFileHandle.text().catch(() => "") : ""
@@ -192,13 +195,13 @@ export const PythonTool = Tool.define("python", async () => {
           stderr: run.stderr,
         })
       }
-      const outputEntry = await writer.artifact({
+      const outputEntry = await postWriter.artifact({
         kind: "python-output",
         path: `python/${outputFile}`,
         data: outputText,
       })
 
-      await writer.event({
+      await postWriter.event({
         specVersion: "event/1.0",
         ts: new Date().toISOString(),
         sessionId: ctx.sessionID,

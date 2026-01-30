@@ -16,6 +16,12 @@ import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
+import { EvidenceWriter } from "../evidence/writer"
+import { Session } from "@/session"
+import { resolveWorkdirMode, resolveWorkdirPath } from "@/workdir/resolve"
+import { toLogicalPath, toWorkdirPath } from "@/workdir/paths"
+import { WorkdirWriteQueue } from "@/workdir/write-queue"
+import { captureWorktreePatch } from "@/worktree/changes"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 
@@ -40,64 +46,109 @@ export const EditTool = Tool.define("edit", {
       throw new Error("oldString and newString must be different")
     }
 
-    const filePath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
-    await assertExternalDirectory(ctx, filePath)
+    const base = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+    const repoPath = path.isAbsolute(params.filePath) ? params.filePath : path.resolve(base, params.filePath)
+    await assertExternalDirectory(ctx, repoPath)
+
+    const parsed = Session.Info.shape.id.safeParse(ctx.sessionID)
+    const info = parsed.success ? await Session.get(ctx.sessionID).catch(() => undefined) : undefined
+    const kind = info?.parentID ? "child" : "primary"
+    const mode = await resolveWorkdirMode({ kind })
+    const workdir = await resolveWorkdirPath({ sessionId: ctx.sessionID, mode })
+    const writer = await EvidenceWriter.open({ sessionId: ctx.sessionID })
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: ctx.sessionID,
+      severity: "info",
+      actor: "workdir:resolve",
+      type: "workdir.mode_resolved",
+      summary: "workdir mode resolved",
+      data: {
+        mode,
+        workdir,
+        logicalRoot: base,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+
+    const internal = Filesystem.contains(base, repoPath)
+    const logicalPath = internal
+      ? toLogicalPath({ repoPath })
+      : path.relative(base, repoPath).split(path.sep).join(path.posix.sep)
+    const filePath = internal ? toWorkdirPath({ repoPath, workdir }) : repoPath
 
     let diff = ""
     let contentOld = ""
     let contentNew = ""
-    await FileTime.withLock(filePath, async () => {
-      if (params.oldString === "") {
-        contentNew = params.newString
-        diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
+
+    const applyEdit = async () =>
+      FileTime.withLock(filePath, async () => {
+        if (params.oldString === "") {
+          contentNew = params.newString
+          diff = trimDiff(createTwoFilesPatch(logicalPath, logicalPath, contentOld, contentNew))
+          await ctx.ask({
+            permission: "edit",
+            patterns: [logicalPath],
+            always: ["*"],
+            metadata: {
+              filepath: filePath,
+              diff,
+            },
+          })
+          await Bun.write(filePath, params.newString)
+          await Bus.publish(File.Event.Edited, {
+            file: filePath,
+          })
+          FileTime.read(ctx.sessionID, filePath)
+          return
+        }
+
+        const file = Bun.file(filePath)
+        const stats = await file.stat().catch(() => {})
+        if (!stats) throw new Error(`File ${filePath} not found`)
+        if (stats.isDirectory()) throw new Error(`Path is a directory, not a file: ${filePath}`)
+        await FileTime.assert(ctx.sessionID, filePath)
+        contentOld = await file.text()
+        contentNew = replace(contentOld, params.oldString, params.newString, params.replaceAll)
+
+        diff = trimDiff(
+          createTwoFilesPatch(logicalPath, logicalPath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
+        )
         await ctx.ask({
           permission: "edit",
-          patterns: [path.relative(Instance.worktree, filePath)],
+          patterns: [logicalPath],
           always: ["*"],
           metadata: {
             filepath: filePath,
             diff,
           },
         })
-        await Bun.write(filePath, params.newString)
+
+        await file.write(contentNew)
         await Bus.publish(File.Event.Edited, {
           file: filePath,
         })
+        contentNew = await file.text()
+        diff = trimDiff(
+          createTwoFilesPatch(logicalPath, logicalPath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
+        )
         FileTime.read(ctx.sessionID, filePath)
-        return
-      }
-
-      const file = Bun.file(filePath)
-      const stats = await file.stat().catch(() => {})
-      if (!stats) throw new Error(`File ${filePath} not found`)
-      if (stats.isDirectory()) throw new Error(`Path is a directory, not a file: ${filePath}`)
-      await FileTime.assert(ctx.sessionID, filePath)
-      contentOld = await file.text()
-      contentNew = replace(contentOld, params.oldString, params.newString, params.replaceAll)
-
-      diff = trimDiff(
-        createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
-      )
-      await ctx.ask({
-        permission: "edit",
-        patterns: [path.relative(Instance.worktree, filePath)],
-        always: ["*"],
-        metadata: {
-          filepath: filePath,
-          diff,
-        },
       })
 
-      await file.write(contentNew)
-      await Bus.publish(File.Event.Edited, {
-        file: filePath,
+    if (mode === "shared") {
+      await WorkdirWriteQueue.run({
+        sessionId: ctx.sessionID,
+        targetDir: workdir,
+        reason: "edit",
+        intentFiles: [logicalPath],
+        writer,
+        work: applyEdit,
       })
-      contentNew = await file.text()
-      diff = trimDiff(
-        createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
-      )
-      FileTime.read(ctx.sessionID, filePath)
-    })
+    }
+    if (mode === "isolated") {
+      await applyEdit()
+    }
 
     const filediff: Snapshot.FileDiff = {
       file: filePath,
@@ -132,13 +183,21 @@ export const EditTool = Tool.define("edit", {
       output += `\n\nLSP errors detected in this file, please fix:\n<diagnostics file="${filePath}">\n${limited.map(LSP.Diagnostic.pretty).join("\n")}${suffix}\n</diagnostics>`
     }
 
+    if (mode === "isolated") {
+      await captureWorktreePatch({
+        workdir,
+        sessionId: ctx.sessionID,
+        writer,
+      })
+    }
+
     return {
       metadata: {
         diagnostics,
         diff,
         filediff,
       },
-      title: `${path.relative(Instance.worktree, filePath)}`,
+      title: `${logicalPath}`,
       output,
     }
   },

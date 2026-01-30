@@ -5,6 +5,7 @@ import { Instance } from "@/project/instance"
 import { Filesystem } from "@/util/filesystem"
 import { Identifier } from "@/id/id"
 import { EvidencePack } from "@/protocol/evidence-pack"
+import type { EvidencePack as EvidencePackType } from "@/protocol/evidence-pack"
 import { EvidenceManifest } from "@/protocol/evidence-manifest"
 import { EventV1 } from "@/protocol/event"
 import { EvidenceMicroPack } from "@/protocol/evidence-micro-pack"
@@ -73,6 +74,40 @@ const PackInput = z
 const MicroPackInput = z
   .object({
     parentSessionId: z.string().min(1).optional(),
+  })
+  .strict()
+
+const ClaimInput = z
+  .object({
+    id: z.string().min(1),
+    type: z.string().min(1),
+    statement: z.string().min(1),
+    evidence: z.array(z.string().min(1)),
+    verification: z.array(z.string().min(1)).optional(),
+    confidence: z.number().min(0).max(1).optional(),
+  })
+  .strict()
+
+const CheckInput = z
+  .object({
+    id: z.string().min(1),
+    command: z.string().min(1),
+    status: z.enum(["pass", "fail", "skip"]),
+    artifact: z.string().min(1).optional(),
+  })
+  .strict()
+
+const RiskInput = z
+  .object({
+    summary: z.string().min(1),
+    evidence: z.array(z.string().min(1)).optional(),
+  })
+  .strict()
+
+const RollbackInput = z
+  .object({
+    strategy: z.string().min(1),
+    steps: z.array(z.string().min(1)),
   })
   .strict()
 
@@ -174,6 +209,39 @@ async function readManifest(file: string, packId: string) {
   return EvidenceManifest.parse(data)
 }
 
+type Claim = EvidencePackType["claims"][number]
+type Check = EvidencePackType["checks"][number]
+type Risk = EvidencePackType["risks"][number]
+type Rollback = EvidencePackType["rollback"]
+type Capsule = EvidencePackType["capsule"]
+
+function sortClaims(items: Claim[]) {
+  return [...items].sort((a, b) => a.id.localeCompare(b.id))
+}
+
+function sortChecks(items: Check[]) {
+  return [...items].sort((a, b) => a.id.localeCompare(b.id))
+}
+
+function sortRisks(items: Risk[]) {
+  return [...items].sort((a, b) => {
+    const summary = a.summary.localeCompare(b.summary)
+    if (summary !== 0) return summary
+    const left = (a.evidence ?? []).join("|")
+    const right = (b.evidence ?? []).join("|")
+    return left.localeCompare(right)
+  })
+}
+
+function sortArtifacts<T extends { sha256?: string; path: string }>(items: T[]) {
+  return [...items].sort((a, b) => {
+    const shaA = a.sha256 ?? ""
+    const shaB = b.sha256 ?? ""
+    if (shaA !== shaB) return shaA.localeCompare(shaB)
+    return a.path.localeCompare(b.path)
+  })
+}
+
 export const EvidenceWriter = {
   async open(input: z.infer<typeof OpenInput>) {
     OpenInput.parse(input)
@@ -194,13 +262,37 @@ export const EvidenceWriter = {
     const manifestData = await readManifest(manifestPath, packId)
     const entries = [...manifestData.entries]
     const events: Array<z.infer<typeof EventV1>> = []
+    let claims: Claim[] = []
+    let checks: Check[] = []
+    let risks: Risk[] = []
+    let rollback: Rollback = { strategy: "none", steps: [] }
+    let capsule: Capsule = { handoff: "", pointers: [], openQuestions: [] }
+    let task: EvidencePackType["task"] = {
+      title: "User request",
+      intent: "P0 sandbox",
+      successCriteria: ["evidence written"],
+    }
+    let environment: EvidencePackType["environment"] | undefined = undefined
+
+    const existingPackText = await Bun.file(packPath).text().catch(() => "")
+    if (existingPackText) {
+      const parsed = EvidencePack.parse(JSON.parse(existingPackText))
+      claims = [...parsed.claims]
+      checks = [...parsed.checks]
+      risks = [...parsed.risks]
+      rollback = parsed.rollback
+      capsule = parsed.capsule
+      task = parsed.task
+      environment = parsed.environment
+    }
 
     async function writeManifest(packId: string) {
+      const sortedEntries = [...entries].sort((a, b) => a.path.localeCompare(b.path))
       const manifest = EvidenceManifest.parse({
         specVersion: "evidence-manifest/1.0",
         packId,
         generatedAtUtc: new Date().toISOString(),
-        entries,
+        entries: sortedEntries,
       })
       await writeAtomic(manifestPath, stableJson(manifest))
       return manifest
@@ -353,44 +445,51 @@ export const EvidenceWriter = {
     async function pack(inputPack: z.infer<typeof PackInput>) {
       const data = PackInput.parse(inputPack)
       const packId = `EP-${sessionId}`
-      const execution = data.execution ?? {
-        kind: "sandbox",
-        id: `sandbox:${sessionId}`,
-      }
+      const execution =
+        data.execution ??
+        environment?.execution ?? {
+          kind: "sandbox",
+          id: `sandbox:${sessionId}`,
+        }
       const eventsFromDisk = await readEventsFromDisk()
+      const artifactEntries = entries.filter((entry) =>
+        entry.path.replace(/\\/g, "/").startsWith(`.opencode/artifacts/${sessionId}/`),
+      )
+      const artifacts = sortArtifacts(
+        artifactEntries.map((entry) => ({
+          id: `artifact:${entry.sha256}`,
+          kind: entry.kind,
+          path: entry.path,
+          sha256: entry.sha256,
+        })),
+      )
+
       const pack = EvidencePack.parse({
         specVersion: "evidence-pack/1.0",
         packId,
-        task: {
-          title: "User request",
-          intent: "P0 sandbox",
-          successCriteria: ["evidence written"],
-        },
+        task,
         environment: {
           execution: {
             kind: execution.kind,
             id: execution.id,
-            backend: execution.backend,
-            enforcement: execution.enforcement,
+            backend: execution.backend ?? environment?.execution.backend,
+            enforcement: execution.enforcement ?? environment?.execution.enforcement,
           },
-          os: data.environment?.os,
-          runtime: data.environment?.runtime,
-          repo: data.environment?.repo,
+          os: data.environment?.os ?? environment?.os,
+          runtime: data.environment?.runtime ?? environment?.runtime,
+          repo: data.environment?.repo ?? environment?.repo,
         },
-        claims: [],
-        artifacts: [],
-        checks: [],
+        claims: sortClaims(claims),
+        artifacts,
+        checks: sortChecks(checks),
         events: eventsFromDisk,
         capsule: {
           handoff: data.handoff,
-          pointers: [],
-          openQuestions: [],
+          pointers: capsule.pointers,
+          openQuestions: capsule.openQuestions,
         },
-        risks: [],
-        rollback: {
-          strategy: "none",
-          steps: [],
-        },
+        risks: sortRisks(risks),
+        rollback,
       })
       const packText = stableJson(pack)
       const packWrite = await writeAtomic(packPath, packText)
@@ -444,14 +543,16 @@ export const EvidenceWriter = {
         sessionId,
         parentSessionId: data.parentSessionId,
         generatedAtUtc: new Date().toISOString(),
-        artifacts: entries.map((entry) => ({
-          path: entry.path,
-          sha256: entry.sha256,
-          kind: entry.kind,
-          size: entry.size,
-        })),
-        claims: [],
-        checks: [],
+        artifacts: sortArtifacts(
+          entries.map((entry) => ({
+            path: entry.path,
+            sha256: entry.sha256,
+            kind: entry.kind,
+            size: entry.size,
+          })),
+        ),
+        claims: sortClaims(claims),
+        checks: sortChecks(checks),
         events: eventsFromDisk,
       })
       const microPath = path.join(evidence, "micro-pack.json")
@@ -476,6 +577,41 @@ export const EvidenceWriter = {
     return {
       event,
       artifact,
+      claim: async (inputClaim: z.infer<typeof ClaimInput>) => {
+        const claim = ClaimInput.parse(inputClaim)
+        const index = claims.findIndex((item) => item.id === claim.id)
+        if (index >= 0) {
+          claims[index] = claim
+        } else {
+          claims.push(claim)
+        }
+        return claim
+      },
+      check: async (inputCheck: z.infer<typeof CheckInput>) => {
+        const check = CheckInput.parse(inputCheck)
+        const index = checks.findIndex((item) => item.id === check.id)
+        if (index >= 0) {
+          checks[index] = check
+        } else {
+          checks.push(check)
+        }
+        return check
+      },
+      risk: async (inputRisk: z.infer<typeof RiskInput>) => {
+        const risk = RiskInput.parse(inputRisk)
+        const index = risks.findIndex((item) => item.summary === risk.summary)
+        if (index >= 0) {
+          risks[index] = risk
+        } else {
+          risks.push(risk)
+        }
+        return risk
+      },
+      rollback: async (inputRollback: z.infer<typeof RollbackInput>) => {
+        const next = RollbackInput.parse(inputRollback)
+        rollback = next
+        return rollback
+      },
       pack,
       microPack,
       manifest,

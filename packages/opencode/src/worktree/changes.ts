@@ -1,5 +1,7 @@
 import { $ } from "bun"
 import { EventV1 } from "@/protocol/event"
+import { stableJson } from "@/util/stable-json"
+import { createWorktreeChangeSet } from "@/worktree/changeset"
 
 type Writer = {
   artifact: (input: { kind: string; path?: string; data: string }) => Promise<{
@@ -52,6 +54,16 @@ export async function captureWorktreePatch(input: {
     path: "worktree/changes.patch",
     data: patch,
   })
+  const changeset = await createWorktreeChangeSet({
+    workdir: input.workdir,
+    sessionId: input.sessionId,
+    patch,
+  })
+  const changesEntry = await input.writer.artifact({
+    kind: "worktree-changeset",
+    path: "worktree/changes.json",
+    data: stableJson(changeset),
+  })
 
   await input.writer.event({
     specVersion: "event/1.0",
@@ -64,6 +76,21 @@ export async function captureWorktreePatch(input: {
     data: {
       artifact: entry.path,
       sha256: entry.sha256,
+    },
+    redaction: { applied: true, policyVersion: "v1" },
+  })
+
+  await input.writer.event({
+    specVersion: "event/1.0",
+    ts: new Date().toISOString(),
+    sessionId: input.sessionId,
+    severity: "info",
+    actor: "worktree:changes",
+    type: "worktree.changeset_captured",
+    summary: "worktree changeset captured",
+    data: {
+      artifact: changesEntry.path,
+      sha256: changesEntry.sha256,
     },
     redaction: { applied: true, policyVersion: "v1" },
   })

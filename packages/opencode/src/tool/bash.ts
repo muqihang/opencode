@@ -12,7 +12,7 @@ import { Filesystem } from "@/util/filesystem"
 import { fileURLToPath } from "url"
 import { Flag } from "@/flag/flag.ts"
 import { SandboxRunner } from "@/sandbox/runner"
-import { SessionWorktree } from "@/worktree/session"
+import { resolveWorkdirMode, resolveWorkdirPath } from "@/workdir/resolve"
 
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
@@ -89,9 +89,11 @@ export const BashTool = Tool.define("bash", async () => {
         ),
     }),
     async execute(params, ctx) {
-      const workdir =
-        params.workdir ??
-        (Instance.project.vcs === "git" ? await SessionWorktree.ensure({ sessionId: ctx.sessionID }) : Instance.directory)
+      const parsed = Session.Info.shape.id.safeParse(ctx.sessionID)
+      const info = parsed.success ? await Session.get(ctx.sessionID).catch(() => undefined) : undefined
+      const kind = info?.parentID ? "child" : "primary"
+      const mode = await resolveWorkdirMode({ kind })
+      const workdir = params.workdir ?? (await resolveWorkdirPath({ sessionId: ctx.sessionID, mode }))
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
       }
@@ -200,7 +202,7 @@ export const BashTool = Tool.define("bash", async () => {
             external_directories: externalDirectories,
             bash_patterns: bashPatterns,
             network: { mode: "deny_all" },
-            workdirMode: Instance.project.vcs === "git" ? "isolated" : "shared",
+            workdirMode: mode,
             timeoutMs: timeout,
           },
         })
@@ -216,7 +218,7 @@ export const BashTool = Tool.define("bash", async () => {
           writePaths: [workdir, path.join(Instance.worktree, ".opencode")],
           exportPaths: [],
           network: { mode: "deny_all" },
-          workdirMode: Instance.project.vcs === "git" ? "isolated" : "shared",
+          workdirMode: mode,
         },
         limits: { timeoutMs: timeout },
         abort: ctx.abort,

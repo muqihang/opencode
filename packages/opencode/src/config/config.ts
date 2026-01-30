@@ -909,6 +909,12 @@ export namespace Config {
         .optional(),
       plugin: z.string().array().optional(),
       snapshot: z.boolean().optional(),
+      workdir: z
+        .object({
+          primary: z.enum(["shared", "isolated"]).default("shared"),
+          child: z.enum(["shared", "isolated"]).default("isolated"),
+        })
+        .optional(),
       share: z
         .enum(["manual", "auto", "disabled"])
         .optional()

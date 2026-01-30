@@ -4,6 +4,8 @@ import { EditTool } from "./edit"
 import DESCRIPTION from "./multiedit.txt"
 import path from "path"
 import { Instance } from "../project/instance"
+import { Filesystem } from "../util/filesystem"
+import { toLogicalPath } from "@/workdir/paths"
 
 export const MultiEditTool = Tool.define("multiedit", {
   description: DESCRIPTION,
@@ -21,6 +23,12 @@ export const MultiEditTool = Tool.define("multiedit", {
       .describe("Array of edit operations to perform sequentially on the file"),
   }),
   async execute(params, ctx) {
+    const base = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+    const repoPath = path.isAbsolute(params.filePath) ? params.filePath : path.resolve(base, params.filePath)
+    const logicalPath = Filesystem.contains(base, repoPath)
+      ? toLogicalPath({ repoPath })
+      : path.relative(base, repoPath).split(path.sep).join(path.posix.sep)
+
     const tool = await EditTool.init()
     const results = []
     for (const [, edit] of params.edits.entries()) {
@@ -36,7 +44,7 @@ export const MultiEditTool = Tool.define("multiedit", {
       results.push(result)
     }
     return {
-      title: path.relative(Instance.worktree, params.filePath),
+      title: logicalPath,
       metadata: {
         results: results.map((r) => r.metadata),
       },

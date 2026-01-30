@@ -9,8 +9,14 @@ import { File } from "../file"
 import { FileTime } from "../file/time"
 import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
+import { EvidenceWriter } from "../evidence/writer"
 import { trimDiff } from "./edit"
 import { assertExternalDirectory } from "./external-directory"
+import { Session } from "@/session"
+import { resolveWorkdirMode, resolveWorkdirPath } from "@/workdir/resolve"
+import { toLogicalPath, toWorkdirPath } from "@/workdir/paths"
+import { WorkdirWriteQueue } from "@/workdir/write-queue"
+import { captureWorktreePatch } from "@/worktree/changes"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
@@ -22,30 +28,82 @@ export const WriteTool = Tool.define("write", {
     filePath: z.string().describe("The absolute path to the file to write (must be absolute, not relative)"),
   }),
   async execute(params, ctx) {
-    const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
-    await assertExternalDirectory(ctx, filepath)
+    const base = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+    const repoPath = path.isAbsolute(params.filePath)
+      ? params.filePath
+      : path.resolve(base, params.filePath)
+    await assertExternalDirectory(ctx, repoPath)
 
-    const file = Bun.file(filepath)
-    const exists = await file.exists()
-    const contentOld = exists ? await file.text() : ""
-    if (exists) await FileTime.assert(ctx.sessionID, filepath)
-
-    const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, params.content))
-    await ctx.ask({
-      permission: "edit",
-      patterns: [path.relative(Instance.worktree, filepath)],
-      always: ["*"],
-      metadata: {
-        filepath,
-        diff,
+    const parsed = Session.Info.shape.id.safeParse(ctx.sessionID)
+    const info = parsed.success ? await Session.get(ctx.sessionID).catch(() => undefined) : undefined
+    const kind = info?.parentID ? "child" : "primary"
+    const mode = await resolveWorkdirMode({ kind })
+    const workdir = await resolveWorkdirPath({ sessionId: ctx.sessionID, mode })
+    const writer = await EvidenceWriter.open({ sessionId: ctx.sessionID })
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: ctx.sessionID,
+      severity: "info",
+      actor: "workdir:resolve",
+      type: "workdir.mode_resolved",
+      summary: "workdir mode resolved",
+      data: {
+        mode,
+        workdir,
+        logicalRoot: base,
       },
+      redaction: { applied: true, policyVersion: "v1" },
     })
 
-    await Bun.write(filepath, params.content)
-    await Bus.publish(File.Event.Edited, {
-      file: filepath,
-    })
-    FileTime.read(ctx.sessionID, filepath)
+    const internal = Filesystem.contains(base, repoPath)
+    const logicalPath = internal
+      ? toLogicalPath({ repoPath })
+      : path.relative(base, repoPath).split(path.sep).join(path.posix.sep)
+    const filepath = internal ? toWorkdirPath({ repoPath, workdir }) : repoPath
+
+    let exists = false
+    let contentOld = ""
+    let diff = ""
+
+    const writeFile = async () =>
+      FileTime.withLock(filepath, async () => {
+        const file = Bun.file(filepath)
+        exists = await file.exists()
+        contentOld = exists ? await file.text() : ""
+        if (exists) await FileTime.assert(ctx.sessionID, filepath)
+
+        diff = trimDiff(createTwoFilesPatch(logicalPath, logicalPath, contentOld, params.content))
+        await ctx.ask({
+          permission: "edit",
+          patterns: [logicalPath],
+          always: ["*"],
+          metadata: {
+            filepath,
+            diff,
+          },
+        })
+
+        await Bun.write(filepath, params.content)
+        await Bus.publish(File.Event.Edited, {
+          file: filepath,
+        })
+        FileTime.read(ctx.sessionID, filepath)
+      })
+
+    if (mode === "shared") {
+      await WorkdirWriteQueue.run({
+        sessionId: ctx.sessionID,
+        targetDir: workdir,
+        reason: "write",
+        intentFiles: [logicalPath],
+        writer,
+        work: writeFile,
+      })
+    }
+    if (mode === "isolated") {
+      await writeFile()
+    }
 
     let output = "Wrote file successfully."
     await LSP.touchFile(filepath, true)
@@ -67,8 +125,16 @@ export const WriteTool = Tool.define("write", {
       output += `\n\nLSP errors detected in other files:\n<diagnostics file="${file}">\n${limited.map(LSP.Diagnostic.pretty).join("\n")}${suffix}\n</diagnostics>`
     }
 
+    if (mode === "isolated") {
+      await captureWorktreePatch({
+        workdir,
+        sessionId: ctx.sessionID,
+        writer,
+      })
+    }
+
     return {
-      title: path.relative(Instance.worktree, filepath),
+      title: logicalPath,
       metadata: {
         diagnostics,
         filepath,
