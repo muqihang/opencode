@@ -13,6 +13,7 @@ so future planning/execution does not miss any requirement.
 - P1.5: `docs/plans/2026-01-28-opencode-sandbox-context-p1_5-implementation-plan.md`
 - P1.6: `docs/plans/2026-01-29-opencode-sub2api-token-economy-p1_6-implementation-plan.md`
 - P2: `docs/plans/2026-01-30-opencode-sandbox-context-p2-implementation-plan.md`
+- P2.1: `docs/plans/2026-01-31-opencode-sandbox-context-p2_1-supplement-implementation-plan.md`
 
 ---
 
@@ -83,7 +84,7 @@ Design sections covered:
 - Section 5: "Pointers-not-Paste" and budget-based pointerization for large injected content
 - Section 7: oh-my-opencode orchestration safety (no cross-session injection, deterministic ordering)
 
-### P2 (IN PROGRESS)
+### P2 (DONE)
 
 Primary intent: make parallel usable end-to-end (isolated->merge, shared write coordination, routing protocol skeleton).
 
@@ -103,8 +104,8 @@ Design sections covered (explicitly listed in the P2 plan "Design Coverage Index
 ## Section -> Phase Mapping (Status)
 
 Legend:
-- DONE: implemented by completed phases (P0/P0.5/P1/P1.5/P1.6)
-- IN PROGRESS: currently in P2 plan
+- DONE: implemented by completed phases (P0/P0.5/P1/P1.5/P1.6/P2)
+- PARTIAL: implemented in parts; remaining work scheduled for future phases
 - PLANNED: expected to land in P3/P4 (no plan file yet)
 - SPEC/ONGOING: design/process section (may not correspond to a single phase)
 
@@ -112,7 +113,7 @@ Legend:
 |---|---|---|---|---|
 | 1 | Architecture | DONE (as architecture decisions) | P0+ | Ongoing; no single phase "finishes" it |
 | 1.1 | Execution boundary | PARTIAL | P0/P1/P1.5 + (P3) | Execution side done; Context Builder/Cache Store depth is P3 |
-| 2 | Multi-agent parallel + isolation | IN PROGRESS | P1 + P2 | P1 covers child micro-pack; P2 covers parallel writes/merge & routing skeleton |
+| 2 | Multi-agent parallel + isolation | DONE (P2 scope) | P1 + P2 | P1 covers child micro-pack; P2 covers parallel writes/merge & routing skeleton |
 | 3 | Context control + cache hits | PARTIAL | P1.6 + (P3) | Provider/cache alignment done in P1.6; context-pack SSOT is P3 |
 | 4 | Evidence Pack inspiration mapping | SPEC/ONGOING | P0/P1/P2 indirectly | This is design rationale; implementation tracked in Section 15 tasks |
 | 5 | Codex/GPT practices alignment | PARTIAL | P0.5/P1.5/P1.6 + P2 + (P3/P4) | Many mechanisms are in; remaining: more evals/telemetry/governance |
@@ -125,10 +126,10 @@ Legend:
 | 12 | Threat model + default security | PARTIAL | P1.5 + (P4) | Baseline: deny/allowlist + audit. Hard sandbox + enterprise policy is P4 |
 | 13 | Execution Sandbox detailed design | PARTIAL | P0/P1/P1.5 + P2 + (P4) | Soft backend now; P4 adds hard backends + capability truthfulness |
 | 14 | BashTool + PythonTool norms | PARTIAL | P0/P1 + P2 | P2 adds Python supply chain + file workbench upgrades |
-| 15 | Evidence Pack v1 | IN PROGRESS | P0/P0.5/P1/P1.5 + P2 | Macro merge (15.4) and richer checks/claims/risks are P2 |
+| 15 | Evidence Pack v1 | DONE (v1) | P0/P0.5/P1/P1.5 + P2 | Macro merge (15.4) + checks/claims/risks/rollback persistence land in P2 |
 | 16 | Context engineering | PLANNED (core) | P1.6 partial + (P3) | P3 owns context-pack SSOT, counters, compaction linkage |
 | 17 | Config + governance | PARTIAL | P0/P1 + P2 + (P4) | P4 owns enterprise requirements/managed defaults + maturity flags |
-| 18 | Gates + regression strategy | IN PROGRESS | P2 | P2 introduces post-merge gates and `checks[]`; P3 adds evals/counters |
+| 18 | Gates + regression strategy | PARTIAL | P2 + (P3) | P2 introduces post-merge gates and `checks[]`; P3 adds evals/counters |
 | 19 | Ops + solo experience | PLANNED | P4 | Retention, indexing/search, self-heal workflows |
 | 20 | Commercial direction (multi-tenant/mobile) | PLANNED (most) | P2 constraints + P4 | Some constraints already inform P2; real productization is P4 |
 | 21 | Design review risk list + reinforcement | SPEC/ONGOING | (track across phases) | Use as a checklist for P3/P4 planning to avoid "design drift" |
@@ -148,9 +149,7 @@ before starting P3 context engineering.
    - Link it into Evidence Pack provenance (as an artifact pointer, or fields in `environment.repo`).
 
 2) **Section 13.2.1 (P1 baseline) - File workbench baseline parity**
-   - The master design splits "资料工作台" into P1 and P2 scopes.
-   - P2 Task 11 explicitly says: verify baseline exists; implement missing P1 pieces if needed.
-   - If P2 execution ends up skipping Task 11, move it into a P2.x supplement and block P3 until it is done.
+   - Status: DONE in P2 (see `packages/opencode/src/file/workbench.ts`, plus follow-up P2 task docs in `docs/plans/2026-01-30/31-*file-workbench*`).
 
 3) **Open Questions checkpoint (Section 22)**
    - Freeze decisions that affect determinism/SSOT before implementing Context Pack in P3.

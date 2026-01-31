@@ -957,7 +957,7 @@ P0–P4 的分期是本设计稿的**最佳实践推进**：先把“协议/证�
 - [x] **P1**：PythonTool + 子会话沙盒一致性 + micro-pack
 - [x] **P1.5**：P0/P1 收口门禁（协议/证据/审批/变更集/导出）→ P2 强制前置
 - [x] **P1.6**：Token Economy（Sub2API 兼容缓存/粘性会话）+ 注入确定性 + 指针化（为 P2/P3 铺路）
-- [ ] **P2**：并行与写入协调（隔离/共享 workdir）+ 自动合并 + 冲突 artifacts + worker 并行协议骨架
+- [x] **P2**：并行与写入协调（隔离/共享 workdir）+ 自动合并 + 冲突 artifacts + worker 并行协议骨架
 - [ ] **P3**：Context Pack（schema+计数器 SSOT）+ 指纹缓存 + compaction 联动 + prefix determinism
 - [ ] **P4**：硬沙盒后端 + OTel + 企业治理/合规 + 远端归档/保留周期 + Attestation（可选）
 
