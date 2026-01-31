@@ -16,6 +16,9 @@ import { Log } from "../../util/log"
 import { PermissionNext } from "@/permission/next"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { EvidenceReader } from "@/evidence/reader"
+import { EvidenceManifest } from "@/protocol/evidence-manifest"
+import { EventV1 } from "@/protocol/event"
 
 const log = Log.create({ service: "server" })
 
@@ -119,6 +122,88 @@ export const SessionRoutes = lazy(() =>
         log.info("SEARCH", { url: c.req.url })
         const session = await Session.get(sessionID)
         return c.json(session)
+      },
+    )
+    .get(
+      "/:sessionID/evidence/events",
+      describeRoute({
+        summary: "Get session evidence events",
+        description: "Read redacted evidence events for a session via incremental cursor.",
+        tags: ["Session"],
+        operationId: "session.evidenceEvents",
+        responses: {
+          200: {
+            description: "Evidence events batch",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z
+                    .object({
+                      events: EventV1.array(),
+                      nextCursor: z.number().int().nonnegative(),
+                    })
+                    .strict()
+                    .meta({ ref: "SessionEvidenceEvents" }),
+                ),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: Session.get.schema,
+        }),
+      ),
+      validator(
+        "query",
+        z
+          .object({
+            cursor: z.coerce.number().int().nonnegative().default(0),
+            limit: z.coerce.number().int().positive().max(1000).optional(),
+          })
+          .strict(),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const query = c.req.valid("query")
+        await Session.get(sessionID)
+        const batch = await EvidenceReader.readEvents(sessionID, { cursor: query.cursor, limit: query.limit })
+        return c.json(batch)
+      },
+    )
+    .get(
+      "/:sessionID/evidence/manifest",
+      describeRoute({
+        summary: "Get session evidence manifest",
+        description: "Read the evidence manifest for a session.",
+        tags: ["Session"],
+        operationId: "session.evidenceManifest",
+        responses: {
+          200: {
+            description: "Evidence manifest",
+            content: {
+              "application/json": {
+                schema: resolver(EvidenceManifest),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: Session.get.schema,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
+        const manifest = await EvidenceReader.readManifest(sessionID)
+        return c.json(manifest)
       },
     )
     .get(
