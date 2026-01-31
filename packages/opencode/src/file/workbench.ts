@@ -5,6 +5,7 @@ import path from "path"
 import z from "zod"
 import { Archive } from "@/util/archive"
 import { EvidenceWriter } from "@/evidence/writer"
+import { WorkbenchCache } from "@/file/workbench-cache"
 import { Instance } from "@/project/instance"
 import { stableJson } from "@/util/stable-json"
 import { fileURLToPath } from "url"
@@ -424,6 +425,9 @@ export const Workbench = {
     const inputsPath = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "inputs", "inputs.json")
     const current = await readInputs(inputsPath)
     const existing = current.inputs.find((item) => item.inputId === inputId)
+    const wantsText = isTextLike(payload.name, payload.bytes)
+    const wantsArchive = Boolean(archiveKind(payload.name))
+    const wantsPdf = isPdf(payload.name, payload.mime)
 
     if (existing) {
       const updated = current.inputs.map((item) => (item.inputId === inputId ? applyCacheHit(item) : item))
@@ -469,26 +473,124 @@ export const Workbench = {
       data: stableJson({ specVersion: current.specVersion, inputs }),
     })
 
-    await deriveText({
-      writer,
-      inputId,
-      name: payload.name,
-      bytes: payload.bytes,
-    })
+    const hits: string[] = []
 
-    await deriveArchive({
-      writer,
-      sessionId: data.sessionId,
-      inputId,
-      name: payload.name,
-    })
+    async function rehydrate(category: "text" | "archive" | "pdf") {
+      const cached = await WorkbenchCache.readCategory({ inputId, category })
+      if (!cached) return false
+      if (!WorkbenchCache.canReuse({ meta: cached.meta, category })) return false
+      for (const item of cached.meta.artifacts) {
+        const bytes = await WorkbenchCache.readArtifact({ dir: cached.dir, rel: item.path })
+        await writer.artifact({
+          kind: item.kind,
+          path: `derived/${inputId}/${item.path}`,
+          data: bytes,
+        })
+      }
+      hits.push(category)
+      return true
+    }
 
-    await derivePdf({
-      writer,
-      sessionId: data.sessionId,
-      inputId,
-      name: payload.name,
-      mime: payload.mime,
-    })
+    const textHit = wantsText ? await rehydrate("text") : false
+    if (!textHit && wantsText) {
+      await deriveText({
+        writer,
+        inputId,
+        name: payload.name,
+        bytes: payload.bytes,
+      })
+      await WorkbenchCache.writeCategoryFromSessionDerived({
+        sessionId: data.sessionId,
+        inputId,
+        category: "text",
+        artifacts: [
+          { rel: "text.txt", kind: "file-derived-text" },
+          { rel: "chunks.json", kind: "file-derived-chunks" },
+        ],
+      })
+    }
+
+    const archiveHit = wantsArchive ? await rehydrate("archive") : false
+    if (!archiveHit && wantsArchive) {
+      await deriveArchive({
+        writer,
+        sessionId: data.sessionId,
+        inputId,
+        name: payload.name,
+      })
+      const derivedRoot = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "derived", inputId)
+      const listPath = path.join(derivedRoot, "unpacked", "filelist.json")
+      const listExists = await Bun.file(listPath).exists()
+      if (listExists) {
+        const list = JSON.parse(await Bun.file(listPath).text()) as Array<{ path: string }>
+        const artifacts = [
+          { rel: "unpacked/filelist.json", kind: "file-unpacked-list" },
+          ...list.map((item) => ({ rel: `unpacked/${item.path}`, kind: "file-unpacked" })),
+        ]
+        await WorkbenchCache.writeCategoryFromSessionDerived({
+          sessionId: data.sessionId,
+          inputId,
+          category: "archive",
+          artifacts,
+        })
+      }
+    }
+
+    const pdfHit = wantsPdf ? await rehydrate("pdf") : false
+    if (!pdfHit && wantsPdf) {
+      await derivePdf({
+        writer,
+        sessionId: data.sessionId,
+        inputId,
+        name: payload.name,
+        mime: payload.mime,
+      })
+      const derivedRoot = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "derived", inputId)
+      const errorPath = path.join(derivedRoot, "pdf.extract.error.json")
+      const errorExists = await Bun.file(errorPath).exists()
+      if (errorExists) {
+        await WorkbenchCache.writeCategoryFromSessionDerived({
+          sessionId: data.sessionId,
+          inputId,
+          category: "pdf",
+          artifacts: [{ rel: "pdf.extract.error.json", kind: "file-pdf-error" }],
+        })
+      }
+      const textPath = path.join(derivedRoot, "text.txt")
+      const textExists = await Bun.file(textPath).exists()
+      if (textExists && !errorExists) {
+        await WorkbenchCache.writeCategoryFromSessionDerived({
+          sessionId: data.sessionId,
+          inputId,
+          category: "pdf",
+          artifacts: [{ rel: "text.txt", kind: "file-derived-text" }],
+        })
+      }
+    }
+
+    if (hits.length > 0) {
+      const updated = inputs.map((item) => (item.inputId === inputId ? applyCacheHit(item) : item))
+      await writer.artifact({
+        kind: "file-inputs",
+        path: "inputs/inputs.json",
+        data: stableJson({ specVersion: current.specVersion, inputs: sortInputs(updated) }),
+      })
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: data.sessionId,
+        severity: "info",
+        actor: "file:workbench",
+        type: "file.cache_hit",
+        summary: "derived cache hit",
+        data: {
+          inputId,
+          name: payload.name,
+          scope: "global",
+          categories: hits,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
   },
 }
