@@ -104,6 +104,10 @@ import type {
   SessionDeleteErrors,
   SessionDeleteResponses,
   SessionDiffResponses,
+  SessionEvidenceEventsErrors,
+  SessionEvidenceEventsResponses,
+  SessionEvidenceManifestErrors,
+  SessionEvidenceManifestResponses,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
@@ -1016,6 +1020,78 @@ export class Session extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Get session evidence events
+   *
+   * Read redacted evidence events for a session via incremental cursor.
+   */
+  public evidenceEvents<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      cursor?: number
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionEvidenceEventsResponses,
+      SessionEvidenceEventsErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/evidence/events",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get session evidence manifest
+   *
+   * Read the evidence manifest for a session.
+   */
+  public evidenceManifest<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionEvidenceManifestResponses,
+      SessionEvidenceManifestErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/evidence/manifest",
+      ...options,
+      ...params,
     })
   }
 

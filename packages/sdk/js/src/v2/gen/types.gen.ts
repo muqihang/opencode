@@ -1350,6 +1350,25 @@ export type ServerConfig = {
   cors?: Array<string>
 }
 
+/**
+ * File workbench settings
+ */
+export type WorkbenchConfig = {
+  /**
+   * OCR settings
+   */
+  ocr?: {
+    /**
+     * OCR mode (disabled or tesseract)
+     */
+    mode?: "disabled" | "tesseract"
+    /**
+     * Tesseract language code (default eng)
+     */
+    language?: string
+  }
+}
+
 export type PermissionActionConfig = "ask" | "allow" | "deny"
 
 export type PermissionObjectConfig = {
@@ -1519,10 +1538,18 @@ export type ProviderConfig = {
      */
     setCacheKey?: boolean
     /**
+     * OpenAI wire API to use (responses or chat)
+     */
+    wireApi?: "responses" | "chat"
+    /**
+     * Legacy spelling for wireApi (responses or chat)
+     */
+    wire_api?: "responses" | "chat"
+    /**
      * Timeout in milliseconds for requests to this provider. Default is 300000 (5 minutes). Set to false to disable timeout.
      */
     timeout?: number | false
-    [key: string]: unknown | string | boolean | number | false | undefined
+    [key: string]: unknown | string | boolean | "responses" | "chat" | "responses" | "chat" | number | false | undefined
   }
 }
 
@@ -1634,6 +1661,7 @@ export type Config = {
     diff_style?: "auto" | "stacked"
   }
   server?: ServerConfig
+  workbench?: WorkbenchConfig
   /**
    * Command configuration, see https://opencode.ai/docs/commands
    */
@@ -1651,6 +1679,10 @@ export type Config = {
   }
   plugin?: Array<string>
   snapshot?: boolean
+  workdir?: {
+    primary?: "shared" | "isolated"
+    child?: "shared" | "isolated"
+  }
   /**
    * Control sharing behavior:'manual' allows manual sharing via commands, 'auto' enables automatic sharing, 'disabled' disables all sharing
    */
@@ -1762,6 +1794,18 @@ export type Config = {
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: PermissionConfig
+  python?: {
+    allowProjectScripts?: boolean
+    allowNetwork?: boolean
+    allowedDomains?: Array<string>
+    deps?: {
+      mode?: "offline" | "online" | "disabled"
+      wheelhousePath?: string
+      lockFile?: string
+      allowOnlineFallback?: boolean
+    }
+    pythonPath?: string
+  }
   tools?: {
     [key: string]: boolean
   }
@@ -1949,6 +1993,28 @@ export type McpResource = {
   description?: string
   mimeType?: string
   client: string
+}
+
+export type SessionEvidenceEvents = {
+  events: Array<{
+    specVersion: "event/1.0"
+    ts: string
+    sessionId: string
+    traceId?: string
+    spanId?: string
+    severity: "debug" | "info" | "warn" | "error"
+    actor: string
+    type: string
+    summary: string
+    data?: {
+      [key: string]: unknown
+    }
+    redaction: {
+      applied: boolean
+      policyVersion: string
+    }
+  }>
+  nextCursor: number
 }
 
 export type TextPartInput = {
@@ -2916,6 +2982,85 @@ export type SessionUpdateResponses = {
 }
 
 export type SessionUpdateResponse = SessionUpdateResponses[keyof SessionUpdateResponses]
+
+export type SessionEvidenceEventsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    cursor?: number
+    limit?: number
+  }
+  url: "/session/{sessionID}/evidence/events"
+}
+
+export type SessionEvidenceEventsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionEvidenceEventsError = SessionEvidenceEventsErrors[keyof SessionEvidenceEventsErrors]
+
+export type SessionEvidenceEventsResponses = {
+  /**
+   * Evidence events batch
+   */
+  200: SessionEvidenceEvents
+}
+
+export type SessionEvidenceEventsResponse = SessionEvidenceEventsResponses[keyof SessionEvidenceEventsResponses]
+
+export type SessionEvidenceManifestData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/evidence/manifest"
+}
+
+export type SessionEvidenceManifestErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionEvidenceManifestError = SessionEvidenceManifestErrors[keyof SessionEvidenceManifestErrors]
+
+export type SessionEvidenceManifestResponses = {
+  /**
+   * Evidence manifest
+   */
+  200: {
+    specVersion: "evidence-manifest/1.0"
+    packId: string
+    generatedAtUtc: string
+    entries: Array<{
+      path: string
+      sha256: string
+      kind: string
+      size?: number
+      createdAtUtc?: string
+    }>
+  }
+}
+
+export type SessionEvidenceManifestResponse = SessionEvidenceManifestResponses[keyof SessionEvidenceManifestResponses]
 
 export type SessionChildrenData = {
   body?: never
