@@ -22,4 +22,22 @@ describe("config.python", () => {
       },
     })
   })
+
+  test("loads python deps defaults", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        python: {
+          deps: {},
+        },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const cfg = await Config.get()
+        expect(cfg.python?.deps?.mode ?? "missing").toBe("offline")
+        expect(cfg.python?.deps?.allowOnlineFallback ?? true).toBe(false)
+      },
+    })
+  })
 })

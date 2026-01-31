@@ -1051,6 +1051,14 @@ export namespace Config {
           allowProjectScripts: z.boolean().default(false),
           allowNetwork: z.boolean().default(false),
           allowedDomains: z.array(z.string()).optional(),
+          deps: z
+            .object({
+              mode: z.enum(["offline", "online", "disabled"]).default("offline"),
+              wheelhousePath: z.string().optional(),
+              lockFile: z.string().optional(),
+              allowOnlineFallback: z.boolean().default(false),
+            })
+            .optional(),
           pythonPath: z.string().optional(),
         })
         .optional(),
