@@ -31,7 +31,7 @@ describe("file.workbench archive", () => {
         const input = {
           sessionId: session.id,
           part: {
-            type: "file",
+            type: "file" as const,
             url: `file://${archivePath}`,
             mime: "application/x-tar",
             filename: "bundle.tar",

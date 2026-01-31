@@ -24,7 +24,7 @@ describe("file.workbench text", () => {
         const input = {
           sessionId: session.id,
           part: {
-            type: "file",
+            type: "file" as const,
             url: `file://${filePath}`,
             mime: "text/markdown",
             filename: "note.md",

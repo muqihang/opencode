@@ -267,10 +267,12 @@ async function deriveText(options: {
 }
 
 async function extractArchive(kind: "zip" | "tar", source: string, destination: string) {
+  type ExtractArchiveResult = { ok: true } | { ok: false; error: string }
+
   if (kind === "zip") {
     return Archive.extractZip(source, destination)
-      .then(() => ({ ok: true }))
-      .catch((error) => ({
+      .then<ExtractArchiveResult>(() => ({ ok: true }))
+      .catch<ExtractArchiveResult>((error) => ({
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       }))
@@ -308,7 +310,7 @@ async function deriveArchive(options: {
       kind: "file-unpack-error",
       path: `derived/${options.inputId}/unpacked/unpack.error.json`,
       data: stableJson({
-        error: extracted.error ?? "unknown",
+        error: extracted.error,
         input: options.name,
       }),
     })
@@ -377,7 +379,20 @@ function pdfPagesError(code: string, message: string, hint: string) {
   return { code, message, hint }
 }
 
-async function pdfPageCount(source: string) {
+type PdfPagesError = { code: string; message: string; hint: string }
+type PdfPageCountResult = { ok: true; pages: number } | { ok: false; error: PdfPagesError }
+type PdfPageText = {
+  page_number: number
+  text_path: string
+  text_sha256: string
+  content_hash: string
+  snippet_preview: string
+}
+type PdfPagesExtractResult =
+  | { ok: true; pages: PdfPageText[] }
+  | { ok: false; pages: PdfPageText[]; error: PdfPagesError }
+
+async function pdfPageCount(source: string): Promise<PdfPageCountResult> {
   const available = Boolean(Bun.which("pdfinfo"))
   if (!available) {
     return {
@@ -424,7 +439,7 @@ async function extractPdfPages(options: {
   inputId: string
   source: string
   pages: number
-}) {
+}): Promise<PdfPagesExtractResult> {
   const available = Boolean(Bun.which("pdftotext"))
   if (!available) {
     return {
@@ -438,13 +453,7 @@ async function extractPdfPages(options: {
     }
   }
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-pdf-pages-"))
-  const pages: Array<{
-    page_number: number
-    text_path: string
-    text_sha256: string
-    content_hash: string
-    snippet_preview: string
-  }> = []
+  const pages: PdfPageText[] = []
   for (const page of Array.from({ length: options.pages }, (_, index) => index + 1)) {
     const output = path.join(tempRoot, `page-${padPage(page)}.txt`)
     const result = await $`pdftotext -f ${page} -l ${page} ${options.source} ${output}`.quiet().nothrow()
@@ -536,20 +545,31 @@ async function derivePdfPages(options: {
     source,
     pages: count.pages,
   })
-  const ok = extracted.ok
   const entry = await options.writer.artifact({
     kind: "file-pdf-pages",
     path: `derived/${options.inputId}/pdf.pages.json`,
-    data: stableJson({
-      specVersion: "pdf-pages/1.0",
-      inputId: options.inputId,
-      generatedAtUtc: new Date().toISOString(),
-      ok,
-      tool: { name: "pdftotext", mode: "per-page" },
-      pages: extracted.pages,
-      ...(ok ? {} : { error: extracted.error }),
-    }),
+    data: stableJson(
+      extracted.ok
+        ? {
+            specVersion: "pdf-pages/1.0",
+            inputId: options.inputId,
+            generatedAtUtc: new Date().toISOString(),
+            ok: true,
+            tool: { name: "pdftotext", mode: "per-page" },
+            pages: extracted.pages,
+          }
+        : {
+            specVersion: "pdf-pages/1.0",
+            inputId: options.inputId,
+            generatedAtUtc: new Date().toISOString(),
+            ok: false,
+            tool: { name: "pdftotext", mode: "per-page" },
+            pages: extracted.pages,
+            error: extracted.error,
+          },
+    ),
   })
+  const ok = extracted.ok
   await options.writer.event({
     specVersion: "event/1.0",
     ts: new Date().toISOString(),
@@ -777,6 +797,8 @@ async function deriveDocx(options: {
   name: string
   mime: string
 }) {
+  type ExtractZipResult = { ok: true } | { ok: false; error: string }
+
   if (!isDocx(options.name, options.mime)) return
   const base = baseDir()
   const source = path.join(
@@ -790,8 +812,8 @@ async function deriveDocx(options: {
   )
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-docx-"))
   const extracted = await Archive.extractZip(source, tempRoot)
-    .then(() => ({ ok: true }))
-    .catch((error) => ({
+    .then<ExtractZipResult>(() => ({ ok: true }))
+    .catch<ExtractZipResult>((error) => ({
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }))
@@ -803,7 +825,7 @@ async function deriveDocx(options: {
         ok: false,
         error: {
           code: "extract_failed",
-          message: extracted.error ?? "unknown",
+          message: extracted.error,
           hint: "failed to unpack docx archive",
         },
       }),

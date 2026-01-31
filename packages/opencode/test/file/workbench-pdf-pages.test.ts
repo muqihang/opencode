@@ -23,7 +23,7 @@ describe("file.workbench pdf pages", () => {
         const input = {
           sessionId: session.id,
           part: {
-            type: "file",
+            type: "file" as const,
             url: `file://${filePath}`,
             mime: "application/pdf",
             filename: "bad.pdf",

@@ -33,7 +33,7 @@ export type RoutingInjectionResult =
 function renderSystemPrompt(input: {
   artifactRoot: string
   routingRunId: string
-  pointers: RoutingInjectionResult & { kind: "injected" }["pointers"]
+  pointers: Extract<RoutingInjectionResult, { kind: "injected" }>["pointers"]
 }) {
   const lines = [
     "<routing>",

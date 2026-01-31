@@ -13,10 +13,10 @@ const defaults = {
 
 export async function resolveWorkdirMode(input: { kind: WorkdirKind }): Promise<WorkdirMode> {
   const config = await Config.get()
-  const policy = config.workdir ?? {}
+  const policy = config.workdir
   return input.kind === "child"
-    ? (policy.child ?? defaults.child)
-    : (policy.primary ?? defaults.primary)
+    ? (policy?.child ?? defaults.child)
+    : (policy?.primary ?? defaults.primary)
 }
 
 export async function resolveWorkdirPath(input: {

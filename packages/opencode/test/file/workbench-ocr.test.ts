@@ -46,7 +46,7 @@ describe("file.workbench ocr", () => {
         const input = {
           sessionId: session.id,
           part: {
-            type: "file",
+            type: "file" as const,
             url: `file://${filePath}`,
             mime: "image/png",
             filename: "bad.png",

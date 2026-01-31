@@ -265,7 +265,22 @@ export const RoutingRunner = {
     }
 
     const timeoutMs = Math.min(config.workerTimeoutMs, config.maxWallClockMs)
-    const workers = [
+    type WorkerRunInput = {
+      root: string
+      topK: number
+      intent: string
+      signal?: AbortSignal
+    }
+    type WorkerRun = (input: WorkerRunInput) => Promise<WorkerCore>
+    type WorkerItem = {
+      id: z.infer<typeof RoutingWorkerId>
+      enabled: boolean
+      topK: number
+      run: WorkerRun
+      filename: string
+    }
+
+    const workers: WorkerItem[] = [
       {
         id: "worker_a_repo" as const,
         enabled: config.workers.worker_a_repo.enabled,

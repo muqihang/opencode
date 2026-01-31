@@ -24,7 +24,7 @@ describe("file.workbench inputs", () => {
         const input = {
           sessionId: session.id,
           part: {
-            type: "file",
+            type: "file" as const,
             url: `file://${filePath}`,
             mime: "text/plain",
             filename: "note.txt",
@@ -51,7 +51,7 @@ describe("file.workbench inputs", () => {
         const input = {
           sessionId: session.id,
           part: {
-            type: "file",
+            type: "file" as const,
             url: `file://${filePath}`,
             mime: "text/plain",
             filename: "note.txt",
@@ -106,7 +106,7 @@ describe("file.workbench inputs", () => {
         const filePath = path.join(tmp.path, "note.txt")
         await Bun.write(filePath, "hello")
         const part = {
-          type: "file",
+          type: "file" as const,
           url: `file://${filePath}`,
           mime: "text/plain",
           filename: "note.txt",

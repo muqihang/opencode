@@ -9,9 +9,18 @@ function sanitizePath(p: string): string {
   return p.replace(/\0/g, "")
 }
 
+type DeepPartial<T> =
+  T extends (...args: unknown[]) => unknown
+    ? T
+    : T extends readonly (infer U)[]
+      ? readonly DeepPartial<U>[]
+      : T extends object
+        ? { [K in keyof T]?: DeepPartial<T[K]> }
+        : T
+
 type TmpDirOptions<T> = {
   git?: boolean
-  config?: Partial<Config.Info>
+  config?: DeepPartial<Config.Info>
   init?: (dir: string) => Promise<T>
   dispose?: (dir: string) => Promise<T>
 }

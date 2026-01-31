@@ -12,6 +12,10 @@ import { tmpdir } from "../fixture/fixture"
 
 Log.init({ print: false })
 
+function expectString(value: unknown): asserts value is string {
+  expect(value).toBeTypeOf("string")
+}
+
 describe("snapshot.evidence", () => {
   test("revert emits snapshot evidence events and artifacts", async () => {
     await using tmp = await tmpdir({ git: true })
@@ -113,15 +117,17 @@ describe("snapshot.evidence", () => {
 
         const createdData = created?.data as Record<string, unknown> | undefined
         const revertedData = reverted?.data as Record<string, unknown> | undefined
+        const createdSnapshot = createdData?.snapshot
+        const revertedSnapshot = revertedData?.snapshot
         const createdArtifact = createdData?.files_artifact
         const revertedArtifact = revertedData?.files_artifact
-        expect(createdData?.snapshot).toBeTypeOf("string")
-        expect(revertedData?.snapshot).toBeTypeOf("string")
-        expect(createdArtifact).toBeTypeOf("string")
-        expect(revertedArtifact).toBeTypeOf("string")
+        expectString(createdSnapshot)
+        expectString(revertedSnapshot)
+        expectString(createdArtifact)
+        expectString(revertedArtifact)
 
-        const createdArtifactPath = path.join(Instance.worktree, createdArtifact as string)
-        const revertedArtifactPath = path.join(Instance.worktree, revertedArtifact as string)
+        const createdArtifactPath = path.join(Instance.worktree, createdArtifact)
+        const revertedArtifactPath = path.join(Instance.worktree, revertedArtifact)
         expect(await Bun.file(createdArtifactPath).exists()).toBe(true)
         expect(await Bun.file(revertedArtifactPath).exists()).toBe(true)
 
@@ -130,13 +136,13 @@ describe("snapshot.evidence", () => {
           files: string[]
         }
         const revertedArtifactJson = JSON.parse(await Bun.file(revertedArtifactPath).text()) as {
-          snapshot: string
-          files: string[]
-        }
-        expect(createdArtifactJson.snapshot).toBe(createdData?.snapshot)
-        expect(revertedArtifactJson.snapshot).toBe(revertedData?.snapshot)
-        expect(createdArtifactJson.files).toContain("note.txt")
-        expect(revertedArtifactJson.files).toContain("note.txt")
+	          snapshot: string
+	          files: string[]
+	        }
+	        expect(createdArtifactJson.snapshot).toBe(createdSnapshot)
+	        expect(revertedArtifactJson.snapshot).toBe(revertedSnapshot)
+	        expect(createdArtifactJson.files).toContain("note.txt")
+	        expect(revertedArtifactJson.files).toContain("note.txt")
 
         await Session.remove(sessionID)
       },
