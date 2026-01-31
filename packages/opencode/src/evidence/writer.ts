@@ -446,6 +446,42 @@ export const EvidenceWriter = {
         })
     }
 
+    async function findUp(dir: string, name: string, depth: number): Promise<string | undefined> {
+      const file = path.join(dir, name)
+      const stat = await fs.stat(file).catch(() => null)
+      if (stat?.isFile()) return file
+      if (depth <= 0) return undefined
+      const parent = path.dirname(dir)
+      if (parent === dir) return undefined
+      return findUp(parent, name, depth - 1)
+    }
+
+    async function attachUpstreamLock() {
+      const has = entries.some((entry) => entry.kind === "upstream-lock")
+      if (has) return
+
+      const found = await findUp(base, "UPSTREAM.lock.json", 6)
+      if (!found) return
+
+      const bytes = await Bun.file(found).bytes()
+      const entry = await artifact({
+        kind: "upstream-lock",
+        path: "environment/upstream.lock.json",
+        data: bytes,
+      })
+      await event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId,
+        severity: "info",
+        actor: "evidence:writer",
+        type: "evidence.upstream_lock_attached",
+        summary: "upstream lockfile attached",
+        data: { artifact: entry.path },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
+
     async function pack(inputPack: z.infer<typeof PackInput>) {
       const data = PackInput.parse(inputPack)
       const packId = `EP-${sessionId}`
@@ -455,6 +491,7 @@ export const EvidenceWriter = {
           kind: "sandbox",
           id: `sandbox:${sessionId}`,
         }
+      await attachUpstreamLock()
       const eventsFromDisk = await readEventsFromDisk()
       const artifactEntries = entries.filter((entry) =>
         entry.path.replace(/\\/g, "/").startsWith(`.opencode/artifacts/${sessionId}/`),

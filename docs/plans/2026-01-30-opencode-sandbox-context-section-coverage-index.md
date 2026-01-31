@@ -121,7 +121,7 @@ Legend:
 | 7 | oh-my-opencode multi-agent mechanisms | PARTIAL | P1.6 + P2 | Orchestration safety in P1.6; universal child finalizer in P2 |
 | 8 | Observability + audit (OTel + evidence) | PARTIAL | P0/P1.5 + (P4) | events.jsonl is done; OTel/GenAI semconv is P4 |
 | 9 | Upstream sync strategy | SPEC/ONGOING | (opencode-zh-build tooling) | Process-level; not a single phase. Ensure it stays consistent with Evidence provenance |
-| 10 | UPSTREAM.lock.json spec | PARTIAL (tooling exists) | (opencode-zh-build tooling) + (P2.x suggested) | `update_opencode_zh.sh` supports writing it; ensure it's present + linked into evidence/CI |
+| 10 | UPSTREAM.lock.json spec | DONE (tooling + evidence) | (opencode-zh-build tooling) + (packages/opencode evidence) | `LOCKFILE_ONLY=1` mode generates it safely; `check_upstream_lock.sh` fails fast; EvidenceWriter attaches it as `upstream-lock` artifact |
 | 11 | PoC definition + roadmap | SPEC/ONGOING | P0+ | Checkboxes in Section 11.2 reflect current progress |
 | 12 | Threat model + default security | PARTIAL | P1.5 + (P4) | Baseline: deny/allowlist + audit. Hard sandbox + enterprise policy is P4 |
 | 13 | Execution Sandbox detailed design | PARTIAL | P0/P1/P1.5 + P2 + (P4) | Soft backend now; P4 adds hard backends + capability truthfulness |
@@ -143,10 +143,10 @@ Legend:
 These are "should not be forgotten" items that are either strongly recommended by the design doc or become high-leverage
 before starting P3 context engineering.
 
-1) **Section 10 - UPSTREAM.lock.json present + integrated**
-   - Ensure the lock file exists in `opencode-zh-build/UPSTREAM.lock.json` after updates.
-   - Add a minimal CI/local check so "missing lockfile" fails fast.
-   - Link it into Evidence Pack provenance (as an artifact pointer, or fields in `environment.repo`).
+1) **Section 10 - UPSTREAM.lock.json present + integrated** (DONE in P2.1)
+   - Safe generation: `LOCKFILE_ONLY=1` mode writes `opencode-zh-build/UPSTREAM.lock.json` without repo mutations.
+   - Fast local check: `opencode-zh-build/check_upstream_lock.sh` fails on missing/invalid.
+   - Evidence integration: copied into `.opencode/artifacts/<sessionId>/environment/upstream.lock.json` as `upstream-lock`.
 
 2) **Section 13.2.1 (P1 baseline) - File workbench baseline parity**
    - Status: DONE in P2 (see `packages/opencode/src/file/workbench.ts`, plus follow-up P2 task docs in `docs/plans/2026-01-30/31-*file-workbench*`).
