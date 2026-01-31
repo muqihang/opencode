@@ -98,6 +98,12 @@ export namespace Config {
     result.agent = result.agent || {}
     result.mode = result.mode || {}
     result.plugin = result.plugin || []
+    result.workbench = result.workbench ?? {}
+    result.workbench.ocr = result.workbench.ocr ?? { mode: "disabled" }
+    const ocr = result.workbench.ocr
+    if (ocr.mode === "tesseract" && !ocr.language) {
+      ocr.language = "eng"
+    }
 
     const directories = [
       Global.Path.config,
@@ -824,6 +830,24 @@ export namespace Config {
       ref: "ServerConfig",
     })
 
+  export const Workbench = z
+    .object({
+      ocr: z
+        .object({
+          mode: z
+            .enum(["disabled", "tesseract"])
+            .optional()
+            .describe("OCR mode (disabled or tesseract)"),
+          language: z.string().optional().describe("Tesseract language code (default eng)"),
+        })
+        .optional()
+        .describe("OCR settings"),
+    })
+    .strict()
+    .meta({
+      ref: "WorkbenchConfig",
+    })
+
   export const Layout = z.enum(["auto", "stretch"]).meta({
     ref: "LayoutConfig",
   })
@@ -898,6 +922,7 @@ export namespace Config {
       logLevel: Log.Level.optional().describe("Log level"),
       tui: TUI.optional().describe("TUI specific settings"),
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
+      workbench: Workbench.optional().describe("File workbench settings"),
       command: z
         .record(z.string(), Command)
         .optional()

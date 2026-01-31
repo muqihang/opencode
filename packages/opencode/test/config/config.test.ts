@@ -18,6 +18,39 @@ test("loads config with defaults when no files exist", async () => {
   })
 })
 
+test("workbench ocr defaults to disabled", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.workbench?.ocr?.mode).toBe("disabled")
+    },
+  })
+})
+
+test("workbench ocr defaults language for tesseract", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          workbench: { ocr: { mode: "tesseract" } },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.workbench?.ocr?.mode).toBe("tesseract")
+      expect(config.workbench?.ocr?.language).toBe("eng")
+    },
+  })
+})
+
 test("loads JSON config file", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

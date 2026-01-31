@@ -6,6 +6,7 @@ import z from "zod"
 import { Archive } from "@/util/archive"
 import { EvidenceWriter } from "@/evidence/writer"
 import { WorkbenchCache } from "@/file/workbench-cache"
+import { Config } from "@/config/config"
 import { Instance } from "@/project/instance"
 import { stableJson } from "@/util/stable-json"
 import { fileURLToPath } from "url"
@@ -151,11 +152,44 @@ function archiveKind(name: string) {
   return
 }
 
+function isDocx(name: string, mime: string) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith(".docx")) return true
+  return mime.toLowerCase().includes("officedocument.wordprocessingml.document")
+}
+
 function isPdf(name: string, mime: string) {
   const lower = name.toLowerCase()
   if (lower.endsWith(".pdf")) return true
   if (mime.toLowerCase().includes("pdf")) return true
   return false
+}
+
+function isImage(name: string, mime: string) {
+  if (mime.toLowerCase().startsWith("image/")) return true
+  const ext = path.extname(name).toLowerCase()
+  return [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp"].includes(ext)
+}
+
+function decodeXml(value: string) {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&apos;", "'")
+}
+
+function extractDocxParagraphs(xml: string) {
+  const paragraphs: string[] = []
+  for (const match of xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)) {
+    const block = match[0]
+    const text = Array.from(block.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g), (item) =>
+      decodeXml(item[1]),
+    ).join("")
+    if (text.length > 0) paragraphs.push(text)
+  }
+  return paragraphs
 }
 
 async function readInputs(file: string) {
@@ -335,6 +369,203 @@ async function deriveArchive(options: {
   })
 }
 
+function padPage(page: number) {
+  return String(page).padStart(4, "0")
+}
+
+function pdfPagesError(code: string, message: string, hint: string) {
+  return { code, message, hint }
+}
+
+async function pdfPageCount(source: string) {
+  const available = Boolean(Bun.which("pdfinfo"))
+  if (!available) {
+    return {
+      ok: false,
+      error: pdfPagesError(
+        "dependency_unavailable",
+        "pdfinfo not available",
+        "pdftotext/pdfinfo missing or unavailable",
+      ),
+    }
+  }
+  const result = await $`pdfinfo ${source}`.quiet().nothrow()
+  if (result.exitCode !== 0) {
+    const message =
+      result.stderr?.toString().trim() ||
+      result.stdout?.toString().trim() ||
+      `pdfinfo exit ${result.exitCode}`
+    return {
+      ok: false,
+      error: pdfPagesError("extract_failed", message, "pdftotext/pdfinfo failed to read PDF"),
+    }
+  }
+  const output = result.stdout?.toString() ?? ""
+  const match = output.match(/Pages:\\s+(\\d+)/i)
+  if (!match) {
+    return {
+      ok: false,
+      error: pdfPagesError("parse_failed", "pdfinfo missing page count", "pdftotext/pdfinfo output incomplete"),
+    }
+  }
+  const count = Number(match[1])
+  if (!Number.isFinite(count) || count < 1) {
+    return {
+      ok: false,
+      error: pdfPagesError("parse_failed", "pdfinfo page count invalid", "pdftotext/pdfinfo output invalid"),
+    }
+  }
+  return { ok: true, pages: count }
+}
+
+async function extractPdfPages(options: {
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  sessionId: string
+  inputId: string
+  source: string
+  pages: number
+}) {
+  const available = Boolean(Bun.which("pdftotext"))
+  if (!available) {
+    return {
+      ok: false,
+      pages: [],
+      error: pdfPagesError(
+        "dependency_unavailable",
+        "pdftotext not available",
+        "pdftotext missing or unavailable",
+      ),
+    }
+  }
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-pdf-pages-"))
+  const pages: Array<{
+    page_number: number
+    text_path: string
+    text_sha256: string
+    content_hash: string
+    snippet_preview: string
+  }> = []
+  for (const page of Array.from({ length: options.pages }, (_, index) => index + 1)) {
+    const output = path.join(tempRoot, `page-${padPage(page)}.txt`)
+    const result = await $`pdftotext -f ${page} -l ${page} ${options.source} ${output}`.quiet().nothrow()
+    if (result.exitCode !== 0) {
+      const message =
+        result.stderr?.toString().trim() ||
+        result.stdout?.toString().trim() ||
+        `pdftotext exit ${result.exitCode}`
+      return {
+        ok: false,
+        pages,
+        error: pdfPagesError("extract_failed", message, "pdftotext failed to extract page text"),
+      }
+    }
+    const bytes = await Bun.file(output).bytes()
+    const text = Buffer.from(bytes).toString("utf-8")
+    const rel = `pdf/pages/${padPage(page)}.txt`
+    await options.writer.artifact({
+      kind: "file-pdf-page-text",
+      path: `derived/${options.inputId}/${rel}`,
+      data: bytes,
+    })
+    const hash = sha(bytes)
+    pages.push({
+      page_number: page,
+      text_path: rel,
+      text_sha256: hash,
+      content_hash: hash,
+      snippet_preview: text.slice(0, 200),
+    })
+  }
+  return { ok: true, pages }
+}
+
+async function derivePdfPages(options: {
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  sessionId: string
+  inputId: string
+  name: string
+  mime: string
+}) {
+  if (!isPdf(options.name, options.mime)) return
+  const base = baseDir()
+  const source = path.join(
+    base,
+    ".opencode",
+    "artifacts",
+    options.sessionId,
+    "inputs",
+    options.inputId,
+    options.name,
+  )
+  const count = await pdfPageCount(source)
+  if (!count.ok) {
+    const entry = await options.writer.artifact({
+      kind: "file-pdf-pages",
+      path: `derived/${options.inputId}/pdf.pages.json`,
+      data: stableJson({
+        specVersion: "pdf-pages/1.0",
+        inputId: options.inputId,
+        generatedAtUtc: new Date().toISOString(),
+        ok: false,
+        tool: { name: "pdftotext", mode: "per-page" },
+        pages: [],
+        error: count.error,
+      }),
+    })
+    await options.writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: options.sessionId,
+      severity: "error",
+      actor: "file:workbench",
+      type: "doc.pdf_pages",
+      summary: "pdf pages extraction failed",
+      data: {
+        inputId: options.inputId,
+        pages: entry.path,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    return
+  }
+
+  const extracted = await extractPdfPages({
+    writer: options.writer,
+    sessionId: options.sessionId,
+    inputId: options.inputId,
+    source,
+    pages: count.pages,
+  })
+  const ok = extracted.ok
+  const entry = await options.writer.artifact({
+    kind: "file-pdf-pages",
+    path: `derived/${options.inputId}/pdf.pages.json`,
+    data: stableJson({
+      specVersion: "pdf-pages/1.0",
+      inputId: options.inputId,
+      generatedAtUtc: new Date().toISOString(),
+      ok,
+      tool: { name: "pdftotext", mode: "per-page" },
+      pages: extracted.pages,
+      ...(ok ? {} : { error: extracted.error }),
+    }),
+  })
+  await options.writer.event({
+    specVersion: "event/1.0",
+    ts: new Date().toISOString(),
+    sessionId: options.sessionId,
+    severity: ok ? "info" : "error",
+    actor: "file:workbench",
+    type: "doc.pdf_pages",
+    summary: ok ? "pdf pages extracted" : "pdf pages extraction failed",
+    data: {
+      inputId: options.inputId,
+      pages: entry.path,
+    },
+    redaction: { applied: true, policyVersion: "v1" },
+  })
+}
+
 async function derivePdf(options: {
   writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
   sessionId: string
@@ -413,6 +644,285 @@ async function derivePdf(options: {
   })
 }
 
+async function deriveOcrImage(options: {
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  sessionId: string
+  inputId: string
+  name: string
+  mime: string
+  language: string
+}) {
+  if (!isImage(options.name, options.mime)) return
+  const base = baseDir()
+  const source = path.join(
+    base,
+    ".opencode",
+    "artifacts",
+    options.sessionId,
+    "inputs",
+    options.inputId,
+    options.name,
+  )
+  const available = Boolean(Bun.which("tesseract"))
+  if (!available) {
+    const errorEntry = await options.writer.artifact({
+      kind: "file-ocr-error",
+      path: `derived/${options.inputId}/ocr.error.json`,
+      data: stableJson({
+        ok: false,
+        error: {
+          code: "dependency_unavailable",
+          message: "tesseract not available",
+          hint: "tesseract missing or unavailable",
+        },
+        tool: { name: "tesseract", language: options.language },
+      }),
+    })
+    await options.writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: options.sessionId,
+      severity: "error",
+      actor: "file:workbench",
+      type: "doc.ocr_image",
+      summary: "ocr failed",
+      data: {
+        inputId: options.inputId,
+        error_artifact: errorEntry.path,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    return
+  }
+
+  const result = await $`tesseract ${source} stdout -l ${options.language}`.quiet().nothrow()
+  if (result.exitCode !== 0) {
+    const message =
+      result.stderr?.toString().trim() ||
+      result.stdout?.toString().trim() ||
+      `tesseract exit ${result.exitCode}`
+    const errorEntry = await options.writer.artifact({
+      kind: "file-ocr-error",
+      path: `derived/${options.inputId}/ocr.error.json`,
+      data: stableJson({
+        ok: false,
+        error: {
+          code: "ocr_failed",
+          message,
+          hint: "tesseract failed to process image",
+        },
+        tool: { name: "tesseract", language: options.language },
+      }),
+    })
+    await options.writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: options.sessionId,
+      severity: "error",
+      actor: "file:workbench",
+      type: "doc.ocr_image",
+      summary: "ocr failed",
+      data: {
+        inputId: options.inputId,
+        error_artifact: errorEntry.path,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    return
+  }
+
+  const text = result.stdout?.toString() ?? ""
+  const bytes = Buffer.from(text, "utf-8")
+  const textEntry = await options.writer.artifact({
+    kind: "file-ocr-text",
+    path: `derived/${options.inputId}/ocr.text.txt`,
+    data: text,
+  })
+  const metaEntry = await options.writer.artifact({
+    kind: "file-ocr-meta",
+    path: `derived/${options.inputId}/ocr.meta.json`,
+    data: stableJson({
+      specVersion: "ocr-meta/1.0",
+      inputId: options.inputId,
+      generatedAtUtc: new Date().toISOString(),
+      ok: true,
+      tool: { name: "tesseract", language: options.language },
+      text: {
+        path: textEntry.path,
+        sha256: sha(bytes),
+      },
+    }),
+  })
+  await options.writer.event({
+    specVersion: "event/1.0",
+    ts: new Date().toISOString(),
+    sessionId: options.sessionId,
+    severity: "info",
+    actor: "file:workbench",
+    type: "doc.ocr_image",
+    summary: "ocr completed",
+    data: {
+      inputId: options.inputId,
+      text: textEntry.path,
+      meta: metaEntry.path,
+    },
+    redaction: { applied: true, policyVersion: "v1" },
+  })
+}
+
+async function deriveDocx(options: {
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  sessionId: string
+  inputId: string
+  name: string
+  mime: string
+}) {
+  if (!isDocx(options.name, options.mime)) return
+  const base = baseDir()
+  const source = path.join(
+    base,
+    ".opencode",
+    "artifacts",
+    options.sessionId,
+    "inputs",
+    options.inputId,
+    options.name,
+  )
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-docx-"))
+  const extracted = await Archive.extractZip(source, tempRoot)
+    .then(() => ({ ok: true }))
+    .catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }))
+  if (!extracted.ok) {
+    const errorEntry = await options.writer.artifact({
+      kind: "file-docx-error",
+      path: `derived/${options.inputId}/docx.error.json`,
+      data: stableJson({
+        ok: false,
+        error: {
+          code: "extract_failed",
+          message: extracted.error ?? "unknown",
+          hint: "failed to unpack docx archive",
+        },
+      }),
+    })
+    await options.writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: options.sessionId,
+      severity: "error",
+      actor: "file:workbench",
+      type: "doc.parse_docx",
+      summary: "docx parse failed",
+      data: {
+        inputId: options.inputId,
+        error_artifact: errorEntry.path,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    return
+  }
+
+  const documentPath = path.join(tempRoot, "word", "document.xml")
+  const documentExists = await Bun.file(documentPath).exists()
+  if (!documentExists) {
+    const errorEntry = await options.writer.artifact({
+      kind: "file-docx-error",
+      path: `derived/${options.inputId}/docx.error.json`,
+      data: stableJson({
+        ok: false,
+        error: {
+          code: "missing_document",
+          message: "document.xml missing in docx",
+          hint: "docx missing word/document.xml",
+        },
+      }),
+    })
+    await options.writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: options.sessionId,
+      severity: "error",
+      actor: "file:workbench",
+      type: "doc.parse_docx",
+      summary: "docx parse failed",
+      data: {
+        inputId: options.inputId,
+        error_artifact: errorEntry.path,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    return
+  }
+
+  const xml = await Bun.file(documentPath).text()
+  const paragraphs = extractDocxParagraphs(xml)
+  const text = paragraphs.join("\\n")
+  await options.writer.artifact({
+    kind: "file-derived-text",
+    path: `derived/${options.inputId}/text.txt`,
+    data: text,
+  })
+  const built = paragraphs.reduce(
+    (state, paragraph, index) => {
+      const bytes = Buffer.from(paragraph, "utf-8")
+      const start = state.offset
+      const end = start + bytes.length
+      const chunk = {
+        chunk_index: index,
+        start,
+        end,
+        content_hash: sha(bytes),
+        snippet_preview: paragraph.slice(0, 200),
+      }
+      const next = index === paragraphs.length - 1 ? end : end + 1
+      return { offset: next, chunks: [...state.chunks, chunk] }
+    },
+    { offset: 0, chunks: [] as Array<{ chunk_index: number; start: number; end: number; content_hash: string; snippet_preview: string }> },
+  )
+  await options.writer.artifact({
+    kind: "file-derived-chunks",
+    path: `derived/${options.inputId}/chunks.json`,
+    data: stableJson(built.chunks),
+  })
+  const structure = {
+    specVersion: "docx-structure/1.0",
+    inputId: options.inputId,
+    generatedAtUtc: new Date().toISOString(),
+    paragraphCount: paragraphs.length,
+    paragraphs: paragraphs.map((paragraph, index) => {
+      const bytes = Buffer.from(paragraph, "utf-8")
+      return {
+        index,
+        sha256: sha(bytes),
+        length: paragraph.length,
+        snippet_preview: paragraph.slice(0, 200),
+      }
+    }),
+  }
+  const structureEntry = await options.writer.artifact({
+    kind: "file-docx-structure",
+    path: `derived/${options.inputId}/docx.structure.json`,
+    data: stableJson(structure),
+  })
+  await options.writer.event({
+    specVersion: "event/1.0",
+    ts: new Date().toISOString(),
+    sessionId: options.sessionId,
+    severity: "info",
+    actor: "file:workbench",
+    type: "doc.parse_docx",
+    summary: "docx parsed",
+    data: {
+      inputId: options.inputId,
+      structure: structureEntry.path,
+    },
+    redaction: { applied: true, policyVersion: "v1" },
+  })
+}
+
 export const Workbench = {
   async ingest(input: z.infer<typeof IngestInput>) {
     const data = IngestInput.parse(input)
@@ -422,12 +932,18 @@ export const Workbench = {
 
     const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
     const inputId = sha(payload.bytes)
+    const config = await Config.get()
     const inputsPath = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "inputs", "inputs.json")
     const current = await readInputs(inputsPath)
     const existing = current.inputs.find((item) => item.inputId === inputId)
     const wantsText = isTextLike(payload.name, payload.bytes)
+    const wantsDocx = isDocx(payload.name, payload.mime)
     const wantsArchive = Boolean(archiveKind(payload.name))
     const wantsPdf = isPdf(payload.name, payload.mime)
+    const wantsOcr = isImage(payload.name, payload.mime)
+    const ocrMode = config.workbench?.ocr?.mode ?? "disabled"
+    const ocrEnabled = ocrMode === "tesseract"
+    const ocrLanguage = config.workbench?.ocr?.language ?? "eng"
 
     if (existing) {
       const updated = current.inputs.map((item) => (item.inputId === inputId ? applyCacheHit(item) : item))
@@ -491,7 +1007,7 @@ export const Workbench = {
       return true
     }
 
-    const textHit = wantsText ? await rehydrate("text") : false
+    const textHit = wantsText || wantsDocx ? await rehydrate("text") : false
     if (!textHit && wantsText) {
       await deriveText({
         writer,
@@ -508,6 +1024,36 @@ export const Workbench = {
           { rel: "chunks.json", kind: "file-derived-chunks" },
         ],
       })
+    }
+
+    if (!textHit && wantsDocx) {
+      await deriveDocx({
+        writer,
+        sessionId: data.sessionId,
+        inputId,
+        name: payload.name,
+        mime: payload.mime,
+      })
+      const derivedRoot = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "derived", inputId)
+      const textPath = path.join(derivedRoot, "text.txt")
+      const chunksPath = path.join(derivedRoot, "chunks.json")
+      const textExists = await Bun.file(textPath).exists()
+      const chunksExists = await Bun.file(chunksPath).exists()
+      if (textExists && chunksExists) {
+        const artifacts = [
+          { rel: "text.txt", kind: "file-derived-text" },
+          { rel: "chunks.json", kind: "file-derived-chunks" },
+        ]
+        const structurePath = path.join(derivedRoot, "docx.structure.json")
+        const structureExists = await Bun.file(structurePath).exists()
+        if (structureExists) artifacts.push({ rel: "docx.structure.json", kind: "file-docx-structure" })
+        await WorkbenchCache.writeCategoryFromSessionDerived({
+          sessionId: data.sessionId,
+          inputId,
+          category: "text",
+          artifacts,
+        })
+      }
     }
 
     const archiveHit = wantsArchive ? await rehydrate("archive") : false
@@ -538,6 +1084,13 @@ export const Workbench = {
 
     const pdfHit = wantsPdf ? await rehydrate("pdf") : false
     if (!pdfHit && wantsPdf) {
+      await derivePdfPages({
+        writer,
+        sessionId: data.sessionId,
+        inputId,
+        name: payload.name,
+        mime: payload.mime,
+      })
       await derivePdf({
         writer,
         sessionId: data.sessionId,
@@ -546,26 +1099,45 @@ export const Workbench = {
         mime: payload.mime,
       })
       const derivedRoot = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "derived", inputId)
+      const artifacts: Array<{ rel: string; kind: string }> = []
+      const pagesPath = path.join(derivedRoot, "pdf.pages.json")
+      const pagesExists = await Bun.file(pagesPath).exists()
+      if (pagesExists) artifacts.push({ rel: "pdf.pages.json", kind: "file-pdf-pages" })
+      const pagesDir = path.join(derivedRoot, "pdf", "pages")
+      const pagesDirExists = await Bun.file(pagesDir).exists()
+      if (pagesDirExists) {
+        const files: string[] = []
+        await collectFiles(pagesDir, files)
+        const rels = files
+          .map((file) => path.relative(derivedRoot, file).replaceAll("\\", "/"))
+          .sort((a, b) => a.localeCompare(b))
+        artifacts.push(...rels.map((rel) => ({ rel, kind: "file-pdf-page-text" })))
+      }
       const errorPath = path.join(derivedRoot, "pdf.extract.error.json")
       const errorExists = await Bun.file(errorPath).exists()
-      if (errorExists) {
-        await WorkbenchCache.writeCategoryFromSessionDerived({
-          sessionId: data.sessionId,
-          inputId,
-          category: "pdf",
-          artifacts: [{ rel: "pdf.extract.error.json", kind: "file-pdf-error" }],
-        })
-      }
+      if (errorExists) artifacts.push({ rel: "pdf.extract.error.json", kind: "file-pdf-error" })
       const textPath = path.join(derivedRoot, "text.txt")
       const textExists = await Bun.file(textPath).exists()
-      if (textExists && !errorExists) {
+      if (textExists) artifacts.push({ rel: "text.txt", kind: "file-derived-text" })
+      if (artifacts.length > 0) {
         await WorkbenchCache.writeCategoryFromSessionDerived({
           sessionId: data.sessionId,
           inputId,
           category: "pdf",
-          artifacts: [{ rel: "text.txt", kind: "file-derived-text" }],
+          artifacts,
         })
       }
+    }
+
+    if (wantsOcr && ocrEnabled) {
+      await deriveOcrImage({
+        writer,
+        sessionId: data.sessionId,
+        inputId,
+        name: payload.name,
+        mime: payload.mime,
+        language: ocrLanguage,
+      })
     }
 
     if (hits.length > 0) {
