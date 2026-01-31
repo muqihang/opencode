@@ -55,8 +55,15 @@ export namespace SessionRevert {
 
     if (revert) {
       const session = await Session.get(input.sessionID)
-      revert.snapshot = session.revert?.snapshot ?? (await Snapshot.track())
-      await Snapshot.revert(patches)
+      revert.snapshot =
+        session.revert?.snapshot ??
+        (await Snapshot.trackWithEvidence({ sessionId: input.sessionID, reason: "undo" }))
+      await Snapshot.revertWithEvidence({
+        sessionId: input.sessionID,
+        patches,
+        reason: "undo",
+        snapshot: revert.snapshot,
+      })
       if (revert.snapshot) revert.diff = await Snapshot.diff(revert.snapshot)
       const rangeMessages = all.filter((msg) => msg.info.id >= revert!.messageID)
       const diffs = await SessionSummary.computeDiff({ messages: rangeMessages })
@@ -82,7 +89,13 @@ export namespace SessionRevert {
     SessionPrompt.assertNotBusy(input.sessionID)
     const session = await Session.get(input.sessionID)
     if (!session.revert) return session
-    if (session.revert.snapshot) await Snapshot.restore(session.revert.snapshot)
+    if (session.revert.snapshot) {
+      await Snapshot.restoreWithEvidence({
+        sessionId: input.sessionID,
+        snapshot: session.revert.snapshot,
+        reason: "unrevert",
+      })
+    }
     const next = await Session.update(input.sessionID, (draft) => {
       draft.revert = undefined
     })
