@@ -3,5 +3,20 @@
     "id": "summarize-json",
     "path": "scripts/summarize-json.py",
     "sha256": "74fbd41d4b671306ecd31db77dfdffb2abba2df7a1cf202f76897f9228d655ad"
+  },
+  {
+    "id": "doc-extract-pdf-text",
+    "path": "scripts/doc-extract-pdf-text.py",
+    "sha256": "12ea9b0a798bdb2997fd355ea793e1c9f444b23d03cb2cb9910b337f6ea574b0"
+  },
+  {
+    "id": "doc-unpack-archive",
+    "path": "scripts/doc-unpack-archive.py",
+    "sha256": "bb7241ef60164d42ba7d0d24f0c185240c48bf842f6615894d6f7b93d7fb8b25"
+  },
+  {
+    "id": "doc-ocr-image",
+    "path": "scripts/doc-ocr-image.py",
+    "sha256": "8672c5ba5c0103831d44d410df58685535af3ceec251509c26f79b0e0fe0ef53"
   }
 ]
