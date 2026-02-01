@@ -8,11 +8,20 @@ function openKey(e: EventV1) {
   return `${e.traceId ?? "no-trace"}:${e.actor}`
 }
 
+function routingKey(e: EventV1) {
+  return `${e.traceId ?? "no-trace"}:routing`
+}
+
 function toolTitle(start: EventV1, end?: EventV1) {
   const actor = start.actor
   const name = actor.includes(":") ? actor.split(":").slice(1).join(":") : actor
   const status = end ? "done" : "running"
   return `Tool: ${name} (${status})`
+}
+
+function routingTitle(end?: EventV1) {
+  const status = end ? "done" : "running"
+  return `Routing (${status})`
 }
 
 function messageId(e: EventV1): string | undefined {
@@ -27,6 +36,7 @@ function messageId(e: EventV1): string | undefined {
 export function synthesize(events: EventV1[]): ActivityItem[] {
   const list = [...events].sort((a, b) => a.ts.localeCompare(b.ts))
   const open = new Map<string, EventV1[]>()
+  const route = new Map<string, EventV1[]>()
   const items: ActivityItem[] = []
 
   for (const e of list) {
@@ -67,6 +77,53 @@ export function synthesize(events: EventV1[]): ActivityItem[] {
         category: "tool",
         status: "done",
         title: toolTitle(start, e),
+        summary: e.summary,
+        tsStart: start.ts,
+        tsEnd: e.ts,
+        events: [start, e],
+        traceId: start.traceId ?? e.traceId,
+        messageId: messageId(start) ?? messageId(e),
+      })
+      continue
+    }
+
+    if (e.type === "routing.started") {
+      const queue = route.get(routingKey(e))
+      if (queue) {
+        queue.push(e)
+        continue
+      }
+      route.set(routingKey(e), [e])
+      continue
+    }
+
+    if (e.type === "routing.completed") {
+      const queue = route.get(routingKey(e))
+      if (!queue || queue.length === 0) {
+        items.push({
+          id: `routing:${key(e)}`,
+          category: "routing",
+          status: e.severity === "error" ? "failed" : "done",
+          title: routingTitle(e),
+          summary: e.summary,
+          tsStart: e.ts,
+          tsEnd: e.ts,
+          events: [e],
+          traceId: e.traceId,
+          messageId: messageId(e),
+        })
+        continue
+      }
+
+      const start = queue.shift()
+      if (!start) continue
+      if (queue.length === 0) route.delete(routingKey(e))
+
+      items.push({
+        id: `routing:${key(start)}:${key(e)}`,
+        category: "routing",
+        status: e.severity === "error" ? "failed" : "done",
+        title: routingTitle(e),
         summary: e.summary,
         tsStart: start.ts,
         tsEnd: e.ts,
@@ -138,6 +195,23 @@ export function synthesize(events: EventV1[]): ActivityItem[] {
       })
     }
     open.delete(actor)
+  }
+
+  for (const [id, queue] of route) {
+    for (const start of queue) {
+      items.push({
+        id: `routing:${key(start)}:running`,
+        category: "routing",
+        status: "running",
+        title: routingTitle(),
+        summary: start.summary,
+        tsStart: start.ts,
+        events: [start],
+        traceId: start.traceId,
+        messageId: messageId(start),
+      })
+    }
+    route.delete(id)
   }
 
   return items.sort((a, b) => a.tsStart.localeCompare(b.tsStart))
