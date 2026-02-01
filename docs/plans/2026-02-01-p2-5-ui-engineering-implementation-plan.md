@@ -279,6 +279,39 @@ Run App dev + server，发一条会触发工具/解析的 prompt（例如 sleep 
 - Replace hard-coded strings: `Now/Recent/No activity yet/Activity/Running/Done/Jump`
 - Use `useLanguage()` or `useI18n()` and add keys as needed.
 
+**Step 1.1: Dynamic narrative titles (low cost, high perceived value)**
+Goal: 让用户看到的是“动作”，不是“日志字段”。
+
+Implement a small mapping helper used by both TurnActivity + ActivityCard:
+- Suggested file (App): `packages/app/src/lib/chronology/narrative.ts`
+- Exports:
+  - `narrativeTitle(item, lang)` → string (zh preferred)
+  - `narrativeSubtitle(item, lang)` → string | undefined
+
+Mapping rules (safe-by-default, no raw command parsing):
+- `item.category === "tool"`
+  - actor `tool:bash` → 标题：`执行命令`（进行中：`正在执行命令…`）
+  - actor `tool:read` → `读取文件`
+  - actor `tool:grep`/`tool:glob` → `搜索代码`
+  - actor `tool:write`/`tool:edit`/`tool:apply_patch` → `修改文件`
+  - actor `tool:task` → `并行子任务`
+- `item.category === "workbench"`
+  - `doc.extract_pdf_text`/`doc.pdf_pages` → `解析 PDF`
+  - `doc.ocr_image` → `图像识别（OCR）`
+  - `doc.unpack_archive` → `解压文件`
+  - `doc.parse_docx` → `解析 DOCX`
+- `item.category === "routing"` → `规划执行方案`
+- `item.category === "cache"` → `复用缓存结果`
+- `item.category === "other"`:
+  - `worktree.*` → `合并变更`
+  - `gate.*` → `质量检查`
+  - `evidence.*` → `生成证据`
+  - `policy.*`/`sandbox.*` 默认不显示标题（除非审计视图打开）
+
+Note:
+- 这里的“标题”是用户可读层；原始 `e.type` 仍保留在审计视图里。
+- 不解析/显示具体命令行（避免泄露与噪音）；如果未来要做“npm install → 安装依赖”，应作为后续抛光任务并带安全策略。
+
 **Step 2: Scroll + details**
 - Ensure the panel body is scrollable (`max-h` + `overflow-y-auto`)
 - Add per-item “详情”操作：
