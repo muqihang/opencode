@@ -18,6 +18,8 @@
 - **Audit is lazy:** raw JSON/审计详情必须懒渲染（用户打开 Inspect 才渲染），避免 DOM/内存爆炸。
 - **No empty chrome:** 没有任何 activity 时，turn 内不出现 capsule（纯聊天不需要“无活动”条）。
 - **Subtasks visible:** 父会话有运行中的子会话时，turn capsule/summary 必须能反映 “并行子任务 ×N”（至少 session 级）。
+- **Completion linger:** turn 完成后不要立刻塌缩消失；先显示 `✅ 已完成` 并停留 ~1.5s，再优雅折叠成摘要。
+- **Timestamps:** 产品视图默认只展示耗时/相对时间（例如 `+1.2s`），绝对时间戳只在审计视图显示。
 
 **Tech Stack:** SolidJS, Tailwind, Bun, Zod, OpenTUI (TUI), OpenAPI SDK v2 (`@opencode-ai/sdk/v2`).
 
@@ -157,6 +159,8 @@ Create `selectors.ts` exporting:
 - `shouldUpdateVisualHeadline(prev: { kind: string; status: string }, next: { kind: string; status: string }, elapsedMs: number): boolean`
   - 纯函数，用于 Live Capsule 的“视觉节流”决策（避免频闪）
   - 推荐策略：最短 900ms；但 `failed/needs_attention` 或 `running→done` 立即更新
+- `latencyTier(elapsedMs: number): "fresh" | "long" | "very_long"`
+  - 用于“焦虑管理”文案（例如 >2s、>5s、>10s）
 
 **Step 4: Run test (PASS)**
 
@@ -231,6 +235,8 @@ In `turn-activity.tsx`:
   - `setExpanded: (next: boolean) => void`
 - UI:
   - Collapsed capsule: 中文人话（不要暴露 raw type），并显示 `并行子任务 ×N`（若有）
+    - 建议在 capsule 右侧显示计时器（例如 `00:12`），用于长耗时的焦虑管理
+    - 对子任务：可显示 1–2 个微型 pip（标题截断），更多显示 `+N`
   - Expanded timeline: list nodes (can reuse `ActivityCard`, but make it visually lighter than the audit panel)
   - Provide “查看审计”入口（打开 Activity dialog 并定位 messageId）
 
@@ -238,9 +244,19 @@ In `turn-activity.tsx`:
 - Use `shouldUpdateVisualHeadline(...)` from Task 2:
   - Keep display headline stable for ~900ms
   - Allow immediate update on failed/needs_attention or running→done
+ - Add “anxiety management” escalation using `latencyTier()`:
+   - `fresh`: 正常文案（例如“正在执行命令…”）
+   - `long`: 加入预期提示（例如“正在运行测试套件（可能需要一些时间）…”）
+   - `very_long`: “仍在运行中，请稍候…” + 显示计时器
 
 **Step 4: Implement auto-expand on failure**
 - If summary indicates failed/needs_attention and user hasn’t explicitly collapsed it, force expanded.
+
+**Step 4.1: Implement completion linger**
+- When status transitions to `done` (and not failed/attention):
+  - keep capsule in “✅ 已完成” state for ~1500ms
+  - then collapse to one-line summary
+- Ensure motion-reduce friendly (no required animation for correctness)
 
 **Step 5: Wire into SessionTurn slot**
 In `packages/app/src/pages/session.tsx`:
@@ -312,6 +328,11 @@ Note:
 - 这里的“标题”是用户可读层；原始 `e.type` 仍保留在审计视图里。
 - 不解析/显示具体命令行（避免泄露与噪音）；如果未来要做“npm install → 安装依赖”，应作为后续抛光任务并带安全策略。
 
+**Step 1.2: De-engineer the details (product polish that is safe)**
+- 不在产品视图显示 `exit code: 0` 这类工程字段；仅在失败时显示必要的错误码/摘要
+- 指针（path/hash）必须等宽字体 + chip 风格，避免像乱码
+- 默认不显示绝对时间戳（仅耗时/相对时间）
+
 **Step 2: Scroll + details**
 - Ensure the panel body is scrollable (`max-h` + `overflow-y-auto`)
 - Add per-item “详情”操作：
@@ -320,6 +341,9 @@ Note:
     - pointers（copy）
     - redaction
     - raw event JSON（折叠，且必须懒渲染：只有在 Inspect 打开时才挂载到 DOM）
+    - （可选增强）Output snippets:
+      - 如能安全取得 tool output，默认显示 head 3 + tail 3（中间折叠），且只在用户展开详情时渲染
+      - 如果无法安全取得，保持仅 pointers + audit JSON（不强行造数据）
 
 **Step 3: Noise filtering toggle**
 - Default: hide **low-value system noise** unless user toggles “显示系统事件（审计）”
