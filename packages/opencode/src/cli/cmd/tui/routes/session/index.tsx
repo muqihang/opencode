@@ -56,6 +56,7 @@ import type { PromptInfo } from "../../component/prompt/history"
 import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { DialogTimeline } from "./dialog-timeline"
 import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
+import { DialogActivity } from "./dialog-activity"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { Sidebar } from "./sidebar"
 import { LANGUAGE_EXTENSIONS } from "@/lsp/language"
@@ -353,6 +354,17 @@ export function Session() {
             setPrompt={(promptInfo) => prompt.set(promptInfo)}
           />
         ))
+      },
+    },
+    {
+      title: "Activity",
+      value: "session.activity",
+      category: "Session",
+      slash: {
+        name: "activity",
+      },
+      onSelect: (dialog) => {
+        dialog.replace(() => <DialogActivity sessionID={route.sessionID} />)
       },
     },
     {
