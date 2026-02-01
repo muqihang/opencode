@@ -90,6 +90,49 @@ function DiagnosticsDisplay(props: { diagnostics: Diagnostic[] }): JSX.Element {
   )
 }
 
+function TruncatedMarkdown(props: { text: string; lines?: number; language?: string; class?: string }) {
+  const [expanded, setExpanded] = createSignal(false)
+  const i18n = useI18n()
+
+  const split = createMemo(() => props.text.split("\n"))
+  const shouldTruncate = createMemo(() => split().length > (props.lines ?? 30))
+
+  const displayContent = createMemo(() => {
+    if (!shouldTruncate() || expanded()) return props.text
+
+    const all = split()
+    const limit = props.lines ?? 30
+    const headCount = Math.ceil(limit * 0.6)
+    const tailCount = Math.floor(limit * 0.4)
+
+    const head = all.slice(0, headCount).join("\n")
+    const tail = all.slice(-tailCount).join("\n")
+    const skipped = all.length - limit
+
+    return `${head}\n\n... (已折叠 ${skipped} 行) ...\n\n${tail}`
+  })
+
+  const finalText = createMemo(() => {
+    if (props.language) {
+      return "```" + props.language + "\n" + displayContent() + "\n```"
+    }
+    return displayContent()
+  })
+
+  return (
+    <div class={props.class}>
+      <Markdown text={finalText()} />
+      <Show when={shouldTruncate() && !expanded()}>
+        <div class="mt-1 flex justify-center">
+          <Button variant="ghost" size="small" onClick={() => setExpanded(true)}>
+            {i18n.t("ui.message.expand") || "展开全部"}
+          </Button>
+        </div>
+      </Show>
+    </div>
+  )
+}
+
 export interface MessageProps {
   message: MessageType
   parts: PartType[]
@@ -589,7 +632,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
 
   const [forceOpen, setForceOpen] = createSignal(false)
   createEffect(() => {
-    if (permission() || questionRequest()) setForceOpen(true)
+    if (permission() || questionRequest() || part.state.status === "error") setForceOpen(true)
   })
 
   const respond = (response: "once" | "always" | "reject") => {
@@ -674,7 +717,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
           </div>
         </div>
       </Show>
-      <Show when={showQuestion() && questionRequest()}>{(request) => <QuestionPrompt request={request()} />}</Show>
+      <Show when={showQuestion() && questionRequest()}>{ (request) => <QuestionPrompt request={request()} />}</Show>
     </div>
   )
 }
@@ -746,54 +789,57 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
                 }
 
                 return (
-                  <div class="rounded-md border border-border-weak-base bg-surface-raised-base px-3 py-2 flex flex-col gap-2">
+                  <Card class="flex flex-col gap-3 p-3 bg-surface-raised-base">
                     <div class="flex items-start justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="text-13-medium text-text-strong">{title()}</div>
-                        <div class="text-12-regular text-text-weak">
-                          <Show when={info()}>
-                            {(x) => (
-                              <>
-                                <span>ID：{x().id ?? "-"}</span>
-                                <Show when={x().duration}>
-                                  <span> · 耗时：{x().duration}</span>
-                                </Show>
-                                <Show when={typeof x().remaining === "number"}>
-                                  <span> · 剩余：{x().remaining}</span>
-                                </Show>
-                              </>
-                            )}
-                          </Show>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 mb-1">
+                           <div class="text-13-medium text-text-strong">{title()}</div>
+                           <Show when={info()?.id}>
+                             <div class="text-11-regular text-text-tertiary font-mono bg-surface-base px-1.5 py-0.5 rounded">
+                               {info()?.id}
+                             </div>
+                           </Show>
                         </div>
                         <Show when={info()?.description}>
-                          <div class="text-12-regular text-text-weak truncate">{info()?.description}</div>
+                          <div class="text-12-regular text-text-weak truncate mb-1">{info()?.description}</div>
                         </Show>
+                        <div class="text-11-regular text-text-tertiary flex items-center gap-2">
+                           <Show when={info()?.duration}>
+                             <span>耗时 {info()?.duration}</span>
+                           </Show>
+                           <Show when={typeof info()?.remaining === "number"}>
+                             <span>剩余 {info()?.remaining} 项</span>
+                           </Show>
+                        </div>
                       </div>
-                      <Icon name="task" size="small" class="text-icon-weak-base shrink-0" />
+                      <Icon name="task" size="normal" class="text-icon-weak-base shrink-0 opacity-80" />
                     </div>
 
-                    <div class="flex items-center gap-2">
-                      <Show when={command()}>
-                        <Button variant="secondary" size="small" onClick={copyCmd}>
-                          {cmdCopied() ? "已复制命令" : "复制结果拉取命令"}
-                        </Button>
-                      </Show>
+                    <div class="flex items-center gap-2 border-t border-border-weak-base pt-3">
                       <Show when={findChild()}>
                         <Button variant="secondary" size="small" onClick={openChild}>
+                          <Icon name="chevron-right" size="small" />
                           打开子会话
                         </Button>
                       </Show>
+                      <Show when={command()}>
+                        <Button variant="ghost" size="small" onClick={copyCmd}>
+                          <Icon name="copy" size="small" />
+                          {cmdCopied() ? "已复制" : "复制命令"}
+                        </Button>
+                      </Show>
+                      <div class="flex-1" />
                       <Button variant="ghost" size="small" onClick={() => setRawOpen(!rawOpen())}>
-                        {rawOpen() ? "隐藏原文（审计）" : "查看原文（审计）"}
+                         {rawOpen() ? "隐藏审计" : "查看审计"}
                       </Button>
                     </div>
 
                     <Show when={rawOpen()}>
-                      <pre class="text-12-regular text-text-weak whitespace-pre-wrap break-words rounded-md border border-border-weak-base bg-surface-base px-2 py-1">
-                        {r().raw}
-                      </pre>
+                      <div class="bg-surface-base rounded border border-border-weak-base p-2 overflow-x-auto">
+                        <pre class="text-11-regular text-text-weak font-mono whitespace-pre">{r().raw}</pre>
+                      </div>
                     </Show>
-                  </div>
+                  </Card>
                 )
               }}
             </Match>
@@ -870,7 +916,7 @@ ToolRegistry.register({
         <Show when={props.output}>
           {(output) => (
             <div data-component="tool-output" data-scrollable>
-              <Markdown text={output()} />
+              <TruncatedMarkdown text={output()} />
             </div>
           )}
         </Show>
@@ -896,7 +942,7 @@ ToolRegistry.register({
         <Show when={props.output}>
           {(output) => (
             <div data-component="tool-output" data-scrollable>
-              <Markdown text={output()} />
+              <TruncatedMarkdown text={output()} />
             </div>
           )}
         </Show>
@@ -925,7 +971,7 @@ ToolRegistry.register({
         <Show when={props.output}>
           {(output) => (
             <div data-component="tool-output" data-scrollable>
-              <Markdown text={output()} />
+              <TruncatedMarkdown text={output()} />
             </div>
           )}
         </Show>
@@ -956,7 +1002,7 @@ ToolRegistry.register({
         <Show when={props.output}>
           {(output) => (
             <div data-component="tool-output" data-scrollable>
-              <Markdown text={output()} />
+              <TruncatedMarkdown text={output()} />
             </div>
           )}
         </Show>
@@ -1128,6 +1174,7 @@ ToolRegistry.register({
   name: "bash",
   render(props) {
     const i18n = useI18n()
+    const raw = `$ ${props.input.command ?? props.metadata.command ?? ""}${props.output || props.metadata.output ? "\n\n" + stripAnsi(props.output || props.metadata.output) : ""}`
     return (
       <BasicTool
         {...props}
@@ -1138,9 +1185,7 @@ ToolRegistry.register({
         }}
       >
         <div data-component="tool-output" data-scrollable>
-          <Markdown
-            text={`\`\`\`command\n$ ${props.input.command ?? props.metadata.command ?? ""}${props.output || props.metadata.output ? "\n\n" + stripAnsi(props.output || props.metadata.output) : ""}\n\`\`\``}
-          />
+          <TruncatedMarkdown text={raw} language="command" />
         </div>
       </BasicTool>
     )

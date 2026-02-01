@@ -62,4 +62,24 @@ describe("turn-activity-logic", () => {
     ]
     expect(turnElapsedMs(running, Date.parse("2026-02-01T00:00:05.000Z"))).toBe(5000)
   })
+
+  test("selectHeadlineItem picks needs_attention > running > last", () => {
+    const { selectHeadlineItem } = require("./turn-activity-logic")
+    
+    const i1 = { ...item("1"), status: "done" } as const
+    const i2 = { ...item("2"), status: "running" } as const
+    const i3 = { ...item("3"), status: "needs_attention" } as const
+    
+    // Priority: needs_attention
+    expect(selectHeadlineItem([i1, i2, i3])?.id).toBe("3")
+    
+    // Priority: running
+    expect(selectHeadlineItem([i1, i2])?.id).toBe("2")
+    
+    // Priority: last
+    expect(selectHeadlineItem([i1])?.id).toBe("1")
+    
+    // Empty
+    expect(selectHeadlineItem([])).toBeUndefined()
+  })
 })

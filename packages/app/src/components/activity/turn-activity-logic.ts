@@ -51,3 +51,15 @@ export function turnElapsedMs(items: ActivityItem[], nowMs: number) {
   if (end === undefined) return 0
   return Math.max(0, end - start)
 }
+
+export function selectHeadlineItem(items: ActivityItem[]): ActivityItem | undefined {
+  if (items.length === 0) return undefined
+  
+  const attention = items.find((i) => i.status === "needs_attention")
+  if (attention) return attention
+
+  const running = items.find((i) => i.status === "running")
+  if (running) return running
+
+  return items[items.length - 1]
+}

@@ -1,25 +1,28 @@
 import type { ActivityItem } from "@/lib/chronology/types"
 import type { TurnSummary } from "@/lib/chronology/selectors"
-import { latencyTier, shouldUpdateVisualHeadline } from "@/lib/chronology/selectors"
+import { latencyTier } from "@/lib/chronology/selectors"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { ActivityCard } from "./activity-card"
 import { useNowMs } from "./pulse"
-import { clock, sliceTimeline, turnElapsedMs } from "./turn-activity-logic"
+import { clock, sliceTimeline, turnElapsedMs, selectHeadlineItem } from "./turn-activity-logic"
+import { mapActivityItem } from "./activity-narrative"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 
 type Headline = {
   kind: TurnSummary["kind"]
   status: TurnSummary["status"]
+  text: string
 }
 
-function kindLabel(kind: TurnSummary["kind"]) {
-  if (kind === "tool") return "工具"
-  if (kind === "workbench") return "文件"
-  if (kind === "routing") return "规划"
-  if (kind === "cache") return "缓存"
-  if (kind === "other") return "系统"
-  return "活动"
+function shouldUpdate(prev: Headline, next: Headline, ms: number) {
+  if (next.status === "needs_attention") return true
+  if (prev.status === "running" && next.status === "done") return true
+
+  const same = prev.kind === next.kind && prev.status === next.status && prev.text === next.text
+  if (same) return false
+
+  return ms >= 900
 }
 
 function summaryLabel(summary: TurnSummary) {
@@ -49,10 +52,20 @@ export function TurnActivity(props: {
 
   const has = createMemo(() => props.items().length > 0)
   const sum = createMemo(() => props.summary())
-  const state = createMemo(() => ({ kind: sum().kind, status: sum().status } satisfies Headline))
+
+  const headlineItem = createMemo(() => selectHeadlineItem(props.items()))
+  const narrative = createMemo(() => (headlineItem() ? mapActivityItem(headlineItem()!) : undefined))
+
+  const state = createMemo(
+    () =>
+      ({
+        kind: sum().kind,
+        status: sum().status,
+        text: narrative()?.titleZh ?? "活动",
+      }) satisfies Headline,
+  )
 
   const elapsed = createMemo(() => turnElapsedMs(props.items(), now()))
-  const tier = createMemo(() => latencyTier(elapsed()))
 
   const [head, setHead] = createSignal<Headline>(state())
   const [headAt, setHeadAt] = createSignal(now())
@@ -61,7 +74,7 @@ export function TurnActivity(props: {
     const next = state()
     const prev = head()
     const ms = now() - headAt()
-    if (!shouldUpdateVisualHeadline(prev, next, ms)) return
+    if (!shouldUpdate(prev, next, ms)) return
     setHead(next)
     setHeadAt(now())
   })
@@ -116,14 +129,17 @@ export function TurnActivity(props: {
 
   const subtitle = createMemo(() => {
     const s = sum()
-    if (s.status === "needs_attention") return `${kindLabel(head().kind)} · 需要处理`
+    const text = head().text
+
+    if (s.status === "needs_attention") return `${text} · 需要处理`
     if (s.status === "running") {
-      if (tier() === "fresh") return `${kindLabel(head().kind)} · 执行中`
-      if (tier() === "long") return `${kindLabel(head().kind)} · 仍在执行中`
-      return `${kindLabel(head().kind)} · 仍在运行中（请稍候）`
+      const ms = elapsed()
+      if (ms > 10000) return `${text} · 仍在运行中`
+      if (ms > 2000) return `${text} · 执行中`
+      return text
     }
     if (linger()) return "✅ 已完成"
-    return summaryLabel(s)
+    return text
   })
 
   const subtasks = createMemo(() => props.subtasks?.())
