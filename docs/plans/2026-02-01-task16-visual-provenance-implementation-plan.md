@@ -178,6 +178,7 @@ Pseudo-shape:
 import { TurnTraceContext } from "@/util/turn-trace"
 
 const ctx = TurnTraceContext.get()
+// NOTE: avoid truthiness checks for messageId. Prefer "hasOwnProperty('messageId')" so we never overwrite a caller-provided value.
 const enriched = {
   ...inputEvent,
   traceId: inputEvent.traceId ?? ctx?.traceId,
@@ -339,7 +340,9 @@ Suggested props:
 In `openActivity()` (Session page), pass:
 - `highlightMessageId={() => provenanceMessageId()}`
 - `onHighlightMessageId={setProvenanceMessageId}`
-- `onJumpToMessageId={(id) => { /* close dialog + scrollToMessage */ }}`
+- `onJumpToMessageId={(id) => { /* close dialog + set hash to #message-${id} */ }}`
+
+> Tip: prefer using the existing hash-based navigation (`#message-<id>`) rather than requiring a `UserMessage` object (which may not be loaded yet). This keeps Jump robust even when older turns are not rendered.
 
 **Step 3: Implement ActivityCard interactions**
 
@@ -347,7 +350,7 @@ In `activity-card.tsx`:
 - On hover/focus of a card, call `onHighlightMessageId(item.messageId)` (if present)
 - On leave/blur, clear highlight (only if currently highlighted to avoid fighting message hover)
 - Add a small “Jump” affordance when `item.messageId` exists:
-  - Click should `dialog.close()` and then call `onJumpToMessageId(item.messageId)`
+  - Click should call `onJumpToMessageId(item.messageId)`; the Session page callback is responsible for closing the dialog and navigating.
 
 **Step 4: Manual acceptance checks**
 
@@ -389,4 +392,3 @@ Expected: all PASS.
 When implementation and verification are complete, use `superpowers:finishing-a-development-branch` and present the 4 options.
 
 **Important project constraint:** Do **not** remove worktrees/branches unless explicitly requested (worktrees are intentionally preserved until the broader phase is fully validated).
-
