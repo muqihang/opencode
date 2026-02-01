@@ -15,7 +15,19 @@ import { findLast } from "@opencode-ai/util/array"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 
 import { Binary } from "@opencode-ai/util/binary"
-import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, ParentProps, Show, Switch } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  on,
+  onCleanup,
+  ParentProps,
+  Show,
+  Switch,
+  type JSX,
+} from "solid-js"
 import { DiffChanges } from "./diff-changes"
 import { Message, Part } from "./message-part"
 import { Markdown } from "./markdown"
@@ -138,6 +150,7 @@ export function SessionTurn(
       content?: string
       container?: string
     }
+    renderTurnAddon?: (ctx: { sessionID: string; messageID: string; working: boolean }) => JSX.Element
   }>,
 ) {
   const i18n = useI18n()
@@ -541,6 +554,14 @@ export function SessionTurn(
                       <div data-slot="session-turn-message-content" aria-live="off">
                         <Message message={msg()} parts={stickyParts()} />
                       </div>
+
+                      <Show when={props.renderTurnAddon}>
+                        {(render) => (
+                          <div data-slot="session-turn-addon">
+                            {render()({ sessionID: props.sessionID, messageID: props.messageID, working: working() })}
+                          </div>
+                        )}
+                      </Show>
 
                       {/* Trigger (sticky) */}
                       <Show when={working() || hasSteps()}>
