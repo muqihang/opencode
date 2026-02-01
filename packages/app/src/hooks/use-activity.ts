@@ -15,7 +15,9 @@ export function useActivity(props: { sessionID: string }) {
   const poll = () =>
     sdk.client.session
       .evidenceEvents({ sessionID: sessionID(), cursor: state.cursor })
-      .then((batch) => {
+      .then((res) => {
+        const batch = res.data
+        if (!batch) return
         if (batch.nextCursor === state.cursor && batch.events.length === 0) return
         setState("cursor", batch.nextCursor)
         if (batch.events.length === 0) return
@@ -37,4 +39,3 @@ export function useActivity(props: { sessionID: string }) {
     activities,
   }
 }
-

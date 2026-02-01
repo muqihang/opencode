@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import { synthesize } from "./engine"
+import type { EventV1 } from "./types"
 
 describe("chronology.engine", () => {
   test("groups tool.started and tool.completed into one activity", () => {
-    const events = [
+    const events: EventV1[] = [
       {
         specVersion: "event/1.0",
         ts: "2026-01-31T00:00:00.000Z",
@@ -33,7 +34,7 @@ describe("chronology.engine", () => {
   })
 
   test("keeps tool.started without completion as running", () => {
-    const events = [
+    const events: EventV1[] = [
       {
         specVersion: "event/1.0",
         ts: "2026-01-31T00:00:00.000Z",
@@ -51,4 +52,3 @@ describe("chronology.engine", () => {
     expect(items[0]?.status).toBe("running")
   })
 })
-
