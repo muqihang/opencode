@@ -1,7 +1,7 @@
-import { createEffect, createMemo, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
-import { useParams } from "@solidjs/router"
+import { useNavigate, useParams } from "@solidjs/router"
 import { useLayout } from "@/context/layout"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
@@ -14,18 +14,23 @@ import { base64Decode } from "@opencode-ai/util/encode"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { Popover } from "@opencode-ai/ui/popover"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Keybind } from "@opencode-ai/ui/keybind"
 import { StatusPopover } from "../status-popover"
+import { childSessions, subtasksCount } from "./subtasks"
 
 export function SessionHeader(props: { onActivity?: () => void; badge?: () => boolean }) {
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
   const params = useParams()
+  const navigate = useNavigate()
   const command = useCommand()
   const sync = useSync()
+  const dialog = useDialog()
   const platform = usePlatform()
   const language = useLanguage()
 
@@ -48,6 +53,59 @@ export function SessionHeader(props: { onActivity?: () => void; badge?: () => bo
   const showReview = createMemo(() => !!currentSession())
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const view = createMemo(() => layout.view(sessionKey))
+
+  const children = createMemo(() => {
+    const id = params.id
+    if (!id) return []
+    return childSessions(sync.data.session, id)
+  })
+
+  const subtasks = createMemo(() => subtasksCount(children(), sync.data.session_status))
+
+  const parent = createMemo(() => {
+    const current = currentSession()
+    if (!current?.parentID) return
+    return sync.data.session.find((s) => s.id === current.parentID)
+  })
+
+  const statusLabel = (id: string) => {
+    const type = sync.data.session_status[id]?.type ?? "idle"
+    if (type === "busy") return "运行中"
+    if (type === "idle") return "空闲"
+    return type
+  }
+
+  const go = (id: string) => navigate(`/${params.dir}/session/${id}`)
+
+  const openSubtasks = () => {
+    if (!params.id) return
+    if (subtasks().total === 0) return
+
+    dialog.show(() => (
+      <Dialog title="子任务" size="large">
+        <div class="flex flex-col gap-1 p-2">
+          <For each={children()}>
+            {(s) => (
+              <Button
+                variant="ghost"
+                class="justify-between"
+                onClick={() => {
+                  dialog.close()
+                  go(s.id)
+                }}
+              >
+                <div class="flex flex-col items-start min-w-0">
+                  <span class="text-13-medium truncate w-full">{s.title ?? s.id}</span>
+                  <span class="text-12-regular text-text-weak">{statusLabel(s.id)}</span>
+                </div>
+                <span class="text-12-regular text-text-weak shrink-0">打开</span>
+              </Button>
+            )}
+          </For>
+        </div>
+      </Dialog>
+    ))
+  }
 
   const [state, setState] = createStore({
     share: false,
@@ -279,6 +337,43 @@ export function SessionHeader(props: { onActivity?: () => void; badge?: () => bo
                     </div>
                   </Button>
                 </TooltipKeybind>
+              </div>
+              <div class="hidden md:block shrink-0">
+                <Show when={parent()}>
+                  {(p) => (
+                    <Tooltip value="返回父会话" placement="top" gutter={8}>
+                      <Button
+                        variant="ghost"
+                        class="group/parent-toggle size-6 p-0"
+                        onClick={() => go(p().id)}
+                        aria-label="返回父会话"
+                        tabIndex={params.id ? 0 : -1}
+                      >
+                        <Icon name="chevron-right" size="small" class="rotate-180" />
+                      </Button>
+                    </Tooltip>
+                  )}
+                </Show>
+              </div>
+              <div class="hidden md:block shrink-0">
+                <Show when={subtasks().total > 0}>
+                  <Tooltip value="子任务" placement="top" gutter={8}>
+                    <Button
+                      variant="ghost"
+                      class="group/subtasks-toggle size-6 p-0 relative"
+                      onClick={openSubtasks}
+                      aria-label="子任务"
+                      tabIndex={params.id ? 0 : -1}
+                    >
+                      <Icon size="small" name="branch" />
+                      <div class="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-surface-raised-base border border-border-weak-base flex items-center justify-center">
+                        <span class="text-[10px] leading-none text-text-strong">
+                          {subtasks().running}/{subtasks().total}
+                        </span>
+                      </div>
+                    </Button>
+                  </Tooltip>
+                </Show>
               </div>
               <div class="hidden md:block shrink-0">
                 <Tooltip value="Activity" placement="top" gutter={8}>
