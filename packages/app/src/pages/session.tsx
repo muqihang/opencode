@@ -30,10 +30,13 @@ import { Terminal } from "@/components/terminal"
 import { checksum, base64Encode, base64Decode } from "@opencode-ai/util/encode"
 import { findLast } from "@opencode-ai/util/array"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { DialogFork } from "@/components/dialog-fork"
+import { useActivity } from "@/hooks/use-activity"
+import { ActivityPanel } from "@/components/activity/activity-panel"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useNavigate, useParams } from "@solidjs/router"
@@ -184,10 +187,26 @@ export default function Page() {
   const prompt = usePrompt()
   const comments = useComments()
   const permission = usePermission()
+  const activity = useActivity({
+    get sessionID() {
+      return params.id ?? ""
+    },
+  })
   const [pendingMessage, setPendingMessage] = createSignal<string | undefined>(undefined)
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const tabs = createMemo(() => layout.tabs(sessionKey))
   const view = createMemo(() => layout.view(sessionKey))
+  const activityBadge = createMemo(() => activity.activities().some((i) => i.status !== "done"))
+
+  function openActivity() {
+    const id = params.id
+    if (!id) return
+    dialog.show(() => (
+      <Dialog title="Activity" size="x-large">
+        <ActivityPanel items={activity.activities} />
+      </Dialog>
+    ))
+  }
 
   if (import.meta.env.DEV) {
     createEffect(
@@ -1415,7 +1434,7 @@ export default function Page() {
 
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
-      <SessionHeader />
+      <SessionHeader onActivity={openActivity} badge={activityBadge} />
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
         {/* Mobile tab bar - only shown on mobile when user opened review */}
         <Show when={!isDesktop() && view().reviewPanel.opened()}>

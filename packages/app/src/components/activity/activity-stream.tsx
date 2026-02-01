@@ -2,9 +2,9 @@ import type { ActivityItem } from "@/lib/chronology/types"
 import { ActivityCard } from "./activity-card"
 import { For, Show, createMemo } from "solid-js"
 
-export function ActivityStream(props: { items: ActivityItem[] }) {
-  const now = createMemo(() => props.items.filter((i) => i.status !== "done"))
-  const done = createMemo(() => props.items.filter((i) => i.status === "done"))
+export function ActivityStream(props: { items: () => ActivityItem[] }) {
+  const now = createMemo(() => props.items().filter((i) => i.status !== "done"))
+  const done = createMemo(() => props.items().filter((i) => i.status === "done"))
 
   return (
     <div class="flex flex-col gap-2">
@@ -26,10 +26,9 @@ export function ActivityStream(props: { items: ActivityItem[] }) {
         </div>
       </Show>
 
-      <Show when={props.items.length === 0}>
+      <Show when={props.items().length === 0}>
         <div class="text-12-regular text-text-weak px-2 py-4">No activity yet.</div>
       </Show>
     </div>
   )
 }
-

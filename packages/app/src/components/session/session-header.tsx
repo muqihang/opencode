@@ -20,7 +20,7 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { Keybind } from "@opencode-ai/ui/keybind"
 import { StatusPopover } from "../status-popover"
 
-export function SessionHeader() {
+export function SessionHeader(props: { onActivity?: () => void; badge?: () => boolean }) {
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
   const params = useParams()
@@ -279,6 +279,22 @@ export function SessionHeader() {
                     </div>
                   </Button>
                 </TooltipKeybind>
+              </div>
+              <div class="hidden md:block shrink-0">
+                <Tooltip value="Activity" placement="top" gutter={8}>
+                  <Button
+                    variant="ghost"
+                    class="group/activity-toggle size-6 p-0 relative"
+                    onClick={() => props.onActivity?.()}
+                    aria-label="Activity"
+                    tabIndex={params.id ? 0 : -1}
+                  >
+                    <Icon size="small" name="bullet-list" />
+                    <Show when={props.badge?.()}>
+                      <div class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-surface-warning-strong border border-border-weak-base" />
+                    </Show>
+                  </Button>
+                </Tooltip>
               </div>
               <div class="hidden md:block shrink-0">
                 <TooltipKeybind title={language.t("command.review.toggle")} keybind={command.keybind("review.toggle")}>
