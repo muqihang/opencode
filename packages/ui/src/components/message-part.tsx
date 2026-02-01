@@ -49,6 +49,7 @@ import { Tooltip } from "./tooltip"
 import { IconButton } from "./icon-button"
 import { createAutoScroll } from "../hooks"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
+import { parseBackgroundTaskReminder } from "./system-reminder-background-task"
 
 interface Diagnostic {
   range: {
@@ -684,7 +685,10 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   const part = props.part as TextPart
   const displayText = () => relativizeProjectPaths((part.text ?? "").trim(), data.directory)
   const throttledText = createThrottledValue(displayText)
+  const reminder = createMemo(() => parseBackgroundTaskReminder(throttledText()))
   const [copied, setCopied] = createSignal(false)
+  const [rawOpen, setRawOpen] = createSignal(false)
+  const [cmdCopied, setCmdCopied] = createSignal(false)
 
   const handleCopy = async () => {
     const content = displayText()
@@ -698,22 +702,120 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     <Show when={throttledText()}>
       <div data-component="text-part">
         <div data-slot="text-part-body">
-          <Markdown text={throttledText()} cacheKey={part.id} />
-          <div data-slot="text-part-copy-wrapper">
-            <Tooltip
-              value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
-              placement="top"
-              gutter={8}
-            >
-              <IconButton
-                icon={copied() ? "check" : "copy"}
-                variant="secondary"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={handleCopy}
-                aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
-              />
-            </Tooltip>
-          </div>
+          <Switch>
+            <Match when={reminder()}>
+              {(r) => {
+                const title = () => {
+                  const kind = r().kind
+                  if (kind === "completed") return "后台子任务已完成"
+                  if (kind === "cancelled") return "后台子任务已取消"
+                  if (kind === "failed") return "后台子任务失败"
+                  return "所有后台子任务已完成"
+                }
+
+                const info = () => {
+                  const val = r()
+                  if (val.kind === "all_complete") return
+                  return val
+                }
+
+                const command = () => (r().kind === "all_complete" ? undefined : r().command)
+
+                const findChild = () => {
+                  if (r().kind === "all_complete") return
+                  const current = props.message.sessionID
+                  const desc = r().description ?? ""
+                  const sessions = data.store.session ?? []
+                  const children = sessions.filter((s) => s.parentID === current)
+                  if (!desc) return children.find((s) => (s.title ?? "").startsWith("Background:"))
+                  return children.find((s) => (s.title ?? "").startsWith("Background:") && (s.title ?? "").includes(desc))
+                }
+
+                const openChild = () => {
+                  const child = findChild()
+                  if (!child) return
+                  data.navigateToSession?.(child.id)
+                }
+
+                const copyCmd = async () => {
+                  const cmd = command()
+                  if (!cmd) return
+                  await navigator.clipboard.writeText(cmd)
+                  setCmdCopied(true)
+                  setTimeout(() => setCmdCopied(false), 2000)
+                }
+
+                return (
+                  <div class="rounded-md border border-border-weak-base bg-surface-raised-base px-3 py-2 flex flex-col gap-2">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="text-13-medium text-text-strong">{title()}</div>
+                        <div class="text-12-regular text-text-weak">
+                          <Show when={info()}>
+                            {(x) => (
+                              <>
+                                <span>ID：{x().id ?? "-"}</span>
+                                <Show when={x().duration}>
+                                  <span> · 耗时：{x().duration}</span>
+                                </Show>
+                                <Show when={typeof x().remaining === "number"}>
+                                  <span> · 剩余：{x().remaining}</span>
+                                </Show>
+                              </>
+                            )}
+                          </Show>
+                        </div>
+                        <Show when={info()?.description}>
+                          <div class="text-12-regular text-text-weak truncate">{info()?.description}</div>
+                        </Show>
+                      </div>
+                      <Icon name="task" size="small" class="text-icon-weak-base shrink-0" />
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                      <Show when={command()}>
+                        <Button variant="secondary" size="small" onClick={copyCmd}>
+                          {cmdCopied() ? "已复制命令" : "复制结果拉取命令"}
+                        </Button>
+                      </Show>
+                      <Show when={findChild()}>
+                        <Button variant="secondary" size="small" onClick={openChild}>
+                          打开子会话
+                        </Button>
+                      </Show>
+                      <Button variant="ghost" size="small" onClick={() => setRawOpen(!rawOpen())}>
+                        {rawOpen() ? "隐藏原文（审计）" : "查看原文（审计）"}
+                      </Button>
+                    </div>
+
+                    <Show when={rawOpen()}>
+                      <pre class="text-12-regular text-text-weak whitespace-pre-wrap break-words rounded-md border border-border-weak-base bg-surface-base px-2 py-1">
+                        {r().raw}
+                      </pre>
+                    </Show>
+                  </div>
+                )
+              }}
+            </Match>
+            <Match when={true}>
+              <Markdown text={throttledText()} cacheKey={part.id} />
+              <div data-slot="text-part-copy-wrapper">
+                <Tooltip
+                  value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
+                  placement="top"
+                  gutter={8}
+                >
+                  <IconButton
+                    icon={copied() ? "check" : "copy"}
+                    variant="secondary"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={handleCopy}
+                    aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
+                  />
+                </Tooltip>
+              </div>
+            </Match>
+          </Switch>
         </div>
       </div>
     </Show>
