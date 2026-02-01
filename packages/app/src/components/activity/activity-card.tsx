@@ -1,7 +1,7 @@
 import type { ActivityItem } from "@/lib/chronology/types"
 import { Icon } from "@opencode-ai/ui/icon"
-import { createMemo, createSignal, onCleanup, Show } from "solid-js"
-import { getPulseMode } from "./pulse"
+import { createMemo, Show } from "solid-js"
+import { getPulseMode, useNowMs } from "./pulse"
 
 function icon(category: ActivityItem["category"]) {
   if (category === "tool") return "console"
@@ -36,11 +36,7 @@ export function ActivityCard(props: { item: ActivityItem }) {
   const time = createMemo(() => duration(props.item.tsStart, props.item.tsEnd))
   const status = createMemo(() => label(props.item.status))
 
-  const [now, setNow] = createSignal(Date.now())
-  const timer = setInterval(() => setNow(Date.now()), 1000)
-  onCleanup(() => clearInterval(timer))
-
-  const mode = createMemo(() => getPulseMode([props.item], now()))
+  const mode = createMemo(() => getPulseMode([props.item], useNowMs()))
 
   const pulseClass = createMemo(() => {
     switch (mode()) {
@@ -73,12 +69,15 @@ export function ActivityCard(props: { item: ActivityItem }) {
               {(v) => <div class="text-11-regular text-text-weak tabular-nums">{v()}</div>}
             </Show>
             <div
-              class={`text-11-regular px-2 py-0.5 rounded-full bg-surface-raised-base text-text-subtle border border-border-weak-base ${pulseClass()}`}
+              class="text-11-regular px-2 py-0.5 rounded-full bg-surface-raised-base text-text-subtle border border-border-weak-base flex items-center gap-1.5"
               classList={{
                 "text-text-on-critical-base bg-surface-critical-base border-border-critical-base":
                   props.item.status === "failed",
               }}
             >
+              <Show when={props.item.status === "running"}>
+                <div class={`size-1.5 rounded-full bg-surface-info-strong ${pulseClass()}`} />
+              </Show>
               {status()}
             </div>
           </div>

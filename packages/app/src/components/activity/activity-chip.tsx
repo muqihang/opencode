@@ -1,7 +1,7 @@
 import type { ActivityItem } from "@/lib/chronology/types"
 import { Icon } from "@opencode-ai/ui/icon"
-import { createMemo, createSignal, onCleanup, Show } from "solid-js"
-import { getPulseMode } from "./pulse"
+import { createMemo, Show } from "solid-js"
+import { getPulseMode, useNowMs } from "./pulse"
 
 function headline(items: ActivityItem[]) {
   const running = items.find((i) => i.status === "running")
@@ -14,11 +14,7 @@ export function ActivityChip(props: { items: ActivityItem[]; onClick?: () => voi
   const text = createMemo(() => headline(props.items))
   const running = createMemo(() => props.items.some((i) => i.status === "running"))
 
-  const [now, setNow] = createSignal(Date.now())
-  const timer = setInterval(() => setNow(Date.now()), 1000)
-  onCleanup(() => clearInterval(timer))
-
-  const mode = createMemo(() => getPulseMode(props.items, now()))
+  const mode = createMemo(() => getPulseMode(props.items, useNowMs()))
 
   const pulseClass = createMemo(() => {
     switch (mode()) {

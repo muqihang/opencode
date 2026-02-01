@@ -1,6 +1,15 @@
+import { createRoot, createSignal, onCleanup } from "solid-js"
 import type { ActivityItem } from "@/lib/chronology/types"
 
 export type PulseMode = "breathing" | "flicker" | "arrhythmia" | "none"
+
+// Shared clock signal (singleton)
+export const useNowMs = createRoot(() => {
+  const [now, setNow] = createSignal(Date.now())
+  const timer = setInterval(() => setNow(Date.now()), 1000)
+  onCleanup(() => clearInterval(timer))
+  return now
+})
 
 export function getPulseMode(items: ActivityItem[], nowMs: number): PulseMode {
   const runningItems = items.filter((i) => i.status === "running")
