@@ -11,6 +11,14 @@
 - **UI (TUI):** `/activity` 文案与分类中文化，并引入基础“人话映射”（不追求与 App 完全一致，但要 PM 可读）。
 - **oh-my:** 不修改其 agent 协作语义；在 UI 层识别 `<system-reminder>` 的后台任务通知并卡片化（中文展示 + 行为按钮 + 可导航到子会话）。
 
+**Product UX Constraints (must meet):**
+- **Capsule placement:** Live Capsule 必须固定在 **User Message 之后**（Void Between Turns），避免跟随 assistant 输出导致位置跳动。
+- **Visual throttling:** Live Capsule 的“主状态文案”更新必须稳态（建议 800–1200ms 最短停留），仅在 `failed/needs_attention` 或 `running→done` 等“大状态跳变”时允许立刻更新。
+- **Failure is blocking:** 若 turn 内出现 `failed/needs_attention`，默认 **自动展开** timeline（不要让错误被折叠掩盖）。
+- **Audit is lazy:** raw JSON/审计详情必须懒渲染（用户打开 Inspect 才渲染），避免 DOM/内存爆炸。
+- **No empty chrome:** 没有任何 activity 时，turn 内不出现 capsule（纯聊天不需要“无活动”条）。
+- **Subtasks visible:** 父会话有运行中的子会话时，turn capsule/summary 必须能反映 “并行子任务 ×N”（至少 session 级）。
+
 **Tech Stack:** SolidJS, Tailwind, Bun, Zod, OpenTUI (TUI), OpenAPI SDK v2 (`@opencode-ai/sdk/v2`).
 
 **Hard Rules / Safety:**
@@ -146,6 +154,9 @@ Create `selectors.ts` exporting:
 - `groupActivitiesByMessageId(items: ActivityItem[]): Map<string, ActivityItem[]>`
 - `summarizeTurn(items: ActivityItem[]): { counts...; last?: ActivityItem; status: "idle|running|needs_attention|done" }`
 - `formatTurnSummary(t, summary)`（只生成语义数据；最终中文文案在 UI 层完成）
+- `shouldUpdateVisualHeadline(prev: { kind: string; status: string }, next: { kind: string; status: string }, elapsedMs: number): boolean`
+  - 纯函数，用于 Live Capsule 的“视觉节流”决策（避免频闪）
+  - 推荐策略：最短 900ms；但 `failed/needs_attention` 或 `running→done` 立即更新
 
 **Step 4: Run test (PASS)**
 
@@ -162,61 +173,12 @@ In `packages/app/src/hooks/use-activity.ts`:
 
 ---
 
-## Task 3: Implement Turn Live Capsule + inline Timeline (App components)
-
-**Files:**
-- Create: `packages/app/src/components/activity/turn-activity.tsx`
-- Modify: `packages/app/src/pages/session.tsx`
-- (Optional) Modify: `packages/app/src/components/activity/activity-card.tsx` (re-use styles)
-
-**Goal:** 把“执行过程”从右上角弹窗，变成 **每条消息内联** 的 GPT 风格体验（执行时出现，完成后折叠）。
-
-**Step 1: Write failing UI behavior test (lightweight)**
-Prefer: add small unit tests for the summary formatter (already in Task 2).  
-UI itself可先手测（Solid 组件测试成本高），但必须遵循以下可验收行为：
-- 当某 turn 有 `status !== done` 的 item 时，turn 内显示 capsule
-- 完成后自动折叠为单行摘要（仍可点击展开）
-
-**Step 2: Implement `TurnActivity` component**
-In `turn-activity.tsx`:
-- Props:
-  - `messageId: string`
-  - `getItems: (messageId) => ActivityItem[]`
-  - `getSummary: (messageId) => TurnSummary`
-  - `expanded: boolean`
-  - `onToggleExpanded: () => void`
-  - `onJumpToAudit?: () => void` (optional)
-- Render:
-  - Collapsed capsule: 中文摘要（见 Task 5 i18n）
-  - Expanded: timeline list（用 `ActivityCard` 或更轻量节点）+ “审计视图”入口
-- 必须可滚动：expanded 区域 `max-h` + `overflow-y-auto`
-
-**Step 3: Wire into `SessionTurn` rendering**
-In `packages/app/src/pages/session.tsx`:
-- 在 `<SessionTurn ... />` 外围 turn 容器里渲染 `<TurnActivity ... />`，并用 CSS 确保视觉上属于该 turn（推荐放在 SessionTurn 之后、并保持与 turn 边框一致）。
-- 绑定 `expanded` 复用现有 `store.expanded[message.id]`，点击 capsule 即复用 `onStepsExpandedToggle`。
-
-> 若视觉上必须“夹在用户消息与 assistant 输出之间”，则升级方案：在 `@opencode-ai/ui` 的 `SessionTurn` 增加一个 `renderInlineAddon` slot（见 Task 4）。建议先走“外围插入”验证体验，再决定是否进 slot 改造。
-
-**Step 4: Manual verification**
-Run App dev + server，发一条会触发工具/解析的 prompt（例如 sleep + bash）：
-- 执行时 capsule 出现并实时更新（至少 running → done）
-- 完成后折叠
-- 展开后能滚动看到活动列表
-
-**Step 5: Commit**
-`git add packages/app/src/components/activity/turn-activity.tsx packages/app/src/pages/session.tsx`  
-`git commit -m "feat(app): add per-turn live capsule + inline activity timeline"`
-
----
-
-## Task 4: (Optional but recommended) Add `SessionTurn` addon slot for perfect placement
+## Task 3: Add `SessionTurn` addon slot (required for stable capsule placement)
 
 **Files:**
 - Modify: `packages/ui/src/components/session-turn.tsx`
-- Modify: `packages/app/src/pages/session.tsx`
 
-**Goal:** 让 TurnActivity 真正“嵌入 turn 内”，位置稳定，像 GPT 的“执行过程折叠条”。
+**Goal:** 让 Live Capsule 属于 “Void Between Turns”：固定在 **用户消息之后** 的稳定区域，避免外部拼接导致跳动。
 
 **Step 1: Add optional prop**
 In `SessionTurn` props add:
@@ -225,17 +187,80 @@ In `SessionTurn` props add:
 **Step 2: Render it in sticky area**
 Place it:
 - After user message content
-- Before trigger button
+- Before the existing trigger button (the one that shows spinner/status/duration)
 
-**Step 3: Wire from app**
-Pass `renderTurnAddon={() => <TurnActivity ... />}` and remove outer injection from Task 3.
+**Step 3: Keep this task UI-only**
+- 此任务只做 `@opencode-ai/ui` 的 slot 能力，不做 App wiring（App wiring 在 Task 4 一次性完成，避免半成品状态）。
 
-**Step 4: Verify**
-Same manual verification; ensure layout doesn’t break.
+**Step 4: Verify (smoke)**
+- Ensure layout doesn’t break
+- Ensure focus/keyboard navigation still works
 
 **Step 5: Commit**
-`git add packages/ui/src/components/session-turn.tsx packages/app/src/pages/session.tsx`  
-`git commit -m "feat(ui): support turn addon slot for narrative execution timeline"`
+`git add packages/ui/src/components/session-turn.tsx`  
+`git commit -m "feat(ui): add SessionTurn addon slot for per-turn execution timeline"`
+
+---
+
+## Task 4: Implement Turn Live Capsule + inline Timeline (App components)
+
+**Files:**
+- Create: `packages/app/src/components/activity/turn-activity.tsx`
+- Modify: `packages/app/src/pages/session.tsx`
+- (Optional) Modify: `packages/app/src/components/activity/activity-card.tsx` (re-use styles)
+
+**Goal:** 把“执行过程”从右上角弹窗，升级为 **每条用户消息 turn 内联** 的 GPT 风格体验（执行时出现，完成后折叠；失败自动展开）。
+
+**Step 1: Define behavior (acceptance in-code comments is OK)**
+必须满足：
+- 没有任何活动：不显示 capsule（纯聊天 turn 不出现空条）
+- 执行中：显示 capsule（稳定更新，不频闪）
+- 执行完成：自动折叠为 1 行摘要（用户可点击展开）
+- 执行失败 / 需要介入：自动展开（默认 open），并强可见
+- 动作过多：默认只展示前 5 + 后 2，中间折叠（避免信息瀑布）
+- Timeline 展开区域必须可滚动（`max-h` + `overflow-y-auto`，建议 `max-h: 40vh`）
+
+**Step 2: Implement `TurnActivity` component**
+In `turn-activity.tsx`:
+- Props (suggested):
+  - `messageId: string`
+  - `items: () => ActivityItem[]` (already filtered to this messageId)
+  - `summary: () => TurnSummary`
+  - `subtasks?: () => { running: number; total: number }` (optional, for “并行子任务 ×N”)
+  - `expanded: () => boolean`
+  - `setExpanded: (next: boolean) => void`
+- UI:
+  - Collapsed capsule: 中文人话（不要暴露 raw type），并显示 `并行子任务 ×N`（若有）
+  - Expanded timeline: list nodes (can reuse `ActivityCard`, but make it visually lighter than the audit panel)
+  - Provide “查看审计”入口（打开 Activity dialog 并定位 messageId）
+
+**Step 3: Implement visual throttling (stable headline)**
+- Use `shouldUpdateVisualHeadline(...)` from Task 2:
+  - Keep display headline stable for ~900ms
+  - Allow immediate update on failed/needs_attention or running→done
+
+**Step 4: Implement auto-expand on failure**
+- If summary indicates failed/needs_attention and user hasn’t explicitly collapsed it, force expanded.
+
+**Step 5: Wire into SessionTurn slot**
+In `packages/app/src/pages/session.tsx`:
+- Add a separate store for activity expansion (do **not** reuse `store.expanded` which controls assistant message visibility):
+  - e.g. `store.activityExpanded[messageId]`
+- Pass `renderTurnAddon` into `SessionTurn` (Task 3) rendering `<TurnActivity ... />`:
+  - Provide items via `activity.activitiesByMessageId.get(message.id) ?? []`
+  - Provide summary via `activity.turnSummary(message.id)`
+  - Provide subtasks counts from sync data (session-level)
+
+**Step 6: Manual verification**
+Run App dev + server，发一条会触发工具/解析的 prompt（例如 sleep + bash）：
+- 执行时 capsule 出现并实时更新（至少 running → done）
+- 文案稳定（不频闪）
+- 完成后折叠；点击可展开
+- 失败时自动展开
+
+**Step 7: Commit**
+`git add packages/app/src/components/activity/turn-activity.tsx packages/app/src/pages/session.tsx`  
+`git commit -m "feat(app): add per-turn live capsule + inline activity timeline"`
 
 ---
 
@@ -261,7 +286,7 @@ Same manual verification; ensure layout doesn’t break.
     - 人话摘要
     - pointers（copy）
     - redaction
-    - raw event JSON（折叠）
+    - raw event JSON（折叠，且必须懒渲染：只有在 Inspect 打开时才挂载到 DOM）
 
 **Step 3: Noise filtering toggle**
 - Default: hide **low-value system noise** unless user toggles “显示系统事件（审计）”
@@ -322,8 +347,13 @@ Use sync data (preferred, no extra API):
 
 **Goal:** 保留 `<system-reminder>` 原文（给 agent 协作），但对用户显示为卡片。
 
-**Step 1: Write parser (pure helper)**
-In `packages/ui/src/components/message-part.tsx` (or new helper file):
+**Step 1: Write parser (pure helper, memoized usage)**
+Create a helper file (recommended) to keep parsing out of the render loop:
+- Create: `packages/ui/src/components/system-reminder-background-task.tsx`
+  - export `parseBackgroundTaskReminder(text: string): Parsed | undefined`
+  - keep it pure (no DOM, no Solid)
+
+In `packages/ui/src/components/message-part.tsx`:
 - Detect text that includes `<system-reminder>` and `[BACKGROUND TASK ...]` or `[ALL BACKGROUND TASKS COMPLETE]`
 - Extract:
   - status (completed/cancelled/all-complete)
@@ -332,6 +362,7 @@ In `packages/ui/src/components/message-part.tsx` (or new helper file):
   - duration
   - remainingCount
   - command `background_output(task_id="...")` if present
+  - Important: parsing must be driven by a `createMemo(() => parse(...))` keyed by the final rendered text, not done repeatedly per render tick.
 
 **Step 2: Render card**
 Replace the Markdown rendering for that text-part with:
