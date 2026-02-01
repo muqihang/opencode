@@ -54,7 +54,7 @@ export function ActivityCard(props: { item: ActivityItem }) {
   const pulseColorVar = createMemo(() => {
     switch (mode()) {
       case "breathing":
-        return "var(--surface-note-strong)"
+        return "var(--surface-info-strong)"
       case "flicker":
         return "var(--text-interactive-base)"
       case "arrhythmia":

@@ -32,7 +32,7 @@ export function ActivityChip(props: { items: ActivityItem[]; onClick?: () => voi
   const pulseColorVar = createMemo(() => {
     switch (mode()) {
       case "breathing":
-        return "var(--surface-note-strong)" // Purple for thinking
+        return "var(--surface-info-strong)" // Purple for thinking
       case "flicker":
         return "var(--text-interactive-base)" // Blue for doing
       case "arrhythmia":
