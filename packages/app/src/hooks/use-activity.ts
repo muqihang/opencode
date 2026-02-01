@@ -1,5 +1,6 @@
 import { useSDK } from "@/context/sdk"
 import { synthesize } from "@/lib/chronology/engine"
+import { groupActivitiesByMessageId, summarizeTurn } from "@/lib/chronology/selectors"
 import type { EventV1 } from "@/lib/chronology/types"
 import { createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -33,9 +34,13 @@ export function useActivity(props: { sessionID: string }) {
   })
 
   const activities = createMemo(() => synthesize(state.events))
+  const activitiesByMessageId = createMemo(() => groupActivitiesByMessageId(activities()))
+  const turnSummary = (messageId: string) => summarizeTurn(activitiesByMessageId().get(messageId) ?? [])
 
   return {
     events: createMemo(() => state.events),
     activities,
+    activitiesByMessageId,
+    turnSummary,
   }
 }
