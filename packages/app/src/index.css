@@ -55,3 +55,24 @@
   scrollbar-width: thin !important;
   scrollbar-color: var(--border-weak-base) transparent !important;
 }
+
+@keyframes activity-breathe {
+  0%, 100% { opacity: 0.6; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes activity-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+  25% { opacity: 0.8; }
+  75% { opacity: 0.6; }
+}
+
+@keyframes activity-arrhythmia {
+  0% { opacity: 1; transform: scale(1); filter: hue-rotate(0deg); }
+  15% { opacity: 0.5; transform: scale(0.9); }
+  25% { opacity: 0.8; transform: scale(0.95); }
+  40% { opacity: 0.4; transform: scale(0.9); }
+  60% { opacity: 1; transform: scale(1.1); filter: hue-rotate(20deg); }
+  100% { opacity: 1; transform: scale(1); filter: hue-rotate(0deg); }
+}

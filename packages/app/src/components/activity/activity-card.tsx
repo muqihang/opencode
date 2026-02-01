@@ -1,6 +1,7 @@
 import type { ActivityItem } from "@/lib/chronology/types"
 import { Icon } from "@opencode-ai/ui/icon"
-import { createMemo, Show } from "solid-js"
+import { createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { getPulseMode } from "./pulse"
 
 function icon(category: ActivityItem["category"]) {
   if (category === "tool") return "console"
@@ -35,6 +36,25 @@ export function ActivityCard(props: { item: ActivityItem }) {
   const time = createMemo(() => duration(props.item.tsStart, props.item.tsEnd))
   const status = createMemo(() => label(props.item.status))
 
+  const [now, setNow] = createSignal(Date.now())
+  const timer = setInterval(() => setNow(Date.now()), 1000)
+  onCleanup(() => clearInterval(timer))
+
+  const mode = createMemo(() => getPulseMode([props.item], now()))
+
+  const pulseClass = createMemo(() => {
+    switch (mode()) {
+      case "breathing":
+        return "motion-reduce:animate-none animate-[activity-breathe_3s_ease-in-out_infinite]"
+      case "flicker":
+        return "motion-reduce:animate-none animate-[activity-flicker_0.5s_linear_infinite]"
+      case "arrhythmia":
+        return "motion-reduce:animate-none animate-[activity-arrhythmia_2s_ease-in-out_infinite]"
+      default:
+        return ""
+    }
+  })
+
   return (
     <div class="flex items-start gap-3 rounded-md border border-border-weak-base bg-surface-base px-3 py-2">
       <div class="mt-0.5 shrink-0 size-7 rounded-md bg-surface-raised-base flex items-center justify-center border border-border-weak-base">
@@ -53,9 +73,8 @@ export function ActivityCard(props: { item: ActivityItem }) {
               {(v) => <div class="text-11-regular text-text-weak tabular-nums">{v()}</div>}
             </Show>
             <div
-              class="text-11-regular px-2 py-0.5 rounded-full bg-surface-raised-base text-text-subtle border border-border-weak-base"
+              class={`text-11-regular px-2 py-0.5 rounded-full bg-surface-raised-base text-text-subtle border border-border-weak-base ${pulseClass()}`}
               classList={{
-                "animate-pulse": props.item.status === "running",
                 "text-text-on-critical-base bg-surface-critical-base border-border-critical-base":
                   props.item.status === "failed",
               }}
