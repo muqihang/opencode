@@ -379,8 +379,11 @@ BUN_INSTALL=/tmp/bun-install TMPDIR=/tmp bun test
 cd ../app
 BUN_INSTALL=/tmp/bun-install TMPDIR=/tmp bun run typecheck
 
-# optional if present
-BUN_INSTALL=/tmp/bun-install TMPDIR=/tmp bun test
+# unit tests only (avoid picking up Playwright e2e in ./e2e)
+BUN_INSTALL=/tmp/bun-install TMPDIR=/tmp bun test src
+
+# NOTE: e2e belongs to Playwright (and may not run in constrained environments)
+# cd ../app && bun run test:e2e
 ```
 
 Expected: all PASS.
