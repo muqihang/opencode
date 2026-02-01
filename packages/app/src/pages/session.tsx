@@ -204,7 +204,7 @@ export default function Page() {
     const id = params.id
     if (!id) return
     dialog.show(() => (
-      <Dialog title="Activity" size="x-large">
+      <Dialog title="活动" size="x-large">
         <ActivityPanel
           items={activity.activities}
           highlightMessageId={provenanceMessageId}

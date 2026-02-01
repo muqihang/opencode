@@ -376,12 +376,12 @@ export function SessionHeader(props: { onActivity?: () => void; badge?: () => bo
                 </Show>
               </div>
               <div class="hidden md:block shrink-0">
-                <Tooltip value="Activity" placement="top" gutter={8}>
+                <Tooltip value="活动" placement="top" gutter={8}>
                   <Button
                     variant="ghost"
                     class="group/activity-toggle size-6 p-0 relative"
                     onClick={() => props.onActivity?.()}
-                    aria-label="Activity"
+                    aria-label="活动"
                     tabIndex={params.id ? 0 : -1}
                   >
                     <Icon size="small" name="bullet-list" />
