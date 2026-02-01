@@ -6,6 +6,7 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { EventV1 } from "../../src/protocol/event"
 import { EvidencePack } from "../../src/protocol/evidence-pack"
+import { TurnTraceContext } from "../../src/util/turn-trace"
 
 describe("evidence.writer", () => {
   test("writes pack + manifest + events", async () => {
@@ -83,6 +84,40 @@ describe("evidence.writer", () => {
           const data = JSON.parse(line) as unknown
           EventV1.parse(data)
         }
+      },
+    })
+  })
+
+  test("injects traceId + messageId into events when turn context exists", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const writer = await EvidenceWriter.open({ sessionId: "ses_trace" })
+        await TurnTraceContext.provide(
+          { traceId: "0123456789abcdef0123456789abcdef", messageId: "message_123" },
+          async () => {
+            await writer.event({
+              specVersion: "event/1.0",
+              ts: "2026-02-01T00:00:00.000Z",
+              sessionId: "ses_trace",
+              severity: "info",
+              actor: "tool:bash",
+              type: "tool.started",
+              summary: "started",
+              redaction: { applied: true, policyVersion: "v1" },
+            })
+          },
+        )
+
+        const eventsPath = path.join(tmp.path, ".opencode", "evidence", "ses_trace", "events.jsonl")
+        const lines = (await Bun.file(eventsPath).text())
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+        const first = JSON.parse(lines[0] ?? "{}") as any
+        expect(first.traceId).toBe("0123456789abcdef0123456789abcdef")
+        expect(first.data?.messageId).toBe("message_123")
       },
     })
   })

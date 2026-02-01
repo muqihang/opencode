@@ -193,6 +193,7 @@ export default function Page() {
     },
   })
   const [pendingMessage, setPendingMessage] = createSignal<string | undefined>(undefined)
+  const [provenanceMessageId, setProvenanceMessageId] = createSignal<string | undefined>(undefined)
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const tabs = createMemo(() => layout.tabs(sessionKey))
   const view = createMemo(() => layout.view(sessionKey))
@@ -203,7 +204,16 @@ export default function Page() {
     if (!id) return
     dialog.show(() => (
       <Dialog title="Activity" size="x-large">
-        <ActivityPanel items={activity.activities} />
+        <ActivityPanel
+          items={activity.activities}
+          highlightMessageId={provenanceMessageId}
+          onHighlightMessageId={setProvenanceMessageId}
+          onJumpToMessageId={(messageId) => {
+            dialog.close()
+            setProvenanceMessageId(messageId)
+            window.location.hash = anchor(messageId)
+          }}
+        />
       </Dialog>
     ))
   }
@@ -1650,6 +1660,18 @@ export default function Page() {
                                   classList={{
                                     "min-w-0 w-full max-w-full": true,
                                     "md:max-w-200": !showTabs(),
+                                    "rounded-md outline outline-1 outline-border-strong-base":
+                                      provenanceMessageId() === message.id,
+                                  }}
+                                  onMouseEnter={() => setProvenanceMessageId(message.id)}
+                                  onMouseLeave={() => {
+                                    if (provenanceMessageId() !== message.id) return
+                                    setProvenanceMessageId(undefined)
+                                  }}
+                                  onFocusIn={() => setProvenanceMessageId(message.id)}
+                                  onFocusOut={() => {
+                                    if (provenanceMessageId() !== message.id) return
+                                    setProvenanceMessageId(undefined)
                                   }}
                                 >
                                   <SessionTurn

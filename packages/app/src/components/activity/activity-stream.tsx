@@ -2,7 +2,12 @@ import type { ActivityItem } from "@/lib/chronology/types"
 import { ActivityCard } from "./activity-card"
 import { For, Show, createMemo } from "solid-js"
 
-export function ActivityStream(props: { items: () => ActivityItem[] }) {
+export function ActivityStream(props: {
+  items: () => ActivityItem[]
+  highlightMessageId?: () => string | undefined
+  onHighlightMessageId?: (id: string | undefined) => void
+  onJumpToMessageId?: (id: string) => void
+}) {
   const now = createMemo(() => props.items().filter((i) => i.status !== "done"))
   const done = createMemo(() => props.items().filter((i) => i.status === "done"))
 
@@ -13,7 +18,16 @@ export function ActivityStream(props: { items: () => ActivityItem[] }) {
           <div class="text-12-medium text-text-strong">Now</div>
         </div>
         <div class="flex flex-col gap-2">
-          <For each={now()}>{(item) => <ActivityCard item={item} />}</For>
+          <For each={now()}>
+            {(item) => (
+              <ActivityCard
+                item={item}
+                highlightMessageId={props.highlightMessageId}
+                onHighlightMessageId={props.onHighlightMessageId}
+                onJumpToMessageId={props.onJumpToMessageId}
+              />
+            )}
+          </For>
         </div>
       </Show>
 
@@ -22,7 +36,16 @@ export function ActivityStream(props: { items: () => ActivityItem[] }) {
           <div class="text-12-medium text-text-subtle px-1">Recent</div>
         </div>
         <div class="flex flex-col gap-2">
-          <For each={done()}>{(item) => <ActivityCard item={item} />}</For>
+          <For each={done()}>
+            {(item) => (
+              <ActivityCard
+                item={item}
+                highlightMessageId={props.highlightMessageId}
+                onHighlightMessageId={props.onHighlightMessageId}
+                onJumpToMessageId={props.onJumpToMessageId}
+              />
+            )}
+          </For>
         </div>
       </Show>
 

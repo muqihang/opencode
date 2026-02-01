@@ -51,4 +51,24 @@ describe("chronology.engine", () => {
     expect(items).toHaveLength(1)
     expect(items[0]?.status).toBe("running")
   })
+
+  test("propagates traceId + messageId onto ActivityItem", () => {
+    const events: EventV1[] = [
+      {
+        specVersion: "event/1.0",
+        ts: "2026-02-01T00:00:00.000Z",
+        sessionId: "ses_test",
+        traceId: "0123456789abcdef0123456789abcdef",
+        severity: "info",
+        actor: "tool:bash",
+        type: "tool.started",
+        summary: "started",
+        data: { messageId: "message_123" },
+        redaction: { applied: true, policyVersion: "v1" },
+      },
+    ]
+    const items = synthesize(events)
+    expect(items[0]?.traceId).toBe("0123456789abcdef0123456789abcdef")
+    expect(items[0]?.messageId).toBe("message_123")
+  })
 })

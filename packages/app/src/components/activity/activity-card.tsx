@@ -32,11 +32,45 @@ function duration(start: string, end?: string) {
   return `${(dt / 1000).toFixed(1)}s`
 }
 
-export function ActivityCard(props: { item: ActivityItem }) {
+export function matchMessageId(current: string | undefined, item: ActivityItem) {
+  if (!current) return false
+  if (!item.messageId) return false
+  return current === item.messageId
+}
+
+export function ActivityCard(props: {
+  item: ActivityItem
+  highlightMessageId?: () => string | undefined
+  onHighlightMessageId?: (id: string | undefined) => void
+  onJumpToMessageId?: (id: string) => void
+}) {
   const time = createMemo(() => duration(props.item.tsStart, props.item.tsEnd))
   const status = createMemo(() => label(props.item.status))
 
   const mode = createMemo(() => getPulseMode([props.item], useNowMs()))
+
+  const highlight = createMemo(() => matchMessageId(props.highlightMessageId?.(), props.item))
+  const strong = createMemo(() => highlight() || props.item.status === "running")
+  const canJump = createMemo(() => !!props.item.messageId && !!props.onJumpToMessageId)
+
+  const enter = () => {
+    const id = props.item.messageId
+    if (!id) return
+    props.onHighlightMessageId?.(id)
+  }
+
+  const leave = () => {
+    if (!props.onHighlightMessageId) return
+    if (!highlight()) return
+    props.onHighlightMessageId(undefined)
+  }
+
+  const jump = () => {
+    const id = props.item.messageId
+    if (!id) return
+    if (!props.onJumpToMessageId) return
+    props.onJumpToMessageId(id)
+  }
 
   const pulseClass = createMemo(() => {
     switch (mode()) {
@@ -69,9 +103,14 @@ export function ActivityCard(props: { item: ActivityItem }) {
       class="flex items-start gap-3 rounded-md border bg-surface-base px-3 py-2 transition-colors"
       classList={{
         "border-border-strong-base shadow-[0_0_0_1px_rgba(0,0,0,0.03)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.05)]":
-          props.item.status === "running",
-        "border-border-weak-base": props.item.status !== "running",
+          strong(),
+        "border-border-weak-base": !strong(),
+        "bg-surface-raised-base": highlight(),
       }}
+      onMouseEnter={enter}
+      onMouseLeave={leave}
+      onFocusIn={enter}
+      onFocusOut={leave}
     >
       <div class="mt-0.5 shrink-0 size-7 rounded-md bg-surface-raised-base flex items-center justify-center border border-border-weak-base">
         <Icon name={icon(props.item.category)} size="small" class="text-icon-weak-base" />
@@ -106,6 +145,15 @@ export function ActivityCard(props: { item: ActivityItem }) {
               </Show>
               {status()}
             </div>
+            <Show when={canJump()}>
+              <button
+                type="button"
+                class="text-11-regular text-text-interactive-base hover:text-text-strong"
+                onClick={jump}
+              >
+                Jump
+              </button>
+            </Show>
           </div>
         </div>
       </div>

@@ -11,6 +11,7 @@ import { EventV1 } from "@/protocol/event"
 import { EvidenceMicroPack } from "@/protocol/evidence-micro-pack"
 import { renderEvidencePackViewMarkdown } from "@/evidence/pack-view"
 import { stableJson } from "@/util/stable-json"
+import { TurnTraceContext } from "@/util/turn-trace"
 
 const OpenInput = z
   .object({
@@ -314,7 +315,14 @@ export const EvidenceWriter = {
 
     async function event(inputEvent: z.infer<typeof EventV1>) {
       try {
-        const eventData = EventV1.parse(inputEvent)
+        const context = TurnTraceContext.get()
+        const data = inputEvent.data ?? {}
+        const hasMessageId = Object.prototype.hasOwnProperty.call(data, "messageId")
+        const eventData = EventV1.parse({
+          ...inputEvent,
+          traceId: inputEvent.traceId ?? context?.traceId,
+          data: context?.messageId && !hasMessageId ? { ...data, messageId: context.messageId } : inputEvent.data,
+        })
         events.push(eventData)
         await fs.mkdir(path.dirname(eventsPath), { recursive: true })
         await fs.appendFile(eventsPath, JSON.stringify(eventData) + "\n")
