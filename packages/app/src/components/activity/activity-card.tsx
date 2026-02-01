@@ -51,8 +51,28 @@ export function ActivityCard(props: { item: ActivityItem }) {
     }
   })
 
+  const pulseColorVar = createMemo(() => {
+    switch (mode()) {
+      case "breathing":
+        return "var(--surface-note-strong)"
+      case "flicker":
+        return "var(--text-interactive-base)"
+      case "arrhythmia":
+        return "var(--surface-warning-strong)"
+      default:
+        return "var(--surface-info-strong)"
+    }
+  })
+
   return (
-    <div class="flex items-start gap-3 rounded-md border border-border-weak-base bg-surface-base px-3 py-2">
+    <div
+      class="flex items-start gap-3 rounded-md border bg-surface-base px-3 py-2 transition-colors"
+      classList={{
+        "border-border-strong-base shadow-[0_0_0_1px_rgba(0,0,0,0.03)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.05)]":
+          props.item.status === "running",
+        "border-border-weak-base": props.item.status !== "running",
+      }}
+    >
       <div class="mt-0.5 shrink-0 size-7 rounded-md bg-surface-raised-base flex items-center justify-center border border-border-weak-base">
         <Icon name={icon(props.item.category)} size="small" class="text-icon-weak-base" />
       </div>
@@ -76,7 +96,13 @@ export function ActivityCard(props: { item: ActivityItem }) {
               }}
             >
               <Show when={props.item.status === "running"}>
-                <div class={`size-1.5 rounded-full bg-surface-info-strong ${pulseClass()}`} />
+                <div
+                  class={`size-1.5 rounded-full ${pulseClass()}`}
+                  style={{
+                    "background-color": pulseColorVar(),
+                    "--activity-pulse-color": pulseColorVar(),
+                  }}
+                />
               </Show>
               {status()}
             </div>

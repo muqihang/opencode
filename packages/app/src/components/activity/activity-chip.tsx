@@ -29,6 +29,19 @@ export function ActivityChip(props: { items: ActivityItem[]; onClick?: () => voi
     }
   })
 
+  const pulseColorVar = createMemo(() => {
+    switch (mode()) {
+      case "breathing":
+        return "var(--surface-note-strong)" // Purple for thinking
+      case "flicker":
+        return "var(--text-interactive-base)" // Blue for doing
+      case "arrhythmia":
+        return "var(--surface-warning-strong)" // Amber for stalled
+      default:
+        return "var(--surface-info-strong)"
+    }
+  })
+
   return (
     <button
       type="button"
@@ -38,7 +51,13 @@ export function ActivityChip(props: { items: ActivityItem[]; onClick?: () => voi
       <Icon name="bullet-list" size="small" class="text-icon-weak-base" />
       <div class="text-12-regular text-text-weak truncate max-w-64">{text()}</div>
       <Show when={running()}>
-        <div class={`size-1.5 rounded-full bg-surface-info-strong ${pulseClass()}`} />
+        <div
+          class={`size-1.5 rounded-full ${pulseClass()}`}
+          style={{
+            "background-color": pulseColorVar(),
+            "--activity-pulse-color": pulseColorVar(),
+          }}
+        />
       </Show>
     </button>
   )

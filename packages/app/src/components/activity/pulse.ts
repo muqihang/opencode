@@ -8,6 +8,11 @@ export const useNowMs = createRoot(() => {
   const [now, setNow] = createSignal(Date.now())
   const timer = setInterval(() => setNow(Date.now()), 1000)
   onCleanup(() => clearInterval(timer))
+
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => clearInterval(timer))
+  }
+
   return now
 })
 

@@ -58,12 +58,12 @@
 
 @keyframes activity-breathe {
   0%, 100% { opacity: 0.6; transform: scale(0.95); box-shadow: 0 0 0 transparent; }
-  50% { opacity: 1; transform: scale(1.05); box-shadow: 0 0 4px var(--surface-info-strong); }
+  50% { opacity: 1; transform: scale(1.05); box-shadow: 0 0 4px var(--activity-pulse-color, var(--surface-info-strong)); }
 }
 
 @keyframes activity-flicker {
-  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--surface-info-strong); }
-  50% { opacity: 0.4; box-shadow: 0 0 1px var(--surface-info-strong); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--activity-pulse-color, var(--surface-info-strong)); }
+  50% { opacity: 0.4; box-shadow: 0 0 1px var(--activity-pulse-color, var(--surface-info-strong)); }
   25% { opacity: 0.8; }
   75% { opacity: 0.6; }
 }
@@ -71,8 +71,8 @@
 @keyframes activity-arrhythmia {
   0% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 transparent; }
   15% { opacity: 0.5; transform: scale(0.9); }
-  25% { opacity: 0.8; transform: scale(0.95); box-shadow: 0 0 2px var(--surface-info-strong); }
+  25% { opacity: 0.8; transform: scale(0.95); box-shadow: 0 0 2px var(--activity-pulse-color, var(--surface-info-strong)); }
   40% { opacity: 0.4; transform: scale(0.9); }
-  60% { opacity: 1; transform: scale(1.1); box-shadow: 0 0 6px var(--surface-info-strong); }
+  60% { opacity: 1; transform: scale(1.1); box-shadow: 0 0 6px var(--activity-pulse-color, var(--surface-info-strong)); }
   100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 transparent; }
 }
