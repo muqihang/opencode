@@ -37,6 +37,7 @@ import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { DialogFork } from "@/components/dialog-fork"
 import { useActivity } from "@/hooks/use-activity"
 import { ActivityPanel } from "@/components/activity/activity-panel"
+import { TurnActivity } from "@/components/activity/turn-activity"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useNavigate, useParams } from "@solidjs/router"
@@ -366,6 +367,8 @@ export default function Page() {
     activeDraggable: undefined as string | undefined,
     activeTerminalDraggable: undefined as string | undefined,
     expanded: {} as Record<string, boolean>,
+    activityExpanded: {} as Record<string, boolean>,
+    activityTouched: {} as Record<string, boolean>,
     messageId: undefined as string | undefined,
     turnStart: 0,
     mobileTab: "session" as "session" | "review",
@@ -513,6 +516,13 @@ export default function Page() {
   )
 
   const status = createMemo(() => sync.data.session_status[params.id ?? ""] ?? idle)
+  const subtasks = createMemo(() => {
+    const id = params.id
+    if (!id) return { running: 0, total: 0 }
+    const children = sync.data.session.filter((s) => s.parentID === id)
+    const running = children.filter((s) => (sync.data.session_status[s.id]?.type ?? "idle") !== "idle").length
+    return { running, total: children.length }
+  })
 
   createEffect(
     on(
@@ -520,6 +530,8 @@ export default function Page() {
       () => {
         setStore("messageId", undefined)
         setStore("expanded", {})
+        setStore("activityExpanded", {})
+        setStore("activityTouched", {})
       },
       { defer: true },
     ),
@@ -1682,6 +1694,24 @@ export default function Page() {
                                     onStepsExpandedToggle={() =>
                                       setStore("expanded", message.id, (open: boolean | undefined) => !open)
                                     }
+                                    renderTurnAddon={(ctx) => (
+                                      <TurnActivity
+                                        messageId={ctx.messageID}
+                                        items={() => activity.activitiesByMessageId().get(ctx.messageID) ?? []}
+                                        summary={() => activity.turnSummary(ctx.messageID)}
+                                        subtasks={() => (ctx.working ? subtasks() : { running: 0, total: 0 })}
+                                        expanded={() => store.activityExpanded[ctx.messageID] ?? false}
+                                        touched={() => store.activityTouched[ctx.messageID] ?? false}
+                                        setExpanded={(next, user) => {
+                                          setStore("activityExpanded", ctx.messageID, next)
+                                          if (user) setStore("activityTouched", ctx.messageID, true)
+                                        }}
+                                        onInspect={() => {
+                                          setProvenanceMessageId(ctx.messageID)
+                                          openActivity()
+                                        }}
+                                      />
+                                    )}
                                     classes={{
                                       root: "min-w-0 w-full relative",
                                       content: "flex flex-col justify-between !overflow-visible",
