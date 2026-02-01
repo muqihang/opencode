@@ -14,5 +14,6 @@ export type ActivityItem = {
   tsStart: string
   tsEnd?: string
   events: EventV1[]
+  traceId?: string
+  messageId?: string
 }
-
