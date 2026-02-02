@@ -173,7 +173,7 @@ describe("activity-narrative", () => {
         events: [mockEvent({ type: "routing.cancelled", data: { reason: "superseded" } })],
       })
       const result = mapActivityItem(item)
-      expect(result.titleZh).toContain("Superseded")
+      expect(result.titleZh).toContain("新任务接管")
     })
   })
   
@@ -185,6 +185,7 @@ describe("activity-narrative", () => {
       })
       const result = mapActivityItem(item)
       expect(result.titleZh).toBe("上下文包已就绪")
+      expect(result.subtitleZh).toBe("已生成 context-pack.json")
       expect(result.isMilestone).toBe(true)
     })
   })

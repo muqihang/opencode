@@ -82,75 +82,75 @@ function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeRe
 
     const reason = cancelEvent.data?.reason
 
-    if (reason === "user_abort") {
+        if (reason === "user_abort") {
 
-      return { titleZh: "规划已取消 (用户终止)", severity: "warning" }
+          return { titleZh: "规划已取消 (用户终止)", severity: "warning" }
+
+        }
+
+        if (reason === "superseded") {
+
+          return { titleZh: "规划已更新（新任务接管）", severity: "info", isNoise: true }
+
+        }
+
+        return { titleZh: "规划已取消" }
+
+      }
+
+    
+
+      if (item.status === "running") return { titleZh: "正在规划下一步…" }
+
+      return { titleZh: "已完成规划" }
 
     }
 
-    if (reason === "superseded") {
+    
 
-      return { titleZh: "规划已更新 (Superseded)", severity: "info", isNoise: true }
+    function mapWorkbench(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
+      const isDoc = events.some((e) => e.type.startsWith("doc."))
+
+      if (isDoc) {
+
+        if (item.status === "running") return { titleZh: "正在解析文档…" }
+
+        return { titleZh: "文档解析完成" }
+
+      }
+
+    
+
+      if (item.status === "running") return { titleZh: "正在处理文件…" }
+
+      return { titleZh: "文件处理完成" }
 
     }
 
-    return { titleZh: "规划已取消" }
+    
 
-  }
+    function mapCache(item: ActivityItem): NarrativeResult {
 
+      if (item.status === "running") return { titleZh: "正在读取缓存…" }
 
+      return { titleZh: "命中缓存" }
 
-  if (item.status === "running") return { titleZh: "正在规划下一步…" }
+    }
 
-  return { titleZh: "已完成规划" }
+    
 
-}
+    function mapOther(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
 
+      const type = events[0]?.type || item.title
 
+    
 
-function mapWorkbench(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+      if (type === "context.pack_built") {
 
-  const isDoc = events.some((e) => e.type.startsWith("doc."))
+        return { titleZh: "上下文包已就绪", subtitleZh: "已生成 context-pack.json", isMilestone: true, isNoise: false }
 
-  if (isDoc) {
-
-    if (item.status === "running") return { titleZh: "正在解析文档…" }
-
-    return { titleZh: "文档解析完成" }
-
-  }
-
-
-
-  if (item.status === "running") return { titleZh: "正在处理文件…" }
-
-  return { titleZh: "文件处理完成" }
-
-}
-
-
-
-function mapCache(item: ActivityItem): NarrativeResult {
-
-  if (item.status === "running") return { titleZh: "正在读取缓存…" }
-
-  return { titleZh: "命中缓存" }
-
-}
-
-
-
-function mapOther(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
-
-  const type = events[0]?.type || item.title
-
-
-
-  if (type === "context.pack_built") {
-
-    return { titleZh: "上下文包已就绪", subtitleZh: "Context Pack Ready", isMilestone: true, isNoise: false }
-
-  }
+      }
 
 
 
