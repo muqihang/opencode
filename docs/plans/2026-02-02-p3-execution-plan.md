@@ -196,6 +196,39 @@
   - `delegate.outputs[]`（必须至少包含 micro Evidence Pack pointers）
 - 通过 Milestone 1.1（结构化 handoff）把以上“委派契约”证据化；通过 Milestone 2/3 把“委派策略”纳入 determinism/cacheKey（避免同任务分配抖动导致 cache miss）。
 
+**默认 Dispatch Rules（v1，P3 必做，写成可审计规则）**
+
+> 你要求“像 `oh-my-opencode` 一样可编排、可扩展”，但我们要保证 P3 的核心目标：**工程可控**（可审计/可缓存/可取消/可解释）。  
+> 所以 dispatch v1 的定位是：**规则优先（deterministic）+ 允许技能/配置覆盖（extensible）**，而不是“让模型自由发挥”。
+
+**输入（作为 cacheKey 与审计的一部分）**
+- `task-frame.json`（用户意图 + openQuestions + 证据指针集合）
+- `policy`（strict/balanced/loose）
+- `budgets`（wallclock/token/tool/concurrency）
+- `toolsetFingerprint` + repo/worktree scope（用于稳定分配与缓存命中）
+
+**输出（必须产物化）**
+- 每个子会话前：`delegate-frame.json`（见 Milestone 1.1）
+- 子会话后：micro-pack 指针（`evidence.micro_pack_emitted` 已具备）+（可选）patch/diff 指针
+
+**规则（v1，足够强且可实现）**
+1) **显式优先**：用户显式选择（例如 @某 agent / 指定“开子会话调查”）> 规则；但仍要写 `delegate-frame.json` 记录输入输出指针。
+2) **最小必要**：能用 routing/retrieval/tool-belt/verification 在本会话解决的，就不额外开子会话（减少窗口膨胀）。
+3) **先证据后实现**：
+   - 若任务涉及“需要引用/证据/核验”，优先派 `librarian`/`research`（产出 pointers+anchors），再派 `writing/engineering`。
+4) **写代码默认子会话（隔离 workdir）**：
+   - 任何会改 repo 的任务默认走 `engineering` 子会话（隔离 workdir + patch/diff artifact），主会话只做 review/合并与 verifier gate（避免主会话被实现细节污染）。
+5) **失败语义明确**：
+   - 子会话失败必须产出 micro-pack + error artifact；主会话 UI 自动展开并给出中文下一步（符合 UI 工程纪律）。
+6) **并发上限**：
+   - v1 先限制：同一 parent session 同时最多 N 个子会话 in-flight（默认 1–2）；超出则排队或降级为本会话继续（写 `delegate.degraded` event）。
+
+**DoD（验收标准）**
+- 后端：`delegate-frame.json` + `evidence.micro_pack_emitted` +（必要时）patch/diff 指针，都能在 manifest/events 中追溯。
+- 协议：delegate-frame 与 micro-pack 指针格式稳定（stableJson + version）；dispatch decision 进入 `decision_boundary` block（Milestone 2）。
+- UI：Timeline 出现“已委派：<角色>（可追溯）”；失败自动展开。
+- 测试：给定固定 `task-frame.json` + 配置 → dispatch 结果稳定（hash 断言即可，避免复制业务逻辑）。
+
 ### 2.2 总设计稿覆盖矩阵（P3 相关 Section → 本计划落点）
 
 > 目的：确保不会漏掉总设计稿中 P3 相关的章节/要求；同时让后续实施可以按里程碑对账。
