@@ -302,3 +302,49 @@ Compaction v2 的推荐开关（示例命名；实施时对齐现有 Flag/Config
 3) **门禁与降级**：宁可降级也不装懂；把降级写成事件与可操作中文提示  
 4) **可回归**：任何“省 token 的聪明优化”必须可测、可解释、可回放（否则就是黑箱）  
 5) **稳定前缀**：blocks/顺序/模板版本稳定，缓存才会高命中
+
+---
+
+## 10) 可选增强（用于“世界级”上限，不必一次做完）
+
+> 这些增强不影响主线闭环，但会显著提升“长会话可控性、质量上限与命中率”。建议在实现时按收益/风险排序逐步加入。
+
+### 10.1 Topic Lanes：多意图并行时不“搅成一锅粥”
+
+当一个会话里同时有多个任务/话题时，单一 summary 容易混杂并导致漂移。
+
+增强做法：
+
+- capsule 允许 `lanes[]`：每个 lane 对应一个 intent（例如“写代码”“审计一份文件”“整理会议纪要”）
+- 每个 lane 有自己的 `goal/decisions/openQuestions/workingSet/claims`
+- GUI 默认只展示“当前 lane”，其它 lane 折叠为“还有 N 个任务在进行中”
+
+收益：减少混杂导致的错误；也让缓存 key 更稳定（当前 lane 不变时更高命中）。
+
+### 10.2 Differential Injection：只注入变化（进一步提升缓存命中）
+
+增强做法：
+
+- 记录“上一轮注入的 capsule 版本/sha”
+- 下一轮只注入 diff（新增决策、新证据指针、新 openQuestion）
+- 仍保留完整 capsule 作为 artifact（可回放），但 prompt 里只放增量
+
+收益：稳定前缀、减少重复 tokens、提升 provider prompt caching 命中率。
+
+### 10.3 Quality Score：用“可解释计分”替代“我感觉总结不错”
+
+增强做法：
+
+- compaction.report.json 里加入 `quality.score_bps`（0–10000）
+- 计分来源只允许来自可解释指标（例如：claims 可核验比例、unknown 比例、覆盖 required fields、预算达标等）
+
+收益：把“摘要漂移”从主观感受变成可回归指标，便于最小 evals（Milestone 6）门禁。
+
+### 10.4 Reranker Hook：对 working set 指针做稳定重排（不依赖模型聪明）
+
+增强做法：
+
+- 对候选 pointers 做稳定排序：`score_bps desc → source priority → path asc → anchor asc`
+- score 的来源优先使用确定性信号（路径/符号匹配、最近修改、引用次数），而不是模型自由评分
+
+收益：工作集稳定、复用更稳；弱模型也能更准。
