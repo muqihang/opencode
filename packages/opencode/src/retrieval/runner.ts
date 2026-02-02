@@ -74,6 +74,79 @@ const errorText = (error: unknown) => {
   return String(error)
 }
 
+const normalizePath = (value: string) => value.replace(/\\/g, "/")
+
+const stripArtifactRoot = (input: { artifactRoot: string; pointerPath: string }) => {
+  const root = normalizePath(input.artifactRoot).replace(/\/+$/, "")
+  const pointer = normalizePath(input.pointerPath)
+  const prefix = root ? `${root}/` : ""
+  if (prefix && pointer.startsWith(prefix)) return pointer.slice(prefix.length)
+  return pointer
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object"
+
+const normalizeHit = (hit: unknown, strip: (value: string) => string) => {
+  if (!isRecord(hit)) return hit
+  const pointer = hit.pointer
+  if (!isRecord(pointer)) return hit
+  const path = pointer.path
+  if (typeof path !== "string") return hit
+  const nextPointer = { ...pointer, path: strip(path) }
+  return { ...hit, pointer: nextPointer }
+}
+
+const rehydrateHit = async (input: {
+  hit: unknown
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  artifactRoot: string
+  retrievalId: string
+  strip: (value: string) => string
+}) => {
+  if (!isRecord(input.hit)) return input.hit
+  const pointer = input.hit.pointer
+  if (!isRecord(pointer)) return input.hit
+  const pathValue = pointer.path
+  if (typeof pathValue !== "string") return input.hit
+  const parts = normalizePath(pathValue).split("/")
+  if (parts.length < 4) return input.hit
+  if (parts[0] !== "retrieval") return input.hit
+  if (parts[2] !== "snippets") return input.hit
+  const tail = parts.slice(2).join("/")
+  const source = path.join(baseDir(), input.artifactRoot, ...parts)
+  const text = await Bun.file(source)
+    .text()
+    .catch(() => "")
+  if (!text) return input.hit
+  const entry = await input.writer.artifact({
+    kind: "retrieval-snippet",
+    path: `retrieval/${input.retrievalId}/${tail}`,
+    data: text,
+  })
+  const nextPointer = { ...pointer, path: input.strip(entry.path), sha256: entry.sha256 }
+  return { ...input.hit, pointer: nextPointer }
+}
+
+const rehydrateHits = async (input: {
+  hits: unknown[]
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  artifactRoot: string
+  retrievalId: string
+  strip: (value: string) => string
+}) => {
+  return Promise.all(
+    input.hits.map((hit) =>
+      rehydrateHit({
+        hit,
+        writer: input.writer,
+        artifactRoot: input.artifactRoot,
+        retrievalId: input.retrievalId,
+        strip: input.strip,
+      }),
+    ),
+  )
+}
+
 const readCache = async (key: string) => {
   const file = Bun.file(cachePath(key))
   const exists = await file.exists()
@@ -236,6 +309,9 @@ export const RetrievalRunner = {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
+    const artifactRoot = `.opencode/artifacts/${input.sessionId}`
+    const strip = (value: string) => stripArtifactRoot({ artifactRoot, pointerPath: value })
+
     const specEntry = await writer.artifact({
       kind: "retrieval-spec",
       path: `retrieval/${retrievalId}/retrieval.spec.json`,
@@ -320,14 +396,25 @@ export const RetrievalRunner = {
       },
     }
 
+    const normalizedHits = hits.map((item) => normalizeHit(item, strip))
+    const finalizedHits = attempts.cacheHit
+      ? await rehydrateHits({
+          hits: normalizedHits,
+          writer,
+          artifactRoot,
+          retrievalId,
+          strip,
+        })
+      : normalizedHits
+
     if (!attempts.cacheHit) {
-      await writeCache(cacheKey, { specVersion: "retrieval-cache/1.0", hits, dedupe })
+      await writeCache(cacheKey, { specVersion: "retrieval-cache/1.0", hits: normalizedHits, dedupe })
     }
 
     const hitsEntry = await writer.artifact({
       kind: "retrieval-hits",
       path: `retrieval/${retrievalId}/hits.json`,
-      data: stableJson(hits),
+      data: stableJson(finalizedHits),
     })
     const dedupeEntry = await writer.artifact({
       kind: "retrieval-dedupe",
@@ -336,17 +423,17 @@ export const RetrievalRunner = {
     })
     const errorEntry = await writeErrorArtifact(writer, { retrievalId, errors })
 
-    const topK = hits
+    const topK = finalizedHits
       .slice(0, 5)
       .map((item) => pointerFromHit(item))
       .filter((item): item is { path: string; sha256: string; anchor?: Record<string, number> } => Boolean(item))
 
     const artifacts: ArtifactPointer[] = [
-      { path: specEntry.path, sha256: specEntry.sha256, kind: specEntry.kind },
-      { path: hitsEntry.path, sha256: hitsEntry.sha256, kind: hitsEntry.kind },
-      { path: dedupeEntry.path, sha256: dedupeEntry.sha256, kind: dedupeEntry.kind },
+      { path: strip(specEntry.path), sha256: specEntry.sha256, kind: specEntry.kind },
+      { path: strip(hitsEntry.path), sha256: hitsEntry.sha256, kind: hitsEntry.kind },
+      { path: strip(dedupeEntry.path), sha256: dedupeEntry.sha256, kind: dedupeEntry.kind },
     ]
-    if (errorEntry) artifacts.push({ path: errorEntry.path, sha256: errorEntry.sha256, kind: errorEntry.kind })
+    if (errorEntry) artifacts.push({ path: strip(errorEntry.path), sha256: errorEntry.sha256, kind: errorEntry.kind })
 
     const evidencePointers: EvidencePointers = {
       retrievalId,
@@ -377,10 +464,10 @@ export const RetrievalRunner = {
         retrievalCacheKey: cacheKey,
         summary,
         artifacts: {
-          spec: specEntry.path,
-          hits: hitsEntry.path,
-          dedupe: dedupeEntry.path,
-          errors: errorEntry?.path,
+          spec: strip(specEntry.path),
+          hits: strip(hitsEntry.path),
+          dedupe: strip(dedupeEntry.path),
+          errors: errorEntry ? strip(errorEntry.path) : undefined,
         },
         reason: state.reason || (input.abort.aborted ? "user_abort" : budgetState.timedOut ? "timeout" : ""),
       },
@@ -391,10 +478,10 @@ export const RetrievalRunner = {
       retrievalId,
       retrievalCacheKey: cacheKey,
       artifacts: {
-        spec: specEntry.path,
-        hits: hitsEntry.path,
-        dedupe: dedupeEntry.path,
-        errors: errorEntry?.path,
+        spec: strip(specEntry.path),
+        hits: strip(hitsEntry.path),
+        dedupe: strip(dedupeEntry.path),
+        errors: errorEntry ? strip(errorEntry.path) : undefined,
       },
       evidencePointers,
     }
