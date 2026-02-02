@@ -4,6 +4,7 @@ import { Identifier } from "@/id/id"
 import { Session } from "."
 import { Agent } from "@/agent/agent"
 import { Snapshot } from "@/snapshot"
+import { EvidenceWriter } from "@/evidence/writer"
 import { SessionSummary } from "./summary"
 import { Bus } from "@/bus"
 import { SessionRetry } from "./retry"
@@ -15,6 +16,8 @@ import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
 import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
+import { Flag } from "@/flag/flag"
+import { writeUsageEvents } from "@/usage/events"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -238,6 +241,9 @@ export namespace SessionProcessor {
                     model: input.model,
                     usage: value.usage,
                     metadata: value.providerMetadata,
+                    flags: {
+                      openaiChatCachedTokens: Flag.OPENCODE_EXPERIMENTAL_OPENAI_CHAT_CACHED_TOKENS === true,
+                    },
                   })
                   input.assistantMessage.finish = value.finishReason
                   input.assistantMessage.cost += usage.cost
@@ -253,6 +259,30 @@ export namespace SessionProcessor {
                     cost: usage.cost,
                   })
                   await Session.updateMessage(input.assistantMessage)
+                  await (async () => {
+                    const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
+                    const messageId = input.assistantMessage.parentID ?? input.assistantMessage.id
+                    await writeUsageEvents({
+                      writer,
+                      ts: new Date().toISOString(),
+                      sessionId: input.sessionID,
+                      messageId,
+                      model: {
+                        providerID: input.model.providerID,
+                        id: input.model.id,
+                        api: { npm: input.model.api.npm, id: input.model.api.id },
+                      },
+                      usage: value.usage as unknown as Record<string, unknown>,
+                      metadata: value.providerMetadata,
+                      tokens: usage.tokens,
+                      flags: {
+                        openaiChatCachedTokens: Flag.OPENCODE_EXPERIMENTAL_OPENAI_CHAT_CACHED_TOKENS === true,
+                      },
+                      providerRaw: {
+                        enabled: Flag.OPENCODE_EXPERIMENTAL_USAGE_PROVIDER_RAW_ARTIFACT === true,
+                      },
+                    })
+                  })()
                   if (snapshot) {
                     const patch = await Snapshot.patch(snapshot)
                     if (patch.files.length) {
