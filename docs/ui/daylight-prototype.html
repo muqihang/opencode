@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: Daylight Edition</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* --- Daylight Colors --- */
+            --bg-paper: #FAFAFA;      /* 极淡的暖灰纸张色 */
+            --bg-ceramic: #FFFFFF;    /* 纯净陶瓷白 */
+            
+            --ink-primary: #111827;   /* 墨黑，非死黑 */
+            --ink-secondary: #6B7280; /* 铅笔灰 */
+            --ink-tertiary: #E5E7EB;  /* 结构灰 */
+            
+            /* TUI Accents (Print Style) */
+            --tui-accent: #0891B2;    /* Cyan Ink */
+            --tui-arrow: #7C3AED;     /* Violet Ink */
+            
+            /* GUI Accents (Physics) */
+            --gui-beam: #2563EB;      /* Blueprint Blue (Active) */
+            --gui-tick: #1E40AF;      /* Dark Blue (History) */
+            
+            --font-ui: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-paper);
+            color: var(--ink-primary);
+            font-family: var(--font-ui);
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            overflow: hidden;
+        }
+
+        /* 纸张纹理 (Noise) - 在亮色下更细腻 */
+        .paper-grain {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.4'/%3E%3C/svg%3E");
+            pointer-events: none; opacity: 0.15; z-index: 999;
+            mix-blend-mode: multiply; /* 混合模式关键：正片叠底 */
+        }
+
+        .label {
+            position: absolute; top: 20px; left: 24px;
+            font-family: var(--font-mono); font-size: 0.75rem;
+            color: var(--ink-secondary); letter-spacing: 0.1em; z-index: 10;
+            font-weight: 600;
+        }
+
+        /* =========================================
+           LEFT: TUI (Swiss Print Style)
+           ========================================= */
+        #tui-day {
+            background: #F3F4F6; /* 稍微深一点的灰，区分区域 */
+            border-right: 1px solid rgba(0,0,0,0.06);
+            padding: 40px;
+            font-family: var(--font-mono);
+            display: flex; flex-direction: column; justify-content: flex-end;
+            position: relative;
+        }
+
+        /* 1. Paper Island (实体卡片) */
+        .print-island {
+            display: inline-flex;
+            align-items: center;
+            background: #FFFFFF;
+            /* 关键：亮色模式下靠阴影来构建立体感 */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(0,0,0,0.04);
+            border-radius: 99px;
+            padding: 0;
+            margin-bottom: 24px;
+            animation: floatUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .print-cell {
+            padding: 8px 16px; font-size: 0.85rem;
+            border-right: 1px solid #F3F4F6;
+            color: var(--ink-secondary);
+            font-weight: 500;
+        }
+        .print-cell:last-child { border-right: none; }
+        
+        .print-icon { color: var(--ink-primary); background: #F9FAFB; border-radius: 99px 0 0 99px; font-weight: 700; }
+        
+        /* The Ink Dot (Jewel) */
+        /* 在亮色背景下，光晕如果不亮很难看，所以我们做成“宝石/墨滴”质感 */
+        .ink-dot {
+            width: 8px; height: 8px;
+            background: var(--tui-accent);
+            border-radius: 50%;
+            /* 不发光，而是通过纯色强调 */
+            box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.2); 
+            animation: ink-pulse 3s infinite;
+        }
+
+        /* 2. Prompt */
+        .print-prompt {
+            display: flex; gap: 12px; align-items: center; font-size: 1.1rem;
+        }
+        .print-arrow {
+            color: var(--tui-arrow); font-weight: 800; font-size: 1.2rem;
+        }
+        .print-user { color: var(--ink-primary); font-weight: 600; }
+
+        /* =========================================
+           RIGHT: GUI (Ceramic & Physics)
+           ========================================= */
+        #gui-day {
+            background: var(--bg-ceramic);
+            position: relative;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        /* 1. Axis (铅笔线) */
+        .pencil-axis {
+            position: absolute; top: 0; bottom: 90px;
+            width: 1px;
+            background: #E5E7EB; /* 浅灰实线 */
+            left: 50%; transform: translateX(-50%);
+            z-index: 0;
+        }
+
+        .gui-content {
+            width: 100%; height: 100%;
+            padding: 100px 40px;
+            overflow-y: auto;
+            position: relative; z-index: 1;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        /* 2. History Tick (深蓝墨点) */
+        .ink-tick {
+            width: 8px; height: 8px;
+            background: var(--gui-tick);
+            border-radius: 50%;
+            margin-bottom: 20px;
+            box-shadow: 0 0 0 4px var(--bg-ceramic); /* 遮挡轴线 */
+        }
+
+        /* 3. Thinking Beam (Blue Energy / Liquid Mercury) */
+        /* 在亮色下，白色光束看不见，我们使用“工程蓝” */
+        .blueprint-beam {
+            width: 3px;
+            height: 60px;
+            background: var(--gui-beam);
+            /* 柔和的蓝色辉光 */
+            box-shadow: 0 0 15px rgba(37, 99, 235, 0.3); 
+            animation: blueprint-pulse 2s ease-in-out infinite;
+            margin-bottom: 2rem;
+            border-radius: 3px;
+        }
+
+        .beam-label {
+            font-size: 0.7rem; color: var(--gui-beam); letter-spacing: 0.1em;
+            margin-top: 12px; text-transform: uppercase; font-weight: 600;
+            background: var(--bg-ceramic); padding: 0 8px;
+        }
+
+        /* 4. Ceramic Card (陶瓷卡片) */
+        .ceramic-card {
+            width: 100%; max-width: 600px;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            /* 极细的边框 */
+            border: 1px solid rgba(0,0,0,0.06);
+            border-radius: 12px;
+            padding: 24px;
+            /* 柔和的阴影 */
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04);
+            margin-bottom: 3rem;
+            position: relative;
+        }
+
+        /* 5. Docked Input (White Desk) */
+        .white-desk {
+            position: absolute; bottom: 0; width: 100%;
+            height: 90px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(0,0,0,0.06);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 10;
+        }
+        
+        .white-input-box {
+            width: 640px;
+            background: transparent;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+            padding: 10px 0;
+            display: flex; align-items: center;
+            transition: border-color 0.3s;
+        }
+        .white-input-box:focus-within { border-color: var(--gui-beam); }
+        
+        .white-input-field {
+            background: transparent; border: none; color: var(--ink-primary); 
+            width: 100%; font-size: 1.1rem; outline: none;
+            font-family: var(--font-ui);
+        }
+
+        /* Animations */
+        @keyframes floatUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes ink-pulse { 
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.2); } 
+            50% { transform: scale(1.1); box-shadow: 0 0 0 4px rgba(8, 145, 178, 0.1); } 
+        }
+        @keyframes blueprint-pulse {
+            0%, 100% { opacity: 1; height: 60px; box-shadow: 0 0 15px rgba(37, 99, 235, 0.4); }
+            50% { opacity: 0.6; height: 60px; box-shadow: 0 0 5px rgba(37, 99, 235, 0.1); }
+        }
+
+    </style>
+</head>
+<body>
+    <div class="paper-grain"></div>
+
+    <!-- LEFT: TUI (Swiss Print) -->
+    <div id="tui-day">
+        <div class="label">TUI: PRINT MODE</div>
+        
+        <div style="opacity:0.6; margin-bottom:20px; font-size:0.9rem; color:var(--ink-secondary);">
+            > git checkout -b feature/ui-v2
+        </div>
+
+        <!-- The Paper Island -->
+        <div class="print-island">
+            <div class="print-cell print-icon">OC</div>
+            <div class="print-cell">~/opencode/ui</div>
+            <div class="print-cell">
+                <!-- The Ink Jewel -->
+                <div class="ink-dot"></div>
+            </div>
+        </div>
+
+        <div class="print-prompt">
+            <span class="print-arrow">❯</span>
+            <span class="print-user">bun run dev</span>
+            <span style="color:#9CA3AF; font-style:italic;"> -- --filter=app</span>
+            <span style="width:2px; height:24px; background:var(--ink-primary); margin-left:4px; animation:blink 1s infinite;"></span>
+        </div>
+    </div>
+
+    <!-- RIGHT: GUI (Daylight Physics) -->
+    <div id="gui-day">
+        <div class="label">GUI: CERAMIC MODE</div>
+        <div class="pencil-axis"></div>
+
+        <div class="gui-content">
+            
+            <!-- History Tick -->
+            <div class="ink-tick" title="History Node"></div>
+            <div style="opacity:0.6; margin-bottom: 40px; font-size:0.9rem; color:var(--ink-secondary);">Analysis Complete</div>
+
+            <!-- Intent -->
+            <h2 style="font-weight:600; margin-bottom:30px; color:var(--ink-primary);">Review employment contract</h2>
+
+            <!-- Thinking (Blueprint Beam) -->
+            <div style="display:flex; flex-direction:column; align-items:center;">
+                <div class="blueprint-beam"></div>
+                <div class="beam-label">Processing Terms</div>
+            </div>
+
+            <!-- Ceramic Card -->
+            <div class="ceramic-card" style="margin-top:40px;">
+                <h3 style="font-weight:600; margin-bottom:12px; color:var(--ink-primary);">Key Findings</h3>
+                <p style="color:#4B5563; line-height:1.7;">
+                    Clause 4.1 regarding <span style="color:#2563EB; font-weight:500; border-bottom:1px solid #BFDBFE;">Intellectual Property</span> is standard.
+                    However, the non-compete duration exceeds the statutory limit.
+                </p>
+            </div>
+
+        </div>
+
+        <!-- Bottom Desk -->
+        <div class="white-desk">
+            <div class="white-input-box">
+                <input type="text" class="white-input-field" placeholder="Type a command..." autofocus>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: Matter Manifestation</title>
+    <style>
+        :root {
+            --bg: #050509;
+            --card-bg: rgba(20, 20, 25, 0.8);
+            --line: rgba(255,255,255,0.08);
+            --text: #E2E8F0;
+            --beam-color: #FFFFFF;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, sans-serif;
+            margin: 0; height: 100vh;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            overflow: hidden;
+            transition: background 0.5s; /* 环境光切换过渡 */
+        }
+
+        /* Ambient Sentiment Class */
+        body.sentiment-success { background: radial-gradient(circle at 50% 30%, rgba(16, 185, 129, 0.05) 0%, #050509 70%); }
+        body.sentiment-error { background: radial-gradient(circle at 50% 30%, rgba(239, 68, 68, 0.05) 0%, #050509 70%); }
+
+        .axis {
+            position: absolute; top: 0; bottom: 0; width: 1px;
+            background: var(--line);
+            z-index: 0;
+        }
+
+        .stage {
+            position: relative; z-index: 10;
+            width: 100%; max-width: 500px;
+            display: flex; flex-direction: column; align-items: center;
+            min-height: 200px;
+        }
+
+        /* --- THE MORPHING ELEMENT --- */
+        /* 这是一个神奇的容器：它是光柱，也是卡片 */
+        .matter-container {
+            /* 初始状态: 光柱 (Beam) */
+            width: 3px;
+            height: 60px;
+            background: var(--beam-color);
+            border-radius: 4px;
+            box-shadow: 0 0 20px rgba(255,255,255,0.3);
+            
+            /* 布局属性 */
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            overflow: hidden;
+            position: relative;
+            
+            /* 物理变形过渡 */
+            transition: 
+                width 0.6s cubic-bezier(0.19, 1, 0.22, 1),      /* 宽度展开：极快但带阻尼 */
+                height 0.6s cubic-bezier(0.19, 1, 0.22, 1),     /* 高度自适应 */
+                background 0.4s ease,                           /* 颜色消退 */
+                box-shadow 0.4s ease,
+                border-radius 0.4s ease;
+        }
+
+        /* 状态: 显形 (Manifested) = 卡片 */
+        .matter-container.card-mode {
+            width: 100%;            /* 撑满容器 */
+            height: 180px;          /* 卡片高度 */
+            background: var(--card-bg);
+            box-shadow: 0 20px 50px -10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* 内部内容 (初始隐藏) */
+        .card-content {
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.4s 0.2s; /* 延迟显示 */
+            padding: 24px;
+            width: 100%;
+            text-align: left;
+        }
+        
+        .matter-container.card-mode .card-content {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* 标签 */
+        .beam-label {
+            position: absolute; bottom: -25px;
+            font-size: 0.7rem; letter-spacing: 0.2em; color: #666;
+            transition: opacity 0.2s;
+        }
+
+        /* 控制按钮 */
+        .btn {
+            position: fixed; top: 30px;
+            background: white; color: black; border: none; padding: 10px 20px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; z-index: 100;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="axis"></div>
+    <button class="btn" onclick="manifest()">▶ 物质显形 (Manifest)</button>
+
+    <div class="stage">
+        <div class="matter-container" id="matter">
+            <div class="card-content">
+                <h3 style="margin:0 0 10px 0; color:white;">Analysis Complete</h3>
+                <p style="margin:0; color:#aaa; line-height:1.6;">
+                    The beam energy has successfully condensed into solid matter. 
+                    <br>
+                    <span style="color:#3B82F6">System integrity: 100%</span>
+                </p>
+            </div>
+        </div>
+        <div class="beam-label" id="label">THINKING</div>
+    </div>
+
+    <script>
+        const matter = document.getElementById('matter');
+        const label = document.getElementById('label');
+        let isCard = false;
+
+        // 模拟呼吸动画
+        let breatheInterval;
+
+        function startBreathing() {
+            let growing = true;
+            breatheInterval = setInterval(() => {
+                if(isCard) return;
+                matter.style.opacity = growing ? '1' : '0.5';
+                matter.style.boxShadow = growing ? '0 0 25px rgba(255,255,255,0.4)' : '0 0 10px rgba(255,255,255,0.1)';
+                growing = !growing;
+            }, 1000);
+        }
+        startBreathing();
+
+        function manifest() {
+            if (isCard) {
+                // Reset
+                matter.className = "matter-container"; // Back to beam
+                label.style.opacity = "1";
+                document.body.className = ""; // Reset sentiment
+                isCard = false;
+                startBreathing();
+            } else {
+                // 1. Stop Breathing
+                clearInterval(breatheInterval);
+                matter.style.opacity = "1"; // Force solid
+
+                // 2. Trigger Morph (Manifestation)
+                matter.className = "matter-container card-mode";
+                label.style.opacity = "0";
+                
+                // 3. Trigger Ambient Sentiment (环境通感)
+                // 模拟结果是"成功"的，背景微微泛青
+                document.body.className = "sentiment-success";
+                
+                isCard = true;
+            }
+        }
+    </script>
+</body>
+</html>

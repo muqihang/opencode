@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Ethereal V2: Systemic Design</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- 引入更多样化的字体栈：Inter (UI), JetBrains Mono (代码), Noto Serif SC (法律/正文), Playfair Display (标题) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+SC:wght@400;600&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+    <style>
+        /* --- 核心设计系统 (Design Tokens) --- */
+        :root {
+            /* 物理模拟层 */
+            --noise-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+            
+            /* 动画曲线 (Apple Spring) */
+            --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* --- 主题定义: 开发者模式 (默认) --- */
+        body[data-theme="dev"] {
+            --bg-base: #050507;
+            --bg-surface: #0E0E11;
+            --bg-card: rgba(30, 41, 59, 0.3);
+            --border-highlight: rgba(255, 255, 255, 0.1);
+            --border-shadow: rgba(0, 0, 0, 0.5);
+            
+            --accent-primary: #7C3AED; /* 电光紫 */
+            --accent-glow: rgba(124, 58, 237, 0.4);
+            --text-heading: #F8FAFC;
+            --text-body: #94A3B8;
+            
+            --font-heading: 'Inter', sans-serif;
+            --font-body: 'Inter', sans-serif;
+            --font-code: 'JetBrains Mono', monospace;
+            
+            --axis-color: linear-gradient(to bottom, transparent, rgba(124, 58, 237, 0.2), transparent);
+            --island-radius: 99px;
+            --card-radius: 12px;
+        }
+
+        /* --- 主题定义: 法律专家模式 (Legal) --- */
+        body[data-theme="legal"] {
+            --bg-base: #1C1C1E; /* 深岩灰，更沉稳 */
+            --bg-surface: #252529;
+            --bg-card: rgba(255, 255, 255, 0.03);
+            --border-highlight: rgba(255, 255, 255, 0.08);
+            --border-shadow: rgba(0, 0, 0, 0.2);
+            
+            --accent-primary: #D4AF37; /* 香槟金/威严金 */
+            --accent-glow: rgba(212, 175, 55, 0.2);
+            --text-heading: #E5E5E7;
+            --text-body: #A1A1AA;
+            
+            --font-heading: 'Noto Serif SC', 'Playfair Display', serif; /* 衬线体 */
+            --font-body: 'Noto Serif SC', serif;
+            --font-code: 'Inter', sans-serif; /* 法律引用不需要代码字体 */
+            
+            --axis-color: linear-gradient(to bottom, transparent, rgba(212, 175, 55, 0.15), transparent);
+            --island-radius: 4px; /* 更方正，像文件 */
+            --card-radius: 2px;   /* 严谨 */
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-body);
+            font-family: var(--font-body);
+            height: 100vh;
+            overflow: hidden;
+            transition: background-color 0.5s var(--ease-smooth), color 0.5s;
+            position: relative;
+        }
+
+        /* 全局噪点纹理 (增加质感) */
+        .noise-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: var(--noise-bg);
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.4;
+        }
+
+        /* 顶部控制栏 */
+        .system-bar {
+            position: absolute; top: 0; right: 0; left: 0;
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        .brand-logo {
+            font-family: var(--font-heading);
+            font-weight: 600;
+            color: var(--text-heading);
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .theme-switch {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-highlight);
+            padding: 4px;
+            border-radius: 8px;
+            display: flex;
+            gap: 4px;
+            cursor: pointer;
+        }
+        
+        .switch-btn {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            color: var(--text-body);
+            transition: all 0.3s;
+        }
+        
+        .switch-btn.active {
+            background: var(--bg-surface);
+            color: var(--text-heading);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        /* --- 容器布局 --- */
+        .main-stage {
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            padding-top: 100px;
+            overflow-y: auto;
+        }
+
+        .timeline-container {
+            width: 100%;
+            max-width: 720px;
+            position: relative;
+            padding-bottom: 100px;
+        }
+
+        /* 系统性设计: 中轴线 */
+        .central-axis {
+            position: absolute;
+            left: 50%;
+            top: -100px; bottom: 0;
+            width: 1px;
+            background: var(--axis-color);
+            transform: translateX(-50%);
+            z-index: 0;
+            transition: background 0.5s;
+        }
+
+        /* 1. 用户输入 (Heading) */
+        .user-intent {
+            text-align: center;
+            margin-bottom: 4rem;
+            position: relative;
+            z-index: 10;
+        }
+
+        .user-text {
+            font-family: var(--font-heading);
+            font-size: 2.2rem;
+            color: var(--text-heading);
+            line-height: 1.3;
+            letter-spacing: -0.02em;
+            text-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            transition: font-family 0.5s;
+        }
+
+        /* 2. AI 思考 (Dynamic Breath) */
+        .ai-process {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 3rem;
+            position: relative;
+            z-index: 10;
+        }
+
+        .breath-orb {
+            width: 4px;
+            height: 60px;
+            background: var(--accent-primary);
+            border-radius: 4px;
+            box-shadow: 0 0 30px var(--accent-glow);
+            animation: breathe 3s ease-in-out infinite;
+            transition: background 0.5s, box-shadow 0.5s;
+        }
+
+        .process-label {
+            margin-top: 16px;
+            font-family: var(--font-code);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent-primary);
+            opacity: 0.8;
+            background: var(--bg-surface);
+            padding: 4px 12px;
+            border-radius: 99px;
+            border: 1px solid var(--border-highlight);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            transition: color 0.5s;
+        }
+
+        /* 3. 系统性设计: 高级卡片 (Advanced Card System) */
+        /* 这个卡片展示了真正的"打磨": 内阴影、边框高光、磨砂 */
+        .glass-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            
+            /* 关键: 模拟顶部光源的渐变边框 */
+            border: 1px solid transparent;
+            background-image: linear-gradient(var(--bg-card), var(--bg-card)), 
+                              linear-gradient(180deg, var(--border-highlight) 0%, rgba(255,255,255,0.02) 100%);
+            background-origin: border-box;
+            background-clip: content-box, border-box;
+            
+            border-radius: var(--card-radius);
+            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.3), 
+                        inset 0 1px 0 rgba(255,255,255,0.05); /* 顶部内高光 */
+            
+            padding: 24px 32px;
+            margin-bottom: 2rem;
+            position: relative;
+            z-index: 10;
+            transition: all 0.4s var(--ease-spring);
+            opacity: 0;
+            animation: slideUp 0.8s var(--ease-smooth) forwards;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-2px) scale(1.01);
+            box-shadow: 0 30px 60px -12px rgba(0,0,0,0.4),
+                        inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        /* 卡片内部排版 */
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border-highlight);
+            padding-bottom: 12px;
+        }
+
+        .card-title {
+            font-family: var(--font-heading);
+            font-size: 1rem;
+            color: var(--text-heading);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card-icon {
+            color: var(--text-muted);
+        }
+
+        .card-content {
+            font-family: var(--font-body);
+            line-height: 1.8;
+            font-size: 1rem;
+            color: var(--text-body);
+        }
+        
+        .card-content strong { color: var(--text-heading); font-weight: 600; }
+        .card-content code {
+            font-family: var(--font-code);
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--accent-primary);
+        }
+
+        /* 4. 输入框 (Docked at bottom) */
+        .input-dock {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 600px;
+            z-index: 100;
+        }
+
+        .input-capsule {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-highlight);
+            border-radius: var(--island-radius);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 20px 50px -10px rgba(0,0,0,0.5);
+            transition: all 0.3s;
+        }
+
+        .input-field {
+            background: transparent;
+            border: none;
+            color: var(--text-heading);
+            font-family: var(--font-body);
+            font-size: 1rem;
+            flex-grow: 1;
+            outline: none;
+        }
+        
+        .input-action {
+            color: var(--accent-primary);
+            opacity: 0.5;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .input-action:hover { opacity: 1; }
+
+        /* 动画 */
+        @keyframes breathe {
+            0%, 100% { height: 40px; opacity: 0.6; }
+            50% { height: 70px; opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+    </style>
+</head>
+<body data-theme="dev"> <!-- 初始主题 -->
+
+    <div class="noise-overlay"></div>
+
+    <!-- 系统栏: 展示适应性 -->
+    <div class="system-bar">
+        <div class="brand-logo">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M12 8v8M8 12h8"></path>
+            </svg>
+            <span>Opencode AI</span>
+        </div>
+        <div class="theme-switch">
+            <div class="switch-btn active" onclick="setTheme('dev')">DEV / 极客</div>
+            <div class="switch-btn" onclick="setTheme('legal')">LEGAL / 法律</div>
+        </div>
+    </div>
+
+    <!-- 主舞台 -->
+    <div class="main-stage">
+        <div class="central-axis"></div>
+
+        <div class="timeline-container">
+            
+            <!-- 场景内容: 动态渲染 -->
+            <div id="dynamic-content">
+                <!-- 默认为 Dev 内容 -->
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 底部输入栏 -->
+    <div class="input-dock">
+        <div class="input-capsule">
+            <input type="text" class="input-field" placeholder="输入指令或法律问题..." id="main-input">
+            <div class="input-action">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const contentArea = document.getElementById('dynamic-content');
+        const btns = document.querySelectorAll('.switch-btn');
+        const inputField = document.getElementById('main-input');
+
+        // 内容数据源
+        const scenarios = {
+            dev: {
+                userText: "Refactor the Auth Middleware",
+                processText: "Scanning Dependency Graph...",
+                cardTitle: "Analysis Result",
+                cardIcon: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline>`,
+                cardContent: `
+                    <p>I have detected a cyclical dependency in <code>auth.service.ts</code>.</p>
+                    <p style="margin-top:1em;">Recommended action: Extract the token validation logic into a standalone <strong>JWTUtility</strong> class. This aligns with the Single Responsibility Principle.</p>
+                    <div style="margin-top:1em; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px; font-family:'JetBrains Mono'; font-size:0.85em; color:#7C3AED;">
+                        > git mv auth.service.ts /utils/jwt.ts
+                    </div>
+                `
+            },
+            legal: {
+                userText: "分析《保密协议》第3.2条款的合规性风险",
+                processText: "正在检索《民法典》及相关判例...",
+                cardTitle: "法律合规性审查意见",
+                cardIcon: `<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>`, // Scale icon alternative
+                cardContent: `
+                    <p>经审查，第3.2条款关于<strong>“无限期保密义务”</strong>的约定可能存在显失公平的法律风险。</p>
+                    <p style="margin-top:1em;">根据《反不正当竞争法》及司法实践，对于非核心商业秘密，通常建议设定合理的保密期限（如离职后2年）。</p>
+                    <p style="margin-top:1em; font-style:italic; border-left:2px solid #D4AF37; padding-left:10px; color:var(--text-heading);">
+                        建议修改：将“永久有效”调整为“在本协议终止后三年内有效，直至信息进入公有领域”。
+                    </p>
+                `
+            }
+        };
+
+        function render(mode) {
+            const data = scenarios[mode];
+            contentArea.innerHTML = `
+                <div class="user-intent">
+                    <div class="user-text">${data.userText}</div>
+                </div>
+
+                <div class="ai-process">
+                    <div class="breath-orb"></div>
+                    <div class="process-label">${data.processText}</div>
+                </div>
+
+                <div class="glass-card" style="animation-delay: 0.5s">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;">
+                                ${data.cardIcon}
+                            </svg>
+                            ${data.cardTitle}
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        ${data.cardContent}
+                    </div>
+                </div>
+            `;
+        }
+
+        function setTheme(theme) {
+            // 切换 CSS 变量
+            document.body.setAttribute('data-theme', theme);
+            
+            // 切换按钮状态
+            btns.forEach(btn => {
+                if(btn.innerText.toLowerCase().includes(theme)) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // 重新渲染内容以匹配语境
+            // 增加一点延时让 CSS 变量先生效，体验更好
+            contentArea.style.opacity = '0';
+            setTimeout(() => {
+                render(theme);
+                contentArea.style.opacity = '1';
+                contentArea.style.transition = 'opacity 0.3s';
+            }, 300);
+        }
+
+        // Init
+        render('dev');
+
+    </script>
+</body>
+</html>

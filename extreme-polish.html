@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: Extreme Polish (The Living Organism)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/motion@10.16.2/dist/motion.js"></script>
+    <style>
+        :root {
+            --bg: #050509;
+            --line: rgba(255,255,255,0.08);
+            --text: #E2E8F0;
+            --beam-color: #FFFFFF;
+            --tick-color: #3B82F6;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            overflow: hidden;
+            cursor: default;
+        }
+
+        /* 中轴线 */
+        .axis {
+            position: absolute; top: 0; bottom: 0; width: 1px;
+            background: var(--line);
+            z-index: 0;
+        }
+
+        /* 核心舞台 */
+        .stage {
+            position: relative; z-index: 10;
+            display: flex; flex-direction: column; align-items: center;
+            width: 100%; max-width: 600px;
+        }
+
+        /* --- THE LIVING CORE (核心生命体) --- */
+        /* 这是一个单独的 DOM 元素，它将从 Beam 变身为 Tick */
+        .energy-core {
+            width: 3px;
+            height: 60px; /* 初始状态: Beam */
+            background: var(--beam-color);
+            border-radius: 99px;
+            box-shadow: 0 0 20px rgba(255,255,255,0.3);
+            will-change: width, height, background, box-shadow, transform;
+            position: relative;
+        }
+
+        /* 触感涟漪 (模拟声音/震动) */
+        .haptic-ripple {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 20px; height: 20px;
+            border: 1px solid rgba(59, 130, 246, 0.5);
+            border-radius: 50%;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* --- UI ELEMENTS --- */
+        .stream-text {
+            margin-top: 30px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: #94A3B8;
+            min-height: 40px;
+            text-align: center;
+        }
+
+        .status-pill {
+            margin-top: 15px;
+            font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase;
+            color: #52525b; background: #000; padding: 2px 8px; border-radius: 4px;
+            transition: opacity 0.3s;
+        }
+
+        .controls {
+            position: fixed; top: 30px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 10px; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 100;
+        }
+
+        button {
+            background: #fff; border: none; padding: 8px 16px; border-radius: 6px;
+            font-weight: 600; cursor: pointer;
+        }
+        button:hover { background: #eee; }
+
+    </style>
+</head>
+<body>
+
+    <div class="axis"></div>
+
+    <div class="controls">
+        <button onclick="injectLife()">▶ 注入生命 (Inject Life)</button>
+    </div>
+
+    <div class="stage">
+        <!-- 核心组件：它是光柱，也是铆钉，它是同一个物体 -->
+        <div class="energy-core" id="core">
+            <div class="haptic-ripple" id="ripple"></div>
+        </div>
+
+        <div class="status-pill" id="label">IDLE</div>
+        <div class="stream-text" id="stream"></div>
+    </div>
+
+    <script>
+        const { animate, spring } = Motion;
+        const core = document.getElementById('core');
+        const streamDisplay = document.getElementById('stream');
+        const label = document.getElementById('label');
+        const ripple = document.getElementById('ripple');
+
+        // 模拟 AI 输出的文本流
+        const mockText = "Analysis complete. Optimization logic applied. System ready.";
+        let currentAnimation = null;
+
+        function injectLife() {
+            // 1. Reset State (Physical Reset)
+            streamDisplay.innerText = "";
+            label.innerText = "NEURAL LINK ESTABLISHED";
+            label.style.opacity = "1";
+            
+            // 强制重置样式 (Back to Beam)
+            Object.assign(core.style, {
+                width: "3px", height: "60px",
+                background: "var(--beam-color)",
+                boxShadow: "0 0 20px rgba(255,255,255,0.3)",
+                borderRadius: "99px", opacity: "1"
+            });
+
+            // 2. Start "Idle Breathing" (等待首字)
+            // 这是一个平滑的、低频的呼吸
+            currentAnimation = animate(core, 
+                { opacity: [0.5, 1, 0.5], boxShadow: ["0 0 10px rgba(255,255,255,0.1)", "0 0 25px rgba(255,255,255,0.3)", "0 0 10px rgba(255,255,255,0.1)"] },
+                { duration: 2, repeat: Infinity, easing: "ease-in-out" }
+            );
+
+            // 3. Start Data Stream (模拟 Token 生成)
+            setTimeout(() => {
+                label.innerText = "STREAMING TOKENS";
+                simulateStream();
+            }, 800);
+        }
+
+        async function simulateStream() {
+            // 停止平滑呼吸，进入 "高频颤动" 模式
+            if(currentAnimation) currentAnimation.stop();
+
+            // 逐字输出
+            for (let i = 0; i < mockText.length; i++) {
+                streamDisplay.innerText += mockText[i];
+                
+                // --- 变态细节 1: 神经连接 (Neuro-Link) ---
+                // 每一个字符出现，光柱都要“震动”一下。
+                // 这模拟了电流通过的物理感。
+                animate(core, 
+                    { 
+                        height: ["60px", "68px", "60px"], // 物理伸缩
+                        opacity: [0.8, 1, 0.8],           // 能量爆发
+                        boxShadow: ["0 0 15px white", "0 0 30px white", "0 0 15px white"] 
+                    },
+                    { duration: 0.1 } // 极快，配合打字速度
+                );
+
+                // 随机延迟，模拟真实 LLM 的卡顿
+                await new Promise(r => setTimeout(r, Math.random() * 50 + 30));
+            }
+
+            // 输出结束，进入凝固阶段
+            setTimeout(liquidMorph, 300);
+        }
+
+        function liquidMorph() {
+            label.style.opacity = "0"; // 隐藏标签
+            
+            // --- 变态细节 2: 液态变形 (Liquid Morph) ---
+            // 这是一个连续的物理过程，不是生硬的切换
+            
+            animate(core, {
+                width: "8px",           // 变宽
+                height: "8px",          // 变矮 (从60px压缩到8px)
+                backgroundColor: "#3B82F6", // 冷却变蓝
+                boxShadow: "none",      // 光晕消失
+                borderRadius: "50%"     // 保持圆形
+            }, {
+                // 使用弹簧物理：硬度高(400)，阻尼适中(25) -> 产生清脆的吸附感
+                easing: spring({ stiffness: 400, damping: 25 }) 
+            });
+
+            // --- 变态细节 3: 触感涟漪 (Synesthesia) ---
+            // 在变形完成的瞬间 (Snap)，扩散一圈波纹
+            animate(ripple, 
+                { opacity: [0.8, 0], transform: ["translate(-50%, -50%) scale(1)", "translate(-50%, -50%) scale(3)"], borderWidth: ["1px", "0px"] },
+                { duration: 0.6, easing: "ease-out" }
+            );
+        }
+
+    </script>
+</body>
+</html>

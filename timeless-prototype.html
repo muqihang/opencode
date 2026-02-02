@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: Timeless Design</title>
+    <!-- 使用 Inter 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* --- DESIGN TOKENS (Timeless v2.0) --- */
+        :root {
+            --bg-canvas: #050505;
+            --bg-surface: #0F0F0F;
+            --bg-element: #1A1A1A;
+            
+            --border-light: rgba(255, 255, 255, 0.08);
+            --border-top: rgba(255, 255, 255, 0.12);
+            
+            --text-primary: #EDEDED;
+            --text-secondary: #888888;
+            --text-tertiary: #444444;
+            
+            --accent-blue: #3B82F6; /* Blueprint Blue */
+            --accent-thinking: #FFFFFF; /* Tungsten White */
+            
+            --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            
+            --radius-sm: 4px;
+            --radius-md: 8px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-canvas);
+            color: var(--text-primary);
+            font-family: var(--font-ui);
+            font-feature-settings: "ss01", "tnum"; /* 开启等宽数字 */
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            overflow: hidden;
+        }
+
+        /* 通用噪点纹理 */
+        .noise {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        /* 标签 */
+        .section-label {
+            position: absolute; top: 24px; left: 24px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        /* =========================================
+           LEFT: TUI (Precision Instrument)
+           ========================================= */
+        #viewport-tui {
+            position: relative;
+            background: #080808;
+            border-right: 1px solid var(--border-light);
+            padding: 40px;
+            font-family: var(--font-mono);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        /* 1. 日志流 (Log Stream) */
+        .log-stream {
+            margin-bottom: 2rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            opacity: 0.7;
+        }
+        .log-time { color: var(--text-tertiary); margin-right: 12px; font-size: 0.8em; }
+        .log-success { color: var(--text-primary); }
+
+        /* 2. 上下文浮岛 (The Precision Island) */
+        .tui-island {
+            display: inline-flex;
+            align-items: center;
+            background: var(--bg-element);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md); /* 6px 方角 */
+            padding: 0; /* 紧凑布局 */
+            margin-bottom: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            overflow: hidden;
+            max-width: fit-content;
+        }
+
+        .island-part {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            border-right: 1px solid var(--border-light);
+            color: var(--text-secondary);
+        }
+        
+        .part-icon { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+        .part-path { color: var(--text-primary); }
+        .part-git { border-right: none; display: flex; gap: 8px; align-items: center; }
+        
+        /* 字符化状态 */
+        .git-symbol {
+            color: var(--text-tertiary); 
+            font-weight: bold;
+        }
+        .git-branch { color: var(--text-secondary); }
+
+        /* 3. 输入行 (The Input) */
+        .tui-prompt-line {
+            display: flex;
+            gap: 12px;
+            font-size: 1rem;
+            align-items: center;
+        }
+        
+        .prompt-char {
+            color: var(--accent-blue); /* 唯一的亮色 */
+            font-weight: bold;
+        }
+
+        .user-cmd { color: var(--text-primary); }
+        .ghost-cmd { color: var(--text-tertiary); font-style: italic; }
+        .tui-cursor {
+            display: inline-block;
+            width: 8px; height: 1.2em;
+            background: var(--text-primary);
+            animation: blink 1s step-end infinite;
+        }
+
+        /* =========================================
+           RIGHT: GUI (Infinite Canvas)
+           ========================================= */
+        #viewport-gui {
+            position: relative;
+            background: var(--bg-canvas);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* 1. 中轴线 (The Axis) */
+        .gui-axis {
+            position: absolute;
+            top: 0; bottom: 80px; /* 留出底部输入栏空间 */
+            width: 1px;
+            background: var(--border-light);
+            left: 50%; transform: translateX(-50%);
+            z-index: 0;
+        }
+
+        .content-scroll {
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            padding: 100px 40px 120px 40px; /* 顶部留白，底部避让 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* 2. 刻度标记 (The Tick) */
+        .axis-tick {
+            width: 12px; height: 1px;
+            background: var(--text-tertiary);
+            margin: 20px 0;
+        }
+
+        /* 3. 用户指令 (Heading) */
+        .gui-heading {
+            font-size: 1.5rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            text-align: center;
+            margin-bottom: 2rem;
+            background: var(--bg-canvas); /* 遮挡轴线 */
+            padding: 10px 20px;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-sm);
+        }
+
+        /* 4. 思考态 (Solid Pulse) */
+        .thinking-node {
+            width: 2px;
+            height: 80px; /* 初始高度 */
+            background: var(--accent-thinking);
+            box-shadow: 0 0 20px rgba(255,255,255,0.2); /* 钨丝灯光晕 */
+            animation: tungsten-breathe 3s ease-in-out infinite;
+            margin-bottom: 2rem;
+        }
+
+        .thinking-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 10px;
+            background: var(--bg-canvas);
+            padding: 2px 8px;
+        }
+
+        /* 5. 结果卡片 (Result Card) */
+        .result-block {
+            width: 100%;
+            max-width: 600px;
+            background: var(--bg-surface);
+            border: 1px solid transparent;
+            /* Inner Light Effect */
+            box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.08); 
+            border-radius: var(--radius-md);
+            padding: 24px;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+        
+        .result-block h3 {
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        .result-text {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+
+        /* 6. 底部输入台 (The Input Desk) */
+        .input-desk {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 80px;
+            background: rgba(15, 15, 15, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid var(--border-top);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .input-wrapper {
+            width: 100%; max-width: 640px;
+            position: relative;
+        }
+
+        .desk-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-size: 1rem;
+            font-family: var(--font-ui);
+            outline: none;
+            padding: 0 20px;
+        }
+        
+        .desk-hint {
+            position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+            font-size: 0.75rem; color: var(--text-tertiary);
+            border: 1px solid var(--border-light);
+            padding: 2px 6px; border-radius: 4px;
+        }
+
+        /* 动画 */
+        @keyframes blink { 50% { opacity: 0; } }
+        @keyframes tungsten-breathe {
+            0%, 100% { opacity: 0.5; box-shadow: 0 0 10px rgba(255,255,255,0.1); }
+            50% { opacity: 1; box-shadow: 0 0 25px rgba(255,255,255,0.3); }
+        }
+
+        /* Icons */
+        svg { width: 16px; height: 16px; display: block; }
+    </style>
+</head>
+<body>
+    <div class="noise"></div>
+
+    <!-- LEFT: TUI -->
+    <div id="viewport-tui">
+        <div class="section-label">Terminal / TUI</div>
+        
+        <div class="log-stream">
+            <div><span class="log-time">[10:42:01]</span><span class="log-success">✓ Built target: @opencode/core</span></div>
+            <div><span class="log-time">[10:42:02]</span><span class="log-success">✓ Built target: @opencode/ui</span></div>
+            <div style="color: var(--text-tertiary);">Waiting for changes...</div>
+        </div>
+
+        <div class="tui-island">
+            <div class="island-part part-icon">OC</div>
+            <div class="island-part part-path">~/.../opencode_src</div>
+            <div class="island-part part-git">
+                <span class="git-branch">main</span>
+                <span class="git-symbol">*</span> <!-- 只是一个星号，没有红绿灯 -->
+            </div>
+        </div>
+
+        <div class="tui-prompt-line">
+            <span class="prompt-char">›</span>
+            <span class="user-cmd">bun run test</span>
+            <span class="ghost-cmd"> -- --watch</span>
+            <span class="tui-cursor"></span>
+        </div>
+    </div>
+
+    <!-- RIGHT: GUI -->
+    <div id="viewport-gui">
+        <div class="section-label">Desktop / GUI</div>
+        <div class="gui-axis"></div>
+
+        <div class="content-scroll">
+            
+            <!-- 历史记录刻度 -->
+            <div class="axis-tick"></div>
+
+            <!-- 用户指令 -->
+            <div class="gui-heading">
+                Draft a Non-Disclosure Agreement
+            </div>
+
+            <!-- 思考节点 -->
+            <div style="display:flex; flex-direction:column; align-items:center;">
+                <div class="thinking-node"></div>
+                <div class="thinking-label">RETRIEVING TEMPLATES...</div>
+            </div>
+
+            <!-- 结果卡片 -->
+            <div class="result-block">
+                <h3>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    Standard Mutual NDA
+                </h3>
+                <div class="result-text">
+                    This agreement is made between <strong>Party A</strong> and <strong>Party B</strong>. 
+                    <br><br>
+                    The purpose of this agreement is to prevent the unauthorized disclosure of Confidential Information.
+                    <span style="color:var(--accent-blue); cursor:pointer;">[View Full Document]</span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 底部输入台 -->
+        <div class="input-desk">
+            <div class="input-wrapper">
+                <input type="text" class="desk-input" placeholder="Type a command or ask a question..." autofocus>
+                <div class="desk-hint">RETURN ↵</div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

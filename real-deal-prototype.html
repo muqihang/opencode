@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: The Real Deal (Solid+Motion)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/motion@10.16.2/dist/motion.js"></script>
+    <style>
+        :root {
+            /* TOKENS */
+            --bg-void: #050509;
+            --tui-bg: #09090b;
+            --gui-line: rgba(255,255,255,0.08);
+            --accent-beam: #FFFFFF;
+            --accent-tick: #3B82F6;
+            --text-main: #E2E8F0;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background: var(--bg-void);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            overflow: hidden;
+        }
+
+        /* --- TUI SIDE --- */
+        #tui {
+            background: var(--tui-bg);
+            border-right: 1px solid var(--gui-line);
+            padding: 40px;
+            display: flex; flex-direction: column; justify-content: flex-end;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* The Magic Capsule (您喜欢的胶囊) */
+        .capsule {
+            display: inline-flex;
+            align-items: center;
+            background: #18181b;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 99px;
+            padding: 0;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 40px -10px rgba(0,0,0,0.8);
+            width: fit-content;
+        }
+        .capsule-seg { padding: 8px 16px; border-right: 1px solid rgba(255,255,255,0.05); color: #A1A1AA; font-size: 0.85rem; }
+        .capsule-seg:last-child { border-right: none; }
+        .soul-dot {
+            width: 8px; height: 8px; background: #22D3EE; border-radius: 50%;
+            box-shadow: 0 0 15px #22D3EE;
+        }
+
+        /* --- GUI SIDE --- */
+        #gui {
+            position: relative;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        /* Timeline Axis */
+        .axis {
+            position: absolute; top: 0; bottom: 90px; width: 1px;
+            background: var(--gui-line);
+            z-index: 0;
+        }
+
+        .feed {
+            width: 100%; height: 100%;
+            padding: 100px 0;
+            overflow-y: auto;
+            display: flex; flex-direction: column; align-items: center;
+            position: relative; z-index: 1;
+        }
+
+        /* 1. Thinking Beam (您喜欢的呼吸方框/光柱) */
+        .beam-container {
+            display: flex; flex-direction: column; align-items: center;
+            margin: 2rem 0;
+            min-height: 80px; /* 预留空间 */
+        }
+        
+        .beam-body {
+            width: 3px; height: 60px;
+            background: var(--accent-beam);
+            box-shadow: 0 0 20px rgba(255,255,255,0.4);
+            border-radius: 4px;
+            /* 动态类将控制动画 */
+        }
+
+        .beam-label {
+            margin-top: 12px; font-size: 0.75rem; letter-spacing: 0.1em; 
+            color: #52525b; background: var(--bg-void); padding: 0 8px;
+            text-transform: uppercase;
+        }
+
+        /* 2. History Tick (完成态) */
+        .tick {
+            width: 8px; height: 8px;
+            background: var(--accent-tick);
+            border-radius: 50%;
+            margin: 10px 0;
+            box-shadow: 0 0 0 4px var(--bg-void); /* Cutout effect */
+        }
+
+        /* 3. Result Card */
+        .result-card {
+            width: 400px;
+            background: rgba(20,20,25,0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        /* Controls */
+        .btn-float {
+            position: fixed; top: 20px; right: 20px; z-index: 100;
+            background: white; color: black; border: none; padding: 10px 20px;
+            border-radius: 6px; font-weight: 600; cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .btn-float:active { transform: translateY(1px); }
+
+    </style>
+</head>
+<body>
+
+    <button class="btn-float" onclick="runSequence()">▶ 执行命令 (Run)</button>
+
+    <!-- TUI -->
+    <div id="tui">
+        <div class="capsule">
+            <div class="capsule-seg" style="color:white; font-weight:bold;">OC</div>
+            <div class="capsule-seg">~/project/src</div>
+            <div class="capsule-seg"><div class="soul-dot" id="tui-dot"></div></div>
+        </div>
+        <div style="font-size:1.1rem; display:flex; gap:12px;">
+            <span style="color:#7C3AED; font-weight:bold;">❯</span>
+            <span>analyze physics</span>
+        </div>
+    </div>
+
+    <!-- GUI -->
+    <div id="gui">
+        <div class="axis"></div>
+        
+        <div class="feed" id="feed-container">
+            <!-- 初始欢迎语 -->
+            <div style="font-size:1.5rem; font-weight:500; margin-bottom:40px; background:var(--bg-void); padding:10px; z-index:2;">
+                Ready for Input
+            </div>
+            
+            <!-- 动态插入区域 -->
+        </div>
+
+        <!-- Input Desk -->
+        <div style="position:absolute; bottom:0; width:100%; height:90px; background:rgba(10,10,15,0.8); backdrop-filter:blur(20px); border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:center; align-items:center; z-index:10;">
+            <div style="width:600px; border-bottom:1px solid #333; padding:10px; color:#666;">Waiting...</div>
+        </div>
+    </div>
+
+    <script>
+        const { animate, spring } = Motion;
+        const feed = document.getElementById('feed-container');
+        
+        // TUI 呼吸动画 (持续)
+        animate("#tui-dot", { opacity: [0.4, 1, 0.4], transform: ["scale(1)", "scale(1.2)", "scale(1)"] }, { duration: 3, repeat: Infinity });
+
+        function runSequence() {
+            // 1. 清空演示区域
+            feed.innerHTML = `
+                <div style="font-size:1.5rem; font-weight:500; margin-bottom:40px; background:var(--bg-void); padding:10px; z-index:2;">
+                    Analyzing System Physics...
+                </div>
+            `;
+
+            // 2. 创建思考光柱 (Thinking Beam)
+            const beamContainer = document.createElement('div');
+            beamContainer.className = 'beam-container';
+            
+            const beamBody = document.createElement('div');
+            beamBody.className = 'beam-body';
+            
+            const beamLabel = document.createElement('div');
+            beamLabel.className = 'beam-label';
+            beamLabel.innerText = "PROCESSING";
+
+            beamContainer.appendChild(beamBody);
+            beamContainer.appendChild(beamLabel);
+            feed.appendChild(beamContainer);
+
+            // 动画：光柱呼吸 (Physics Pulse)
+            const pulseAnim = animate(beamBody, 
+                { opacity: [0.4, 1, 0.4], boxShadow: ["0 0 5px rgba(255,255,255,0.1)", "0 0 25px rgba(255,255,255,0.4)", "0 0 5px rgba(255,255,255,0.1)"] },
+                { duration: 2, repeat: Infinity, easing: "ease-in-out" }
+            );
+
+            // 3. 模拟耗时后完成
+            setTimeout(() => {
+                // 停止呼吸
+                pulseAnim.stop();
+
+                // 核心物理变化：Beam -> Tick (光柱变成铆钉)
+                // 移除 Label
+                beamLabel.remove();
+
+                // 瞬间改变样式为 Tick
+                beamBody.style.width = "8px";
+                beamBody.style.height = "8px";
+                beamBody.style.borderRadius = "50%";
+                beamBody.style.background = "var(--accent-tick)";
+                beamBody.style.boxShadow = "none";
+                beamBody.style.opacity = "1";
+                
+                // 执行 "Snap" 弹簧动画
+                animate(beamBody, 
+                    { transform: ["scale(1.5)", "scale(1)"] },
+                    { duration: 0.5, easing: spring({ stiffness: 300, damping: 20 }) }
+                );
+
+                // 4. 显示结果卡片
+                const card = document.createElement('div');
+                card.className = 'result-card';
+                card.innerHTML = `
+                    <div style="color:#aaa; font-size:0.9rem; margin-bottom:8px;">ANALYSIS RESULT</div>
+                    <div style="line-height:1.6;">
+                        Physics engine calibrated.<br>
+                        <span style="color:#3B82F6;">SolidJS + Motion One</span> is ready to deploy.
+                    </div>
+                `;
+                feed.appendChild(card);
+
+                // 卡片入场
+                animate(card, { opacity: [0, 1], transform: ["translateY(20px)", "translateY(0)"] }, { duration: 0.5 });
+
+            }, 2500); // 2.5秒后完成
+        }
+    </script>
+</body>
+</html>

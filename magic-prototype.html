@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: Magical Realism</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* --- 核心基调 --- */
+            --bg-void: #050509;       /* 略带一点蓝紫倾向的深黑，不死黑 */
+            --bg-glass: rgba(20, 20, 25, 0.6);
+            
+            /* --- 灵魂色 (Magic Colors) --- */
+            --magic-purple: #7C3AED;  /* 思考/AI */
+            --magic-cyan: #22D3EE;    /* 链接/信息 */
+            --magic-teal: #10B981;    /* 状态/成功 */
+            --magic-pink: #EC4899;    /* 强调 */
+            
+            /* --- 文本 --- */
+            --text-white: #F8FAFC;
+            --text-dim: #94A3B8;
+            
+            /* --- 字体 --- */
+            --font-ui: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-void);
+            color: var(--text-white);
+            font-family: var(--font-ui);
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            overflow: hidden;
+        }
+
+        /* 背景光雾 (营造氛围) */
+        .ambient-glow {
+            position: fixed;
+            width: 800px; height: 800px;
+            background: radial-gradient(circle, rgba(124, 58, 237, 0.03) 0%, transparent 70%);
+            top: -200px; left: 50%; transform: translateX(-50%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* 标签 */
+        .label {
+            position: absolute; top: 20px; left: 24px;
+            font-family: var(--font-mono); font-size: 0.75rem;
+            color: var(--magic-cyan); opacity: 0.6; letter-spacing: 0.1em;
+            z-index: 10;
+        }
+
+        /* =========================================
+           LEFT: TUI (The Soulful Console)
+           ========================================= */
+        #tui-view {
+            position: relative;
+            background: #09090b; /* 纯正终端色 */
+            border-right: 1px solid rgba(255,255,255,0.05);
+            padding: 40px;
+            font-family: var(--font-mono);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            z-index: 1;
+        }
+
+        /* 1. 上下文浮岛 (回归胶囊 & 呼吸灯) */
+        .context-island {
+            display: inline-flex;
+            align-items: center;
+            background: #18181b;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 99px; /* 极致圆润 */
+            padding: 0;
+            margin-bottom: 20px;
+            /* 悬浮感 */
+            box-shadow: 0 10px 40px -10px rgba(0,0,0,0.8);
+            animation: floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .island-segment {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            border-right: 1px solid rgba(255,255,255,0.05);
+        }
+        .island-segment:last-child { border-right: none; }
+
+        .seg-icon { color: var(--text-white); font-weight: bold; background: #27272a; border-radius: 20px 0 0 20px; }
+        .seg-path { color: var(--text-dim); }
+        
+        /* 那个“小亮点” */
+        .status-dot {
+            width: 8px; height: 8px;
+            background-color: var(--magic-teal);
+            border-radius: 50%;
+            /* 呼吸光晕 */
+            box-shadow: 0 0 12px var(--magic-teal);
+            animation: pulse-teal 3s infinite;
+        }
+
+        /* 2. Prompt (光辉箭头) */
+        .prompt-line {
+            display: flex; gap: 14px; align-items: center;
+            font-size: 1.1rem;
+        }
+        .arrow {
+            color: var(--magic-purple);
+            font-weight: bold;
+            font-size: 1.2rem;
+            text-shadow: 0 0 15px rgba(124, 58, 237, 0.4); /* 霓虹感 */
+        }
+        .ghost { color: #52525b; font-style: italic; }
+
+        /* =========================================
+           RIGHT: GUI (The Aurora Interface)
+           ========================================= */
+        #gui-view {
+            position: relative;
+            z-index: 1;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        /* 1. 中轴线 (更隐蔽，但存在) */
+        .axis {
+            position: absolute; top: 0; bottom: 90px;
+            width: 1px;
+            background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.05) 10%, rgba(255,255,255,0.05) 90%, transparent);
+            left: 50%; transform: translateX(-50%);
+            z-index: 0;
+        }
+
+        .content-area {
+            width: 100%; height: 100%;
+            padding: 100px 40px;
+            overflow-y: auto;
+            position: relative; z-index: 2;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        /* 2. 思考光柱 (极光流) */
+        .aurora-beam {
+            width: 3px; height: 80px;
+            /* 极光渐变 */
+            background: linear-gradient(180deg, var(--magic-purple), var(--magic-cyan));
+            border-radius: 4px;
+            box-shadow: 0 0 25px rgba(124, 58, 237, 0.3);
+            animation: aurora-breath 3s ease-in-out infinite;
+            margin-bottom: 2rem;
+        }
+
+        .status-badge {
+            font-size: 0.7rem; letter-spacing: 0.15em;
+            color: var(--magic-purple);
+            background: rgba(124, 58, 237, 0.1);
+            border: 1px solid rgba(124, 58, 237, 0.2);
+            padding: 4px 10px; border-radius: 99px;
+            margin-top: 10px;
+        }
+
+        /* 3. 卡片 (磨砂质感 + 顶光) */
+        .glass-card {
+            width: 100%; max-width: 580px;
+            background: rgba(30, 30, 35, 0.4);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid transparent;
+            /* 关键：顶光效果 */
+            background-image: linear-gradient(rgba(30,30,35,0.4), rgba(30,30,35,0.4)), 
+                              linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.01) 100%);
+            background-origin: border-box; background-clip: content-box, border-box;
+            
+            border-radius: 12px;
+            padding: 24px 30px;
+            box-shadow: 0 20px 50px -20px rgba(0,0,0,0.5);
+            margin-bottom: 2rem;
+            
+            opacity: 0; animation: slideUp 0.8s 0.2s forwards;
+        }
+
+        .card-title { font-size: 1rem; color: var(--text-white); margin-bottom: 12px; font-weight: 500; }
+        .card-p { font-size: 0.95rem; color: var(--text-dim); line-height: 1.7; }
+        .highlight { color: var(--magic-cyan); background: rgba(34, 211, 238, 0.1); padding: 2px 6px; border-radius: 4px; }
+
+        /* 4. 输入台 (悬浮的实感) */
+        .docked-input {
+            position: absolute; bottom: 0; width: 100%;
+            height: 90px;
+            background: linear-gradient(to top, #050509 80%, transparent);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 10;
+        }
+        
+        .input-bar {
+            width: 600px;
+            background: #18181b;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.6);
+            transition: all 0.3s;
+        }
+        .input-bar:focus-within { border-color: var(--magic-purple); box-shadow: 0 10px 40px -5px rgba(124, 58, 237, 0.2); }
+        
+        .real-input { background: transparent; border: none; color: white; width: 100%; font-size: 1rem; outline: none; }
+
+        /* 动画 */
+        @keyframes floatIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes pulse-teal { 0%, 100% { box-shadow: 0 0 12px var(--magic-teal); opacity: 1; } 50% { box-shadow: 0 0 4px var(--magic-teal); opacity: 0.6; } }
+        @keyframes aurora-breath { 0%, 100% { height: 70px; opacity: 0.8; } 50% { height: 90px; opacity: 1; filter: hue-rotate(15deg); } }
+
+    </style>
+</head>
+<body>
+    <div class="ambient-glow"></div>
+
+    <!-- LEFT: THE TUI (Magical Console) -->
+    <div id="tui-view">
+        <div class="label">TUI: HUD MODE</div>
+        
+        <!-- Log History -->
+        <div style="margin-bottom: 30px; opacity: 0.5; font-size: 0.9rem; line-height: 1.5;">
+            <div>$ git commit -m "fix: logic"</div>
+            <div>[main 8a2b3c] fix: logic</div>
+        </div>
+
+        <!-- The Capsule Island (It's Back!) -->
+        <div class="context-island">
+            <div class="island-segment seg-icon">OC</div>
+            <div class="island-segment seg-path">~/chelingxi/opencode</div>
+            <div class="island-segment">
+                <!-- The Alive Dot -->
+                <div class="status-dot"></div>
+            </div>
+        </div>
+
+        <!-- The Prompt -->
+        <div class="prompt-line">
+            <span class="arrow">❯</span>
+            <span>bun run build</span>
+            <span class="ghost"> -- --production</span>
+            <span style="width:10px; height:20px; background:white; animation: blink 1s infinite;"></span>
+        </div>
+    </div>
+
+    <!-- RIGHT: THE GUI (Pro Assistant) -->
+    <div id="gui-view">
+        <div class="label">GUI: ASSISTANT MODE</div>
+        <div class="axis"></div>
+
+        <div class="content-area">
+            
+            <!-- User Intent -->
+            <div style="font-size: 1.8rem; font-weight: 600; text-align: center; margin-bottom: 3rem;">
+                Analyze the liability clause
+            </div>
+
+            <!-- Thinking Beam (Aurora) -->
+            <div style="display:flex; flex-direction:column; align-items:center; margin-bottom: 3rem;">
+                <div class="aurora-beam"></div>
+                <div class="status-badge">LEGAL REASONING</div>
+            </div>
+
+            <!-- Result Card -->
+            <div class="glass-card">
+                <div class="card-title">Risk Assessment: High</div>
+                <div class="card-p">
+                    The clause contains an <span class="highlight">indemnity loop</span> that creates unlimited liability for the provider.
+                    <br><br>
+                    Recommended Action: Limit the indemnity cap to <strong>2x the contract value</strong>.
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Bottom Input -->
+        <div class="docked-input">
+            <div class="input-bar">
+                <input type="text" class="real-input" placeholder="Ask Opencode...">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2">
+                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

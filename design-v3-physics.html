@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Ethereal V3: State & Physics</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0E0E11;
+            --line: rgba(255,255,255,0.1);
+            --accent: #7C3AED;
+            --text: #E2E8F0;
+        }
+        
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+
+        /* 中轴线 */
+        .timeline-axis {
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 1px;
+            background: var(--line);
+            z-index: 0;
+        }
+
+        /* 核心节点容器 */
+        .node-container {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px;
+        }
+
+        /* 状态文本 */
+        .status-label {
+            margin-bottom: 20px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #64748B;
+            transition: color 0.3s;
+        }
+
+        /* --- 核心组件: 能量核心 (The Orb) --- */
+        .energy-orb {
+            width: 6px; /* 更细，更精密 */
+            height: 40px;
+            border-radius: 4px;
+            background: #475569; /* 默认灰色（未激活） */
+            transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1); /* 机械感的过渡 */
+            box-shadow: 0 0 0 rgba(0,0,0,0);
+        }
+
+        /* 状态 1: 思考中 (Thinking) */
+        /* 关键修改: 不再上下跳动 (TranslateY)，而是光强变化 (Opacity/Shadow) */
+        .node-container.thinking .energy-orb {
+            background: var(--accent);
+            height: 60px; /* 稍微伸长，表示张力 */
+            box-shadow: 0 0 20px var(--accent);
+            animation: energy-pulse 2s ease-in-out infinite;
+        }
+        
+        .node-container.thinking .status-label {
+            color: var(--accent);
+            text-shadow: 0 0 10px rgba(124, 58, 237, 0.4);
+        }
+
+        /* 状态 2: 完成 (Done) */
+        /* 瞬间凝固，变成连接线的一部分 */
+        .node-container.done .energy-orb {
+            background: #fff;     /* 变成高亮白色，表示结果已定 */
+            height: 12px;         /* 缩小成一个节点 */
+            width: 12px;          /* 变成正方形或圆形节点 */
+            border-radius: 50%;   /* 圆点 */
+            box-shadow: 0 0 0 transparent; /* 光晕消失 */
+        }
+        
+        .node-container.done .status-label {
+            color: #fff;
+            opacity: 0.5;
+        }
+
+        /* 动画曲线: 能量脉冲 (仅光效) */
+        @keyframes energy-pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 15px var(--accent); }
+            50% { opacity: 0.6; box-shadow: 0 0 5px var(--accent); }
+        }
+
+        /* 结果展示卡片 */
+        .result-card {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            max-width: 300px;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.5s;
+        }
+
+        .node-container.done + .result-card {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* 控制按钮 */
+        .controls {
+            position: fixed;
+            bottom: 50px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        button {
+            background: #1e293b;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background 0.2s;
+        }
+
+        button:hover { background: #334155; }
+        button:active { transform: translateY(1px); }
+
+    </style>
+</head>
+<body>
+
+    <div class="timeline-axis"></div>
+
+    <div class="node-container" id="node">
+        <div class="status-label" id="status-text">IDLE / 待机</div>
+        <div class="energy-orb"></div>
+    </div>
+
+    <div class="result-card">
+        Analysis Complete.<br>
+        <span style="font-size:0.8em; color:#94a3b8;">System Stable.</span>
+    </div>
+
+    <div class="controls">
+        <button onclick="setState('thinking')">模拟：开始思考 (Thinking)</button>
+        <button onclick="setState('done')">模拟：完成 (Done)</button>
+        <button onclick="setState('idle')">重置 (Reset)</button>
+    </div>
+
+    <script>
+        const node = document.getElementById('node');
+        const text = document.getElementById('status-text');
+
+        function setState(state) {
+            // 清除所有状态
+            node.classList.remove('thinking', 'done');
+            
+            if (state === 'thinking') {
+                node.classList.add('thinking');
+                text.innerText = "PROCESSING / 计算中...";
+            } else if (state === 'done') {
+                node.classList.add('done');
+                text.innerText = "FINISHED / 完成";
+            } else {
+                text.innerText = "IDLE / 待机";
+            }
+        }
+    </script>
+</body>
+</html>

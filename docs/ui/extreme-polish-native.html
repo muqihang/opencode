@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: Extreme Polish (Native & Bulletproof)</title>
+    <style>
+        :root {
+            --bg: #050509;
+            --line: rgba(255,255,255,0.08);
+            --text: #E2E8F0;
+            --beam-color: #FFFFFF;
+            --tick-color: #3B82F6;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            overflow: hidden;
+            margin: 0;
+        }
+
+        /* 按钮 */
+        .btn-main {
+            position: fixed; top: 30px;
+            background: rgba(255,255,255,0.1); color: #fff;
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 12px 24px; border-radius: 8px;
+            font-weight: 600; cursor: pointer; z-index: 100;
+            backdrop-filter: blur(10px);
+            transition: all 0.2s;
+        }
+        .btn-main:hover { background: rgba(255,255,255,0.2); }
+        .btn-main:active { transform: scale(0.95); }
+
+        /* 中轴线 */
+        .axis {
+            position: absolute; top: 0; bottom: 0; width: 1px;
+            background: var(--line);
+            z-index: 0;
+        }
+
+        /* 核心舞台 */
+        .stage {
+            position: relative; z-index: 10;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        /* --- THE LIVING CORE (核心生命体) --- */
+        .energy-core {
+            /* 初始状态: 光柱 (Beam) */
+            width: 3px;
+            height: 60px;
+            background-color: var(--beam-color);
+            border-radius: 100px;
+            box-shadow: 0 0 20px rgba(255,255,255,0.3);
+            
+            /* 关键：使用贝塞尔曲线模拟物理弹簧 Snap 效果 */
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+        }
+
+        /* 状态: 神经脉冲 (Jitter) */
+        /* 当打字时，我们通过 JS 快速添加/移除这个类 */
+        .energy-core.jitter {
+            transform: scaleY(1.15) scaleX(1.5); /* 瞬间膨胀 */
+            box-shadow: 0 0 30px rgba(255,255,255,0.8); /* 能量爆发 */
+            background-color: #fff;
+            transition: all 0.05s ease-out; /* 极快 */
+        }
+
+        /* 状态: 凝固 (Tick) */
+        .energy-core.morph-to-tick {
+            height: 10px;      /* 压扁 */
+            width: 10px;       /* 变圆 */
+            background-color: var(--tick-color);
+            box-shadow: none;  /* 光晕消失 */
+            border-radius: 50%;
+        }
+
+        /* 涟漪光环 */
+        .ripple-ring {
+            position: absolute; top: 50%; left: 50%;
+            width: 10px; height: 10px;
+            border: 1px solid var(--tick-color);
+            border-radius: 50%;
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .ripple-ring.active {
+            animation: ripple-effect 0.6s ease-out forwards;
+        }
+
+        @keyframes ripple-effect {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; border-width: 2px; }
+            100% { transform: translate(-50%, -50%) scale(4); opacity: 0; border-width: 0px; }
+        }
+
+        /* 文本流 */
+        .stream-text {
+            margin-top: 40px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #94A3B8;
+            min-height: 20px;
+            text-align: center;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="axis"></div>
+    
+    <button class="btn-main" onclick="startSequence()">▶ 注入生命 (Inject Life)</button>
+
+    <div class="stage">
+        <!-- 核心生命体 -->
+        <div class="energy-core" id="core">
+            <div class="ripple-ring" id="ripple"></div>
+        </div>
+
+        <div class="stream-text" id="stream"></div>
+    </div>
+
+    <script>
+        const core = document.getElementById('core');
+        const streamDiv = document.getElementById('stream');
+        const ripple = document.getElementById('ripple');
+        
+        const mockText = "Allocating resources... Optimizing neural weights... Done.";
+
+        function startSequence() {
+            // 1. 重置所有状态 (Reset)
+            streamDiv.innerText = "";
+            core.className = "energy-core"; // 变回光柱
+            ripple.className = "ripple-ring";
+            
+            // 2. 开始模拟打字 (Neuro-Link)
+            typeWriter(0);
+        }
+
+        function typeWriter(index) {
+            if (index < mockText.length) {
+                // A. 添加文字
+                streamDiv.innerText += mockText[index];
+                
+                // B. 触发神经震颤 (Jitter)
+                // 只有非空格字符才触发震动，模拟真实感
+                if(mockText[index] !== ' ') {
+                    core.classList.add('jitter');
+                    // 50ms 后立刻撤销震动，形成脉冲
+                    setTimeout(() => {
+                        core.classList.remove('jitter');
+                    }, 50);
+                }
+
+                // C. 随机延迟继续下一个字
+                setTimeout(() => {
+                    typeWriter(index + 1);
+                }, Math.random() * 50 + 30); // 30-80ms 随机延迟
+            } else {
+                // 打字结束，等待片刻后凝固
+                setTimeout(morphToLiquid, 300);
+            }
+        }
+
+        function morphToLiquid() {
+            // 3. 液态变形 (Liquid Morph)
+            core.classList.add('morph-to-tick');
+
+            // 4. 触发涟漪 (Ripple)
+            // 在变形动画的一半时刻触发，效果最好
+            setTimeout(() => {
+                ripple.classList.add('active');
+            }, 200);
+        }
+
+    </script>
+</body>
+</html>

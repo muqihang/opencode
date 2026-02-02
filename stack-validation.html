@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: Solid + Tailwind Stack Demo</title>
+    <!-- 引入 Inter 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- 引入 Motion One (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/motion@10.16.2/dist/motion.js"></script>
+    
+    <!-- 模拟 Tailwind CSS (通过 Style 标签手动实现关键类) -->
+    <style>
+        /* =========================================
+           Theme Engine (Tailwind Config Simulation)
+           ========================================= */
+        :root {
+            /* Design Tokens from DESIGN_SPEC_FINAL.md */
+            --bg-void: #050509;
+            --bg-surface: #0F0F12;
+            --bg-paper: #FAFAFA;
+            --bg-ceramic: #FFFFFF;
+            
+            /* Default to Dark (Night Mode) */
+            --app-bg: var(--bg-void);
+            --surface-bg: rgba(20, 20, 25, 0.6);
+            --text-main: #E2E8F0;
+            --text-dim: #94A3B8;
+            --border-color: rgba(255,255,255,0.08);
+            
+            --beam-color: #FFFFFF;
+            --beam-glow: 0 0 20px rgba(255,255,255,0.3);
+            --tick-color: #3B82F6;
+            
+            --tui-bg: #09090b;
+            --tui-island: #18181b;
+            --tui-soul: #22D3EE;
+        }
+
+        /* Light Mode Overrides */
+        [data-theme="light"] {
+            --app-bg: var(--bg-paper);
+            --surface-bg: rgba(255, 255, 255, 0.85);
+            --text-main: #111827;
+            --text-dim: #6B7280;
+            --border-color: rgba(0,0,0,0.06);
+            
+            --beam-color: #2563EB;
+            --beam-glow: 0 0 15px rgba(37, 99, 235, 0.3);
+            --tick-color: #1E40AF;
+            
+            --tui-bg: #F3F4F6;
+            --tui-island: #FFFFFF;
+            --tui-soul: #0891B2;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--app-bg);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 350px 1fr; /* TUI窄一点，模拟侧边栏或独立窗口 */
+            overflow: hidden;
+            transition: background-color 0.3s ease;
+        }
+
+        /* Noise Texture (Shared Component) */
+        .noise-layer {
+            position: fixed; inset: 0; pointer-events: none; z-index: 50;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' stichTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+        }
+        [data-theme="light"] .noise-layer { opacity: 0.1; mix-blend-mode: multiply; }
+
+        /* =========================================
+           TUI (Solid + OpenTUI Simulation)
+           ========================================= */
+        #tui-panel {
+            background: var(--tui-bg);
+            border-right: 1px solid var(--border-color);
+            padding: 30px;
+            font-family: 'JetBrains Mono', monospace;
+            display: flex; flex-direction: column; justify-content: flex-end;
+            position: relative;
+            transition: background-color 0.3s;
+        }
+
+        /* Capsule Island */
+        .island {
+            display: inline-flex;
+            align-items: center;
+            background: var(--tui-island);
+            border: 1px solid var(--border-color);
+            border-radius: 99px;
+            padding: 6px 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.15);
+            /* Solid transition */
+            transition: all 0.3s;
+        }
+        
+        .soul-dot {
+            width: 8px; height: 8px;
+            background: var(--tui-soul);
+            border-radius: 50%;
+            margin-left: 12px;
+            /* Will animate this with Motion One later */
+        }
+
+        .prompt {
+            display: flex; gap: 10px; align-items: center;
+            font-size: 0.95rem; color: var(--text-main);
+        }
+        .arrow { color: #7C3AED; font-weight: bold; }
+
+        /* =========================================
+           GUI (Solid + Tailwind + Motion One)
+           ========================================= */
+        #gui-panel {
+            position: relative;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        .axis {
+            position: absolute; top: 0; bottom: 80px; width: 1px;
+            background: var(--border-color);
+            z-index: 0;
+        }
+
+        .scroll-view {
+            width: 100%; height: 100%;
+            overflow-y: auto;
+            padding: 80px 40px;
+            display: flex; flex-direction: column; align-items: center;
+            position: relative; z-index: 1;
+        }
+
+        /* The Thinking Beam (Physics) */
+        .beam {
+            width: 3px; height: 60px;
+            background: var(--beam-color);
+            box-shadow: var(--beam-glow);
+            border-radius: 4px;
+            margin-bottom: 2rem;
+            /* No CSS Animation here, we use Motion One JS */
+        }
+
+        /* Result Card (Glass) */
+        .card {
+            background: var(--surface-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 500px;
+            width: 100%;
+            margin-bottom: 2rem;
+            opacity: 0; transform: translateY(10px); /* Initial state */
+            
+            /* Top Light Trick (Tailwind: before:absolute...) */
+            position: relative;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Input Desk */
+        .desk {
+            position: absolute; bottom: 0; width: 100%; height: 80px;
+            background: var(--surface-bg);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid var(--border-color);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 10;
+        }
+        .input-box {
+            width: 400px; background: transparent; border: none;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-main); padding: 8px; outline: none; font-size: 1rem;
+        }
+
+        /* Controls */
+        .controls {
+            position: fixed; top: 20px; right: 20px; z-index: 100;
+            display: flex; gap: 10px;
+        }
+        button {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+            color: var(--text-main); padding: 8px 12px; border-radius: 6px; cursor: pointer;
+            backdrop-filter: blur(4px); font-size: 0.8rem;
+        }
+        button:hover { background: rgba(255,255,255,0.2); }
+
+    </style>
+</head>
+<body data-theme="dark">
+    <div class="noise-layer"></div>
+
+    <div class="controls">
+        <button onclick="toggleTheme()">Toggle Theme (Day/Night)</button>
+        <button onclick="simulateRun()">Simulate AI Run</button>
+    </div>
+
+    <!-- TUI -->
+    <div id="tui-panel">
+        <div class="island" id="island">
+            <span>~/opencode</span>
+            <div class="soul-dot" id="soul"></div>
+        </div>
+        <div class="prompt">
+            <span class="arrow">❯</span>
+            <span>bun run dev</span>
+        </div>
+    </div>
+
+    <!-- GUI -->
+    <div id="gui-panel">
+        <div class="axis"></div>
+        <div class="scroll-view" id="feed">
+            <!-- Dynamic Content will be injected here -->
+            <div style="margin-top: 50vh;"></div> <!-- Spacer -->
+        </div>
+        <div class="desk">
+            <input class="input-box" placeholder="Ask Opencode..." />
+        </div>
+    </div>
+
+    <script>
+        const { animate, spring } = Motion;
+
+        // --- Physics Logic (Motion One) ---
+        
+        // 1. Soul Dot Breathe (Continuous)
+        animate("#soul", 
+            { opacity: [0.5, 1, 0.5], transform: ["scale(1)", "scale(1.2)", "scale(1)"] },
+            { duration: 3, repeat: Infinity, easing: "ease-in-out" }
+        );
+
+        // 2. TUI Island Entry (Spring)
+        animate("#island", 
+            { y: [20, 0], opacity: [0, 1] },
+            { duration: 0.8, easing: spring({ stiffness: 100, damping: 15 }) }
+        );
+
+        // State Machine
+        let isThinking = false;
+        let theme = 'dark';
+
+        function toggleTheme() {
+            theme = theme === 'dark' ? 'light' : 'dark';
+            document.body.setAttribute('data-theme', theme);
+        }
+
+        function simulateRun() {
+            if(isThinking) return;
+            isThinking = true;
+            const feed = document.getElementById('feed');
+            
+            // 1. Clear previous
+            feed.innerHTML = '';
+
+            // 2. Add Thinking Beam (Physics Pulse)
+            const beam = document.createElement('div');
+            beam.className = 'beam';
+            feed.appendChild(beam);
+
+            // Animate Beam (Using Motion One for Physics)
+            const beamAnim = animate(beam, 
+                { opacity: [0.4, 1, 0.4] },
+                { duration: 2, repeat: Infinity, easing: "ease-in-out" }
+            );
+
+            // 3. Simulate AI delay then Finish
+            setTimeout(() => {
+                beamAnim.stop(); // Stop breathing
+                
+                // Snap Effect (Beam -> Tick)
+                // In Solid, this would be a component unmount/mount
+                beam.style.height = '8px';
+                beam.style.width = '8px';
+                beam.style.borderRadius = '50%';
+                beam.style.background = 'var(--tick-color)';
+                beam.style.boxShadow = 'none';
+                
+                // Spring Snap Animation
+                animate(beam, 
+                    { scale: [1.5, 1] },
+                    { duration: 0.4, easing: spring({ stiffness: 300, damping: 20 }) }
+                );
+
+                // Show Result Card
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <h3 style="font-weight:600; margin-bottom:10px;">Analysis Complete</h3>
+                    <p style="color:var(--text-dim); line-height:1.6;">
+                        SolidJS + Tauri 2 provides optimal performance. 
+                        Render time: <span style="color:var(--tick-color)">0.04ms</span>.
+                    </p>
+                `;
+                feed.appendChild(card);
+
+                // Card Entry Animation
+                animate(card, 
+                    { y: [20, 0], opacity: [0, 1] },
+                    { duration: 0.6, easing: "ease-out" }
+                );
+
+                isThinking = false;
+
+            }, 2000);
+        }
+
+        // Init
+        simulateRun();
+
+    </script>
+</body>
+</html>

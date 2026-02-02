@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Ethereal: Design Prototype (CN)</title>
+    <!-- 尝试加载字体，如果失败则回退到系统字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* 核心调色板 */
+            --bg-void: #050507;       /* 深空黑 */
+            --bg-surface: #0E0E11;    /* 表面黑 */
+            --accent-violet: #7C3AED; /* 电光紫 */
+            --accent-cyan: #22D3EE;   /* 赛博蓝 */
+            --accent-teal: #14B8A6;   /* 状态青 */
+            --accent-orange: #F97316; /* 警示橙 */
+            --text-main: #E2E8F0;     /* 主文本 */
+            --text-muted: #94A3B8;    /* 次级文本 */
+            
+            /* 玻璃拟态变量 */
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-bg: rgba(255, 255, 255, 0.02);
+            
+            /* 字体栈 (优先使用中文字体) */
+            --font-ui: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+            --font-serif: 'Noto Serif SC', 'Songti SC', serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-void);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            height: 100vh;
+            overflow: hidden;
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 左右分屏 */
+        }
+
+        /* 标签样式 */
+        .label {
+            position: absolute; top: 20px; left: 20px;
+            font-size: 0.85rem; font-weight: 500; 
+            letter-spacing: 0.05em;
+            color: var(--accent-cyan); 
+            opacity: 0.7; pointer-events: none;
+            background: rgba(34, 211, 238, 0.1);
+            padding: 4px 12px;
+            border-radius: 4px;
+        }
+
+        /* --- 左侧区域: TUI 终端 (上下文浮岛) --- */
+        #tui-viewport {
+            background-color: #0F1117; /* 模拟终端背景色 */
+            position: relative;
+            border-right: 1px solid var(--glass-border);
+            font-family: var(--font-mono);
+            padding: 40px;
+            display: flex;
+            align-items: flex-end; /* 内容底部对齐 */
+            padding-bottom: 30vh;
+        }
+
+        .terminal-flow {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .prev-log {
+            color: #4b5563;
+            margin-bottom: 2.5rem;
+            line-height: 1.6;
+            font-size: 0.9rem;
+        }
+
+        /* 上下文浮岛 (核心设计) */
+        .context-island {
+            display: inline-flex;
+            align-items: center;
+            background: #1e293b;
+            border-radius: 99px; /* 胶囊形状 */
+            padding: 0;
+            overflow: hidden;
+            margin-bottom: 16px;
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.8);
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .island-sector {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sector-id {
+            background: #334155;
+            color: #fff;
+            padding-right: 18px;
+        }
+
+        .sector-loc {
+            color: #cbd5e1;
+            font-variant-ligatures: none;
+        }
+
+        .sector-git {
+            padding-left: 12px;
+            padding-right: 16px;
+            border-left: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* 状态呼吸灯 */
+        .git-dot {
+            width: 10px;
+            height: 10px;
+            background-color: var(--accent-teal);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--accent-teal);
+            animation: pulseDot 4s infinite;
+        }
+
+        /* 输入行 */
+        .prompt-line {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 1.2rem;
+        }
+
+        .prompt-char {
+            color: var(--accent-violet);
+            font-weight: bold;
+            font-size: 1.4rem;
+            text-shadow: 0 0 15px rgba(124, 58, 237, 0.6);
+        }
+
+        .input-area {
+            position: relative;
+            flex-grow: 1;
+        }
+
+        .user-text {
+            color: #fff;
+        }
+
+        .ghost-text {
+            color: #475569;
+            font-style: italic; /* 斜体表示这是AI建议 */
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 10px;
+            height: 1.4rem;
+            background-color: #fff;
+            vertical-align: middle;
+            animation: blink 1s step-end infinite;
+            margin-left: 4px;
+        }
+
+        /* --- 右侧区域: GUI 界面 (电影级时间线) --- */
+        #gui-viewport {
+            background-color: var(--bg-void);
+            position: relative;
+            overflow-y: auto;
+            padding: 80px 40px;
+        }
+
+        .timeline-container {
+            max-width: 680px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        /* 中轴线 (隐形结构) */
+        .central-axis {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: linear-gradient(to bottom, 
+                transparent, 
+                rgba(255,255,255,0.05) 10%, 
+                rgba(255,255,255,0.05) 90%, 
+                transparent
+            );
+            transform: translateX(-50%);
+            z-index: 0;
+        }
+
+        /* 用户意图 (导演批注) */
+        .director-note {
+            text-align: center;
+            margin-bottom: 3.5rem;
+            position: relative;
+            z-index: 2;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .note-text {
+            font-family: var(--font-serif);
+            font-size: 2rem;
+            line-height: 1.4;
+            color: #fff;
+            /* 渐变文字效果 */
+            background: linear-gradient(180deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* AI 思考态 (呼吸流) */
+        .ai-thought-stream {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* 呼吸的光柱 */
+        .breath-line {
+            width: 3px;
+            height: 60px;
+            background: linear-gradient(180deg, var(--accent-violet), var(--accent-cyan));
+            border-radius: 4px;
+            box-shadow: 0 0 20px var(--accent-violet);
+            animation: breathe 3s ease-in-out infinite;
+        }
+
+        .thought-text {
+            margin-top: 16px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            letter-spacing: 0.05em;
+            color: var(--accent-cyan);
+            opacity: 0.8;
+            background: rgba(0,0,0,0.5); /* 增加对比度 */
+            padding: 4px 8px;
+            border-radius: 4px;
+            animation: pulseText 3s ease-in-out infinite;
+        }
+
+        /* 工具调用 (磨砂玻璃卡片) */
+        .tool-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 14px 24px;
+            width: 100%;
+            margin-bottom: 2.5rem;
+            position: relative;
+            z-index: 2;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            overflow: hidden;
+            max-height: 60px;
+        }
+
+        .tool-card:hover {
+            border-color: rgba(255,255,255,0.2);
+            transform: scale(1.02);
+            box-shadow: 0 10px 40px -10px rgba(0,0,0,0.8);
+            background: rgba(255,255,255,0.05);
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            width: 100%;
+        }
+
+        .tool-icon {
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+        }
+
+        .tool-name {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        
+        .tool-name span { color: var(--accent-orange); font-weight: bold; }
+
+        /* 结果呈现 (工件) */
+        .artifact-body {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 32px;
+            line-height: 1.8;
+            font-size: 1.05rem;
+            color: #e2e8f0;
+            position: relative;
+            z-index: 2;
+            animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            opacity: 0;
+            animation-delay: 1s; /* 模拟延迟 */
+            box-shadow: 0 20px 50px -20px rgba(0,0,0,0.5);
+        }
+
+        .artifact-body p { margin-bottom: 1.2em; }
+        .artifact-body code {
+            font-family: var(--font-mono);
+            background: rgba(0,0,0,0.3);
+            padding: 4px 8px;
+            border-radius: 6px;
+            color: var(--accent-cyan);
+            font-size: 0.9em;
+        }
+
+        /* 动画定义 */
+        @keyframes blink { 50% { opacity: 0; } }
+        @keyframes slideUp { 
+            0% { transform: translateY(30px); opacity: 0; } 
+            100% { transform: translateY(0); opacity: 1; } 
+        }
+        @keyframes fadeIn { 
+            0% { opacity: 0; } 
+            100% { opacity: 1; } 
+        }
+        @keyframes breathe {
+            0%, 100% { height: 40px; opacity: 0.4; box-shadow: 0 0 15px var(--accent-violet); }
+            50% { height: 80px; opacity: 1; box-shadow: 0 0 30px var(--accent-cyan); }
+        }
+        @keyframes pulseText {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+        @keyframes pulseDot {
+            0% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(20, 184, 166, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0); }
+        }
+
+        /* SVG 图标通用样式 */
+        svg { width: 20px; height: 20px; display: block; }
+
+    </style>
+</head>
+<body>
+
+    <!-- 左侧视口: TUI (终端) -->
+    <div id="tui-viewport">
+        <div class="label">TUI 设计: 上下文浮岛 (Context Island)</div>
+        
+        <div class="terminal-flow">
+            <!-- 模拟之前的日志输出 -->
+            <div class="prev-log">
+                <div style="opacity:0.5; font-family:var(--font-mono);">> git fetch origin</div>
+                <div style="opacity:0.3; font-family:var(--font-mono);">Unpacking objects: 100% (12/12), done.</div>
+            </div>
+
+            <!-- 核心组件: 上下文浮岛 -->
+            <div class="context-island">
+                <!-- 第一部分: 身份标识 -->
+                <div class="island-sector sector-id">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px; width:16px; height:16px;">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>opencode</span>
+                </div>
+                <!-- 第二部分: 当前路径 -->
+                <div class="island-sector sector-loc">
+                    ~/.../packages/ui
+                </div>
+                <!-- 第三部分: Git状态 (呼吸灯) -->
+                <div class="island-sector sector-git">
+                    <div class="git-dot" title="Git Status: Clean"></div>
+                </div>
+            </div>
+
+            <!-- 输入行 -->
+            <div class="prompt-line">
+                <!-- 提示符: 变成紫色箭头 -->
+                <span class="prompt-char">❯</span>
+                <div class="input-area">
+                    <!-- 用户正在输入的命令 -->
+                    <span class="user-text">npm run dev</span>
+                    <!-- AI 的“幽灵文本”建议 -->
+                    <span class="ghost-text"> -- --filter=preview</span>
+                    <span class="cursor"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧视口: GUI (界面) -->
+    <div id="gui-viewport">
+        <div class="label">GUI 设计: 电影级时间线 (Cinematic Timeline)</div>
+        <!-- 中轴线 -->
+        <div class="central-axis"></div>
+
+        <div class="timeline-container">
+            
+            <!-- 1. 用户输入 (像电影标题一样展示) -->
+            <div class="director-note">
+                <div class="note-text">
+                    "重构认证流程以支持 GitHub OAuth"
+                </div>
+            </div>
+
+            <!-- 2. AI 思考中 (用光效代替旋转加载圈) -->
+            <div class="ai-thought-stream">
+                <div class="breath-line"></div>
+                <div class="thought-text">正在分析安全策略...</div>
+            </div>
+
+            <!-- 3. 工具调用 (折叠的玻璃卡片) -->
+            <div class="tool-card">
+                <div class="tool-header">
+                    <div class="tool-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </div>
+                    <div class="tool-name">正在读取 <span>auth.config.ts</span></div>
+                </div>
+                <div style="opacity: 0.5; font-size: 0.8rem; font-family: var(--font-mono);">点击展开</div>
+            </div>
+
+            <!-- 4. AI 回复 (无边框沉浸式文本) -->
+            <div class="artifact-body">
+                <p>我已经分析了当前的配置。为了支持 GitHub OAuth，我们需要将 <code>GithubProvider</code> 注入到你的 NextAuth 策略中。</p>
+                <p>以下是更新后的实施计划：</p>
+                <p style="color: #94A3B8; font-size: 0.95rem; margin-top: 1.5rem; border-left: 2px solid #334155; padding-left: 1rem; font-style: italic;">
+                    已更新 <code>src/auth.ts</code>，增加了对 Client ID 和 Secret 环境变量的验证逻辑。
+                </p>
+            </div>
+
+        </div>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opencode: Final Design (Zero Dependency)</title>
+    <!-- 使用系统字体栈，防止字体加载慢 -->
+    <style>
+        :root {
+            --bg: #050509;
+            --tui-bg: #09090b;
+            --line: rgba(255,255,255,0.08);
+            --text: #E2E8F0;
+            --accent-beam: #FFFFFF;
+            --accent-tick: #3B82F6;
+            --tui-soul: #22D3EE;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            overflow: hidden;
+        }
+
+        /* --- BUTTON --- */
+        .run-btn {
+            position: fixed; top: 20px; right: 20px; z-index: 100;
+            background: #fff; color: #000; border: none;
+            padding: 12px 24px; border-radius: 8px;
+            font-weight: bold; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: transform 0.1s;
+        }
+        .run-btn:active { transform: scale(0.95); }
+
+        /* --- TUI --- */
+        #tui {
+            background: var(--tui-bg);
+            border-right: 1px solid var(--line);
+            padding: 40px;
+            display: flex; flex-direction: column; justify-content: flex-end;
+            font-family: 'Courier New', Courier, monospace; /* Fallback mono */
+        }
+        .capsule {
+            display: inline-flex; align-items: center;
+            background: #18181b; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 99px; width: fit-content; margin-bottom: 20px;
+        }
+        .cap-item { padding: 8px 16px; border-right: 1px solid rgba(255,255,255,0.05); color: #aaa; font-size: 0.9rem; }
+        .cap-item:last-child { border-right: none; }
+        
+        .soul-dot {
+            width: 8px; height: 8px; background: var(--tui-soul); border-radius: 50%;
+            box-shadow: 0 0 10px var(--tui-soul);
+            animation: soul-breathe 3s infinite ease-in-out;
+        }
+
+        /* --- GUI --- */
+        #gui {
+            position: relative;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        
+        /* 电影中轴线 (默认可见) */
+        .axis {
+            position: absolute; top: 0; bottom: 0; width: 1px;
+            background: var(--line);
+            z-index: 0;
+        }
+
+        .feed-container {
+            width: 100%; height: 100%; overflow-y: auto;
+            padding: 100px 0;
+            display: flex; flex-direction: column; align-items: center;
+            position: relative; z-index: 1;
+        }
+
+        /* 状态 1: 思考光柱 */
+        .beam-wrapper {
+            display: flex; flex-direction: column; align-items: center;
+            margin: 20px 0;
+            transition: all 0.3s;
+        }
+        .beam {
+            width: 3px; height: 60px;
+            background: var(--accent-beam);
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(255,255,255,0.3);
+            /* 原生 CSS 呼吸动画 */
+            animation: beam-pulse 2s infinite ease-in-out;
+        }
+        .beam-text {
+            margin-top: 10px; font-size: 10px; letter-spacing: 2px; color: #666;
+            background: var(--bg); padding: 0 5px; text-transform: uppercase;
+        }
+
+        /* 状态 2: 历史铆钉 */
+        .tick {
+            width: 10px; height: 10px;
+            background: var(--accent-tick);
+            border-radius: 50%;
+            margin: 20px 0;
+            box-shadow: 0 0 0 5px var(--bg); /* Cutout effect */
+            animation: snap-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* 弹簧物理 */
+        }
+
+        /* 结果卡片 */
+        .card {
+            background: rgba(30,30,35,0.8);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 24px; width: 400px;
+            margin-top: 10px;
+            animation: slide-up 0.5s ease-out;
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes soul-breathe { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.2); } }
+        @keyframes beam-pulse { 0%, 100% { opacity: 0.4; box-shadow: 0 0 5px rgba(255,255,255,0.1); } 50% { opacity: 1; box-shadow: 0 0 25px rgba(255,255,255,0.5); } }
+        @keyframes snap-in { 0% { transform: scale(0); } 60% { transform: scale(1.4); } 100% { transform: scale(1); } }
+        @keyframes slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+    </style>
+</head>
+<body>
+
+    <button class="run-btn" onclick="triggerAction()">▶ 点击运行 (Run)</button>
+
+    <div id="tui">
+        <div class="capsule">
+            <div class="cap-item" style="color:#fff; font-weight:bold;">OC</div>
+            <div class="cap-item">~/src/ui</div>
+            <div class="cap-item"><div class="soul-dot"></div></div>
+        </div>
+        <div style="font-size:1.2rem; display:flex; gap:10px;">
+            <span style="color:#7C3AED;">❯</span>
+            <span>build target</span>
+        </div>
+    </div>
+
+    <div id="gui">
+        <div class="axis"></div>
+        
+        <div class="feed-container" id="feed">
+            <div style="text-align:center; color:#555; margin-top:100px;">
+                Waiting for input...
+            </div>
+        </div>
+
+        <!-- Desk -->
+        <div style="position:absolute; bottom:0; width:100%; height:80px; background:rgba(20,20,20,0.9); border-top:1px solid #333; display:flex; justify-content:center; align-items:center; z-index:10;">
+            <div style="color:#666;">Ready.</div>
+        </div>
+    </div>
+
+    <script>
+        function triggerAction() {
+            const feed = document.getElementById('feed');
+            
+            // 1. Reset Feed
+            feed.innerHTML = '';
+
+            // 2. Add Heading
+            const h2 = document.createElement('h2');
+            h2.innerText = "Analyzing System Architecture";
+            h2.style.textAlign = "center";
+            h2.style.fontWeight = "normal";
+            h2.style.marginBottom = "30px";
+            h2.style.background = "var(--bg)"; // Mask axis
+            h2.style.padding = "10px";
+            h2.style.zIndex = "2";
+            feed.appendChild(h2);
+
+            // 3. Add Thinking Beam (光柱)
+            const wrapper = document.createElement('div');
+            wrapper.className = 'beam-wrapper';
+            wrapper.id = 'active-beam';
+            wrapper.innerHTML = `
+                <div class="beam"></div>
+                <div class="beam-text">PROCESSING</div>
+            `;
+            feed.appendChild(wrapper);
+
+            // 4. Simulate Delay -> Done
+            setTimeout(() => {
+                // Remove Beam
+                const oldWrapper = document.getElementById('active-beam');
+                if(oldWrapper) oldWrapper.remove();
+
+                // Add Tick (铆钉)
+                const tick = document.createElement('div');
+                tick.className = 'tick';
+                feed.appendChild(tick);
+
+                // Add Result Card
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <div style="color:#888; font-size:0.8rem; margin-bottom:10px;">RESULT</div>
+                    <div style="line-height:1.5;">
+                        <strong style="color:#fff;">Physics Engine Validated.</strong><br>
+                        Animation curve: Cubic-Bezier (Spring).<br>
+                        Status: <span style="color:#3B82F6">Ready for production.</span>
+                    </div>
+                `;
+                feed.appendChild(card);
+
+            }, 2000); // 2 seconds delay
+        }
+    </script>
+</body>
+</html>
