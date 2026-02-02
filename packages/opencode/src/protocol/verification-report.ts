@@ -1,7 +1,7 @@
 import z from "zod"
 import { Sha256 } from "./shared"
 
-export const VerificationMode = z.enum(["strict", "balanced", "loose"])
+export const VerificationMode = z.enum(["strict", "balanced"])
 export type VerificationMode = z.infer<typeof VerificationMode>
 
 const Pointer = z
@@ -48,6 +48,14 @@ const Summary = z
   })
   .strict()
 
+const Retrieval = z
+  .object({
+    attempted: z.boolean(),
+    pointers: z.array(Pointer),
+    artifacts: z.array(z.string().min(1)),
+  })
+  .strict()
+
 export const VerificationReport = z
   .object({
     specVersion: z.literal("verification-report/1.0"),
@@ -60,6 +68,7 @@ export const VerificationReport = z
     summary: Summary,
     reasons: z.array(Reason),
     claims: z.array(ClaimItem),
+    retrieval: Retrieval.optional(),
   })
   .strict()
 
