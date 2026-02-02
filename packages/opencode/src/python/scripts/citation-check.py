@@ -37,9 +37,7 @@ def stable_normalize(value: Any) -> Any:
   if isinstance(value, dict):
     result: Dict[str, Any] = {}
     for key in sorted(value.keys()):
-      normalized = stable_normalize(value[key])
-      if normalized is not None:
-        result[key] = normalized
+      result[key] = stable_normalize(value[key])
     return result
   return str(value)
 

@@ -22,21 +22,21 @@
   {
     "id": "citation-check",
     "path": "scripts/citation-check.py",
-    "sha256": "fd3cf03a7a203fa1a949410bcdda598b33b853a90eb54cf34f31e299405f7fe5"
+    "sha256": "493aaacc1715ae5407c6a17f0a0e64ccd5b8171eb9283c6d86b6105f3124b6d9"
   },
   {
     "id": "doc-quote-anchor",
     "path": "scripts/doc-quote-anchor.py",
-    "sha256": "3c000c226b7d97e21d53fe439e3a519929de986bbaceb0a20db7dfa998c1ccc3"
+    "sha256": "4e31fe93fc43441760824d3bbf9ec4783de49b3f87a2c5091a60ffd87e3f9110"
   },
   {
     "id": "table-check",
     "path": "scripts/table-check.py",
-    "sha256": "1597a3d514478c03297f0bede5860b8b161847b2418676cf8805a5fb138d56e9"
+    "sha256": "c7ee731930cc00627a9d4a86998ea5967123eefb115a1c83917a16777b9ccde9"
   },
   {
     "id": "redaction-scan",
     "path": "scripts/redaction-scan.py",
-    "sha256": "e3b470d000e9f38f3a28fa01c5fc1871151c85b6f66a23c9cc808b1d22f8a846"
+    "sha256": "5d88e7f68aae62fb3e25970df3cd2b0c9ebc10ab4c4bc5c9bf5e23d57eaf1dc8"
   }
 ]
