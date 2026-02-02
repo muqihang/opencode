@@ -38,6 +38,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { fn } from "@/util/fn"
 import { SessionProcessor } from "./processor"
 import { TaskTool } from "@/tool/task"
+import { RoutingRunner } from "../routing/runner"
 import { Tool } from "@/tool/tool"
 import { PermissionNext } from "@/permission/next"
 import { SessionStatus } from "./status"
@@ -265,6 +266,7 @@ export namespace SessionPrompt {
     const s = state()
     const match = s[sessionID]
     if (!match) return
+    void RoutingRunner.cancel({ sessionId: sessionID, reason: "user_abort" }).catch(() => {})
     match.abort.abort()
     for (const item of match.callbacks) {
       item.reject()
