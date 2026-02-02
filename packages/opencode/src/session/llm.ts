@@ -30,6 +30,7 @@ import { Auth } from "@/auth"
 import { ContextPackBuilder } from "./context-pack"
 import { ContextBlocks } from "./context-blocks"
 import { DecisionBoundary } from "./decision-boundary"
+import { runRetrieval } from "@/retrieval/runner"
 import { ulid } from "ulid"
 
 export namespace LLM {
@@ -277,6 +278,41 @@ export namespace LLM {
       workspaceFingerprint,
       artifactRoot,
     })
+    const extractText = (message: ModelMessage) => {
+      if (typeof message.content === "string") return message.content
+      if (Array.isArray(message.content)) {
+        const parts = message.content
+          .map((part) => {
+            if (typeof part === "string") return part
+            if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+              return part.text
+            }
+            return JSON.stringify(part) ?? ""
+          })
+          .filter((value): value is string => typeof value === "string" && value.length > 0)
+        return parts.join("\n")
+      }
+      return ""
+    }
+
+    const intentText = (() => {
+      const reversed = [...input.messages].reverse()
+      for (const msg of reversed) {
+        if (msg.role !== "user") continue
+        const text = extractText(msg).trim()
+        if (text) return text
+      }
+      return ""
+    })()
+
+    const retrieval = intentText
+      ? await runRetrieval({
+          sessionId: input.sessionID,
+          messageId: input.user.id,
+          intentText,
+          abort: input.abort,
+        })
+      : undefined
     const pack = ContextPackBuilder.build({
       sessionId: input.sessionID,
       messageId: input.user.id,
@@ -285,6 +321,7 @@ export namespace LLM {
       maxOutputTokens,
       contextPackId,
       createdAtUtc,
+      evidencePointers: retrieval?.evidencePointers,
     })
     const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
     await Promise.all(
