@@ -62,6 +62,20 @@
 - **共享时钟（相对时间）**：`packages/app/src/components/activity/pulse.ts`（`useNowMs` singleton）。
 - **Evidence events API**：`packages/opencode/src/server/routes/session.ts`（`GET /:sessionID/evidence/events` + manifest）。
 
+### 1.4 现状：沙盒里能启用几个 worker？分工是什么？能跑哪些 Python/脚本/工具？
+
+> 这节用“代码事实”回答你在总设计稿 Section 2 提到的关键问题：主会话/子会话进入各自沙盒后，当前到底能并行启用几个 worker、分工是什么、以及工具带能执行什么。
+
+- **Routing workers（A/B/C）**：当前实现为 3 个 worker，默认 `maxWorkersInFlight=3`（可配置），入口：`packages/opencode/src/routing/runner.ts` + `packages/opencode/src/routing/config.ts`。
+  - Worker A（`worker_a_repo` / `repo-lsp`）：当前实现是 repo 文件树扫描（Bun.Glob），产出候选文件列表（`packages/opencode/src/routing/worker-a.ts`）。
+  - Worker B（`worker_b_kb` / `kb-rag`）：当前为 `unavailable` stub（`packages/opencode/src/routing/worker-b.ts`）。
+  - Worker C（`worker_c_graph` / `graph-impact`）：当前为 `unavailable` stub（`packages/opencode/src/routing/worker-c.ts`）。
+- **PythonTool（allowlisted scripts + project scripts）**：沙盒内可执行 **allowlisted** Python 脚本（输入/输出落盘为 artifacts 并进入 Evidence Pack），入口：`packages/opencode/src/tool/python.ts`。
+  - allowlist registry：`packages/opencode/src/python/registry.ts` + `packages/opencode/src/python/scripts.manifest.json`
+  - 内置 allowlisted scripts（现状）：`summarize-json` / `doc-extract-pdf-text` / `doc-unpack-archive` / `doc-ocr-image`
+  - project scripts（可选）：`project:<name>`（仅允许 `.opencode/scripts/<name>.py`，并受 `config.python.allowProjectScripts` 控制）
+- **BashTool/其它工具**：P0–P2 已通过 `SandboxRunner` 证据化并纳入审批/审计；P3 的目标是“上下文工程 + 可信门禁”质变，不扩大任意执行面。
+
 ---
 
 ## 2. P3 的“必须做”与“暂不做”（明确边界）
@@ -103,18 +117,79 @@
    - 更新 capsule，但 capsule 必须引用 sources（避免摘要漂移/幻觉）
    - 下一轮 context-pack 使用 delta（而不是全量粘贴历史）
 
+#### 2.1.3 “不锁场景”的产品原则（以高风险场景为门槛，但构建通用代理）
+
+> 你明确提出：P3/P3+ 的“严谨、可靠、无限接近 0 幻觉”应当成为 **通用代理的基准能力**，而不是把系统锁死在法务/审计。
+> 本节将“高风险场景要求”抽象为通用机制，并把“场景化增强”外置为可插拔模块（prompts/skills），避免 core 被领域耦合污染。
+
+**核心原则（必须写进实现与验收方式）**
+- **Core 只做通用机制**：证据资产化、确定性模板、指纹缓存、可解释计数器、引用门禁、降级语义、最小泄露。
+- **领域策略外置**：
+  - 以 `skills`（标准化执行流程包）或 prompt packs 的方式提供“行业/场景工作流”；
+  - 通过 `SkillTool`（`packages/opencode/src/tool/skill.ts`）加载，且被记录为 evidence（以便审计/复现/缓存对账）。
+- **“高风险门槛”是质量标准，不是领域限定**：同一套 Verification/Claims/Citation Required 机制也适用于编程、写作、产品、运营等任务，只是默认策略可更宽松。
+
+**可配置的“可信输出策略”（通用能力，按 profile/skill 调参）**
+- `strict`：关键结论没有可验证 pointers 就不输出结论（只输出“无法证实 + 下一步补证据”）
+- `balanced`（推荐默认）：无证据时必须降级为“不确定/需补证据”，并自动触发一次补检索/补核验
+- `loose`：允许输出推测，但必须显式标注“推测/低置信度”，且不能伪装成事实
+
+#### 2.1.4 B++（B 为底，吸收 C）架构（你的选择，写进 P3 默认实现）
+
+> 你明确选择：**B 为底，同时尽量拥抱 C（B++）**。这里把它固化为 P3 的默认架构，避免实施时“做到一半又改方向”。
+>
+> 约束：B++ 必须始终满足“工程可控”——每一步都要 **产物化 + 可缓存 + 可取消 + 可审计**；任何“更强能力”必须通过 feature flags/配置层叠灰度，而不能靠隐式魔法。
+
+**B（商业级可用的可靠底座，P3 必做）**
+- `context-pack.json` SSOT + 计数器可解释（Milestone 1）
+- prefix determinism（稳定 blocks + toolsetFingerprint）+ 回归（Milestone 2）
+- Evidence-first Retrieval（**代码 rg/LSP/文件树 + 资料工作台派生索引**）（Milestone 2.5）
+- Secure-by-default（Schema-first + Citation Required + 消耗治理事件化）（Milestone 2.6）
+- Tool Belt v1 + Verification gate（让弱模型也能强，且可核验）（Milestone 2.7/2.8）
+- 本地缓存 SSOT（LRU/TTL + 命中原因）+ 多厂商归一（Milestone 3/4）
+- Compaction 联动（Ledger/Delta）+ UI 非黑盒解释（Milestone 5）
+- 最小 Evals（离线质量护栏，防退化）（Milestone 6）
+
+**C（极致能力上限：尽量吸收，但不破坏 B 的可控性）**
+- 多 worker 协作是“机制”，不是“某个大模型更聪明”：Router(A/B/C) + Verifier（Milestone 0.5/2.8），未来再扩展 small-LLM worker（P4/后续，P3 只留钩子与协议）。
+- 多轮流水线（证据 → 核验 → 生成）：任何阶段都可中止/降级，并写入 events（Milestone 2.5/2.8）。
+- “工具优先”替代“塞上下文”：长证据变成 **指针集合 + 锚点 + 对账报告**，并可缓存复用（Milestone 2.7）。
+- 自救/灰度：一键 `disable cache` / `force rebuild context-pack` / `strict mode` / `tool belt off`（Milestone 3/5 + 配置层叠）。
+
+**B++ 的最小产物链（每轮至少）**
+1) routing capsule + `worker-*.result.json`
+2) retrieval artifacts（rewrite/hits/dedupe/report）
+3) `verification.report.json` + `verification.capsule.md`
+4) `context-pack.json` + fingerprints + cache hit/miss events
+
+#### 2.1.5 生产级可信增强（质变点，P3 必做，不做就很难“让用户信任”）
+
+> 这一节把“从雏型/地基 → 商业级大厦”的质变点列成 checklist，方便你审阅与后续里程碑验收时对账。
+
+1) **Claim-level Verifier 门禁**：关键结论必须可核验（没证据就降级/补证据），并产出 `verification.report.json`（Milestone 2.8）。
+2) **确定性与可回归**：stableJson/canonicalization + blocks fingerprints + toolsetFingerprint 进入 cacheKey，且有回归测试（Milestone 2/3/6）。
+3) **缓存是 SSOT（provider 只是加速器）**：本地 cache hit/miss 必须可解释、可观测、可淘汰（Milestone 3/4）。
+4) **输出指针化（Pointers, not Paste）**：长文本/长证据落盘为 artifacts；对话/上下文只注入摘要+指针（贯穿 Milestone 1/2.5/5）。
+5) **最小泄露 + 可共享**：默认安全视图；审计字段懒加载；导出/共享前跑 `redaction-scan`，但不篡改原证据（Milestone 2.7/2.8）。
+6) **失败可复盘 + 自动展开**：任何失败必须有 error artifact + event；UI 必须自动展开并给出中文下一步（贯穿 Milestone 0.5/1/2.6/2.8/5）。
+7) **可治理的开关**：feature flags + effective config（值来源可对账），避免“一次上线全开”导致不可控（Milestone 3/5）。
+
 ### 2.2 总设计稿覆盖矩阵（P3 相关 Section → 本计划落点）
 
 > 目的：确保不会漏掉总设计稿中 P3 相关的章节/要求；同时让后续实施可以按里程碑对账。
 
 | 总设计稿 Section（P3 相关） | 要求摘要 | 本计划落点 |
 | --- | --- | --- |
+| 2.3.1 A/B/C worker 接口契约 | 输入/输出都“产物化”（result.json + capsule.md）；可缓存、可合并、可降级 | 已有协议骨架（P2）；P3 补齐治理/取消/稳定输出（Milestone 0.5/2.5） |
+| 2.3.2 WorkerResult schema | worker-result 统一 schema（versioned）；字段必须稳定可对账 | 已有 `routing-worker-result/1.0`；P3 扩展时保持 versioned + 回归（Milestone 0.5/6） |
+| 2.3.3 worker result 字段 | A/B/C 的 result 字段定义要稳定；降级状态要一致 | Milestone 0.5（治理）+ Milestone 2.5（检索结果稳定/降级语义） |
 | 2.3.4 缓存 key 规则 | routing/retrieval/context 的 key 必须确定性、可解释、可审计；scope 必须对齐租户边界 | Milestone 2.5（retrieval 输出稳定）+ Milestone 3（Context Pack cache key 与 scope） |
 | 2.3.5 stableJson / canonicalization | 协议级确定性序列化；集合型数组必须稳定排序；stableJson 版本必须进入 key | Milestone 2（determinism）+ Milestone 2.5（retrieval 排序）+ Milestone 3（cache key） |
 | 2.3.6 默认值与降级表 | LSP/rg/索引不可用时必须降级且写 events/risks；不阻塞主流程 | Milestone 0.5（治理/取消/收敛）+ Milestone 2.5（检索降级） |
 | 3.1 Cache Store（可插拔、P3/P4 可选 Redis） | 本地缓存为 SSOT；后端可选 `memory|disk|redis`；写 evidence 命中统计 | Milestone 3（Cache Store）+ Milestone 4（多模型归一） |
 | 3.2 Provider Prompt Caching | provider 缓存是“加速器”；稳定前缀 + cacheHints；统一指标口径 | Milestone 2（prefix determinism）+ Milestone 4（归一 + Gemini Cached Content） |
 | 2.3.8 Worker 资源调度（maxWallClockMs/取消/收敛） | 不让并行把机器打挂；超时/取消要可复盘 | Milestone 0.5（Routing backfill） |
+| 8.1 events.jsonl（时间线 SSOT） | 事件必须可关联（routingRunId/contextPackId/verificationId）；时间线可解释 | 贯穿 Milestone 0.5/1/2.8/3/5（新增事件必须带关联 id） |
 | 2.3.7.1 协议代码化 + 契约测试 | Zod schema SSOT + contract tests，防漂移，失败必须 `protocol.violation` 且不断链 | Milestone 1（context-pack 写入）+ Milestone 2.5（retrieval 产物）+ Milestone 2.6（schema-first） |
 | 16.2.1 Context Pack schema SSOT | 每次调用生成 `context-pack.json`；segments 可解释计数器 | Milestone 1 |
 | 16.2.2 UI/CLI 非黑盒展示 | safe/verbose/audited 分级；默认安全；可点回证据 | Milestone 1（事件映射）+ Milestone 5（解释 compaction/ledger） |
@@ -126,6 +201,8 @@
 | 5.1 六个“可验证吸收点”（Codex/GPT 对齐） | call-scoped context pack / workbench / router-first / worker 结构化 / cache 分层 / 可解释时间线 | 贯穿 Milestone 1/2.5/3/4/5（见 2.2.1） |
 | 6 沙盒内外上下文与缓存边界 | daemon 统一构建/缓存；沙盒只做一次性执行；缓存按 project/worktree 分域 | Milestone 3（cache scope）+ Milestone 2.6（least disclosure） |
 | 7 oh-my 多代理机制吸收 | planning/execution 分离；子任务默认后台；目录级规则注入 | 已具备部分（P1.6/P2）；P3 补齐“通用任务的结构化 handoff”（Milestone 1.1） |
+| 13.3 沙盒内置工具带（Tool Belt） | 用工具检索/抽取/对账换取超长上下文与低幻觉；输出必须指针化可复盘 | Milestone 2.7（Tool Belt v1） |
+| 14.1 PythonTool 脚本注册表 | allowlisted registry + sha256 校验；输出必须 evidence 化 | Milestone 2.7（以 allowlisted scripts 形态交付） |
 | 17.1 配置层叠 + effective config | P3 能开关/降级/自救；值来源可对账 | Milestone 3/5（加 feature flags 与自救开关） |
 | 18 回归与门禁 | 同输入→同 cacheKey；版本化；必要时加回归测试 | Milestone 2/3/5（determinism + cache + compaction 回归） |
 | 18.1 最小 Evals（质量护栏） | routing/引用/压缩/证据链的离线回归；避免“悄悄退化” | Milestone 6（Minimal Evals） |
@@ -141,7 +218,7 @@
 5) **缓存分层（本地 SSOT，provider 为加速器）** → Milestone 3（本地 cache store）+ Milestone 4（provider usage 归一为辅助指标）
 6) **可解释时间线（默认安全）** → Milestone 1/3/5（Timeline 展示预算/命中/压缩；审计懒加载；失败自动展开）
 
-### 2.2 暂不做（Fusion 冲刺项 / P4 项）
+### 2.3 暂不做（Fusion 冲刺项 / P4 项）
 
 **Fusion 冲刺项（质感封神点，不阻塞 P3）**：
 - DESIGN_SPEC_FINAL.md 的 “Neuro-Link Jitter / Liquid Morph / Haptic Ripple”等变态级微交互（可留架构钩子，但不做 full fidelity）。
@@ -374,6 +451,108 @@
 
 ---
 
+### Milestone 2.7：Tool Belt v1（可验证的“增强工具带”，让弱模型也能强）
+
+**目标**：把“超长上下文 + 低幻觉 + 可审计”从 prompt 技巧升级为 **工具化能力**：用脚本/工具做检索、锚定、复算、校验与脱敏，输出结构化证据资产并可缓存复用。
+
+> 关键定位：Tool Belt 是通用能力，不是行业绑定。法务/审计只是最严格的验收门槛。
+
+**后端（DoD）**
+- 以 `PythonTool` 的 allowlisted scripts 机制为主（`packages/opencode/src/tool/python.ts` + `packages/opencode/src/python/registry.ts`），新增并内置 4 个生产级脚本（输出必须“结构化 + 指针化”，并写入 evidence/events）：
+  1) `citation-check`：引用校验器（pointers 存在性/sha256/定位合法性）
+  2) `doc-quote-anchor`：文档引用锚定器（PDF 页/Docx 段落 → anchors，输出 `score_bps` + 稳定排序）
+  3) `table-check`：数值对账/复算器（金融/审计常用，但本质是通用“数值核验”能力）
+  4) `redaction-scan`：最小泄露扫描器（用于导出、共享、审计视图；不自动改写原 artifacts，避免破坏证据链）
+- 每个脚本必须具备统一的“可缓存可复盘”约束：
+  - 输入：stableJson（包含 `specVersion` + `policyVersion`）
+  - 输出：stableJson + rg-friendly 的 `.md` view（可选，但强烈推荐）
+  - cacheKey：`sha256(stableJson(input_json))`（版本变更必须 bump）
+  - 失败：必须产出 error artifact + event（不得 silent fail）
+
+**脚本规格（v1，可直接落地为新的 allowlisted scripts）**
+
+> 目标是“可落地、可质变”，所以这里把 4 个脚本写成明确的 I/O 契约与落盘形态，避免实施阶段变成“写脚本但不可复盘/不可缓存”。
+
+- 统一落点（建议）：
+  - 新增脚本文件：`packages/opencode/src/python/scripts/<script-id>.py`
+  - 追加 allowlist：`packages/opencode/src/python/scripts.manifest.json`（每次变更必须更新 sha256）
+- 统一输入：`input_json.specVersion` + `input_json.policyVersion` + `input_json.pointers[]`（若适用）
+- 统一输出（JSON）：`specVersion` + `cacheKey` + `summary` + `items[]`（必须稳定排序）
+- 统一输出（可选 MD）：`<script-id>.view.md`（rg-friendly，人类可读但不承载 SSOT）
+- 统一事件：`toolbelt.<script_id>.completed`（data 至少包含 counts + cacheKey + ok）
+
+1) `citation-check`（引用校验器）
+   - 输入（建议最小字段）：`{ specVersion: "citation-check/1.0", policyVersion: "v1", pointers: [{ path, sha256, kind?, anchor? }] }`
+   - 输出：逐 pointer 给出 `ok/missing/hash_mismatch/anchor_invalid`，并汇总 `unsupportedClaims`（供 Verification 阶段阻断/降级）
+   - 约束：只做“存在性/一致性/锚点合法性”校验；不尝试从网络补证据（补证据走 Milestone 2.5）
+
+2) `doc-quote-anchor`（文档引用锚定器）
+   - 输入：`{ specVersion: "doc-quote-anchor/1.0", policyVersion: "v1", quotes: [{ text, sourcePointer }], topK }`
+   - 输出：为每条 quote 给出候选 anchors（例如 `page/lineStart/lineEnd/chunkId`）+ `score_bps`，并保证稳定排序（同输入→同输出）
+   - 约束：优先只消费 Workbench 派生 artifacts（PDF pages txt / docx structure / archive unpack list），不直接解析原始二进制文件（避免重复实现与不可控依赖）
+
+3) `table-check`（数值对账/复算器）
+   - 输入：`{ specVersion: "table-check/1.0", policyVersion: "v1", cases: [{ title, inputs: [{ pointer, note? }], checks: [{ kind, expr?, expected? }] }] }`
+   - 输出：每个 case 的 `computed[]` 与 `mismatches[]`（人话解释 + 指针），用于把“数字断言”变成可核验资产
+   - 约束：保持通用（不绑定法务/审计领域）；领域规则应外置到 skills/prompt packs
+
+4) `redaction-scan`（最小泄露扫描器）
+   - 输入：`{ specVersion: "redaction-scan/1.0", policyVersion: "v1", pointers: [{ path, sha256 }], rules?: { pii?: boolean, secrets?: boolean } }`
+   - 输出：`findings[]`（含 severity + location + reason + suggestedAction）；**不自动改写** artifacts（避免破坏证据链）
+   - 约束：默认用于“导出/共享/审计展开”前的风险提示；真正的脱敏动作若要做必须产出新 artifact 并清晰记录 provenance（P4）
+
+**协议（DoD）**
+- v1 先不增加新的顶层协议文件，但每个脚本输出必须带 `specVersion`，并且能被 Zod 校验（可把 schema 放在 `packages/opencode/src/protocol/` 或脚本内内嵌最小校验）。
+
+**UI（DoD）**
+- Timeline 可展示工具带节点（人话摘要）：
+  - `引用已核验 / 引用不足 / 已完成脱敏扫描 / 数值已复算`
+- 审计视图可懒加载打开工具输出 artifacts（默认安全）。
+
+**测试（DoD）**
+- `packages/opencode`：为每个脚本准备最小 fixture（不走真实网络），断言输出结构稳定 + 排序稳定 + cacheKey 稳定。
+
+---
+
+### Milestone 2.8：Verification Pipeline（Verifier Worker：把“接近 0 幻觉”做成门禁）
+
+**目标**：把“可信输出”做成流水线门禁，而不是依赖模型自觉：任何关键结论（claims）必须有可验证 pointers；没有证据就降级为“不确定 + 下一步补证据”。
+
+**后端（DoD）**
+- 在 “Evidence-first Retrieval → Secure-by-default” 之后，增加一个通用的 Verification 阶段（可作为 routing 的后处理，也可作为 Context Builder 的前置）：
+  - 输入：`task-frame.json`（Milestone 1.1）+ retrieval hits + candidate claims（草稿）+ pointers
+  - 执行：
+    1) 运行 `citation-check`（门禁）
+    2) 若涉及文档引用：运行 `doc-quote-anchor` 补齐锚点（可选，但建议对高风险 profile 默认启用）
+    3) 若涉及数值断言：运行 `table-check`（可选，但建议对包含数字的 claim 默认启用）
+    4) 导出/共享/审计视图前：运行 `redaction-scan`
+  - 输出：`verification.report.json`（逐 claim 的 supported/unsupported + reasons）+ `verification.capsule.md`（给主代理/下游消费）
+- 将 “可信输出策略”做成可配置的通用策略（见 2.1.3）：
+  - 默认建议：`balanced`
+  - 通过 skill/profile 可切换为 `strict`（高风险门槛）或 `loose`（创意/探索任务）
+- Verification 必须写入 evidence events：
+  - `verification.started` / `verification.completed`
+  - `verification.blocked`（strict 模式下无法输出关键结论）
+  - `verification.degraded`（工具不可用/输入不完整）
+
+**协议（DoD）**
+- Verification 输出至少满足：
+  - “可 grep、可引用、可缓存、可解释”
+  - 每条 claim 都能追溯到 pointers（或明确标注 unsupported）
+
+**UI（DoD）**
+- 人话视图必须能读懂：
+  - `已核验` / `未核验（证据不足）` / `需人工确认`
+- 任一 `blocked/failed/needs_attention` 必须自动展开（符合 UI 工程纪律）。
+
+**测试（DoD）**
+- 用 fixture 覆盖三种策略：
+  - strict：缺证据 → 阻断结论输出
+  - balanced：缺证据 → 自动触发补检索/补核验一次（若仍不足则降级）
+  - loose：允许输出推测，但必须显式标注推测且不能伪装成事实
+
+---
+
 ### Milestone 3：Context Pack Cache Store（LRU/TTL + 命中统计 + 证据化）
 
 **目标**：把“同类任务重复执行能稳定命中”落到本地 SSOT：cache key 可解释，命中率可观测。
@@ -387,6 +566,7 @@
 - 同期把缓存从“只缓存 context-pack”扩展到“缓存构建依赖”（P3 核心要求）：
   - 文件内容哈希/切片结果缓存（避免重复读取与重复估算）
   - retrieval hits 缓存（配合 Milestone 2.5 的确定性输出）
+  - verification 报告缓存（配合 Milestone 2.8）：同一组 pointers + 同一 policyVersion → 复用核验结果（省 token/省时间）
   - 统一按 project/worktree 分域（必要时细化到 session/user）
 
 **协议（DoD）**
@@ -463,6 +643,7 @@
   2) **Retrieval 确定性回归**：同输入→同 `query-rewrite.json/hits.json/dedupe.report.json`（hash 断言即可）
   3) **Compaction 不漂移**：compaction capsule/ledger 中的关键结论必须指向至少一个 manifest entry（pointers-not-paste）
   4) **Evidence 断链检测**：routing/context-pack/retrieval/compaction 相关 artifacts 必须在 manifest.json 中可追溯（含 sha256）
+  5) **Verification 门禁回归**：strict/balanced/loose 三种策略行为不漂移（避免“悄悄变宽松”导致信任崩塌）
 
 **协议（DoD）**
 - eval 输出仍然遵循现有 Evidence Pack 结构：`pack.json/pack.md/manifest.json/events.jsonl`，并清晰标注 `task.title`/`actors` 为 eval（避免与真实会话混淆）。
@@ -492,3 +673,9 @@
 2) **Context Pack UI 展示位置**：优先放在 App 的 `Turn Live Capsule`（强产品感），还是先放在 Activity Panel（更工程化但风险更低）？
 3) **缓存淘汰默认值**：你希望更保守（命中率优先）还是更省空间（磁盘/隐私优先）？（会影响默认 TTL/LRU 上限）
 4) **Evidence-first Retrieval 的范围（已确认）**：Milestone 2.5 同时覆盖“代码检索（rg/LSP/文件树）”与“资料工作台（PDF/Docx/Archive 派生索引）”。
+5) **可信输出策略默认值（通用能力）**：Decision - 产品默认采用 `balanced`，并允许通过 `skills/profile` 切换到 `strict`（高风险）或 `loose`（创意探索）。
+
+> Decision（由我替你定默认）：P3 起产品默认采用 `balanced`。  
+> - 高风险任务通过 `skills/profile` 升级为 `strict`（缺证据即阻断结论）。  
+> - 创意/探索任务可显式切换为 `loose`（允许推测但必须标注）。  
+> 这样既满足“高信任门槛”，又不把 core 锁死在单一领域。
