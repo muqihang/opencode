@@ -174,6 +174,28 @@
 6) **失败可复盘 + 自动展开**：任何失败必须有 error artifact + event；UI 必须自动展开并给出中文下一步（贯穿 Milestone 0.5/1/2.6/2.8/5）。
 7) **可治理的开关**：feature flags + effective config（值来源可对账），避免“一次上线全开”导致不可控（Milestone 3/5）。
 
+#### 2.1.6 子会话窗口 = 可扩展 Worker（按“代理编排”分工，不锁在单一 session）
+
+> 你的选择是 “两者都要（研究/写作/写代码/图书管理员…）”，并且主会话会根据任务性质分配不同子会话窗口去完成任务（参考 `oh-my-opencode`）。
+> 这件事我建议 **在 P3 明确作为默认工作模式**：用“可审计的子会话协作”实现跨会话能力，而不是靠“跨会话记忆”。
+
+**核心观点（我的意见）**
+- **不要把能力押注在单一 session**：长任务必然需要拆解；拆解最稳定的载体是子会话 micro-pack（可合并、可核验、可缓存），不是对话记忆。
+- **子会话应当像“worker”一样被治理**：必须有预算、允许取消、结果产物化、失败可复盘；否则只会变成“更多对话窗口 → 更乱”。
+- **模型/厂商不要写死**：像 `oh-my-opencode` 一样，用“Category/Role（意图）+ Skills（流程包）”抽象模型选择，避免模型偏置影响系统行为；映射关系走配置层叠（Section 17.1）。
+
+**落地方式（不新增大系统，复用仓库现状能力）**
+- 复用现有 “subagent/agent 编排”机制（代码事实）：`Config.Agent` 支持 `mode=subagent` + `permission` + `prompt`（`packages/opencode/src/config/config.ts`）。
+  - 代理定义落在：`.opencode/agents/*.md` / `agents/*.md`（或用户目录的 `.opencode/agents/`），天然可扩展、可版本化。
+- 在 P3 的 `task-frame.json` 体系里，显式记录每次子会话委派（delegation）：
+  - `delegate.role`（例如：`research`/`writing`/`engineering`/`librarian`）
+  - `delegate.agent`（具体 agent 名称，来自 config）
+  - `delegate.skills[]`（SkillTool 加载的流程包）
+  - `delegate.policy`（strict/balanced/loose）+ `budgets`（wallclock/token/tool）
+  - `delegate.inputs[]`（必须是 pointers，不粘贴原文）
+  - `delegate.outputs[]`（必须至少包含 micro Evidence Pack pointers）
+- 通过 Milestone 1.1（结构化 handoff）把以上“委派契约”证据化；通过 Milestone 2/3 把“委派策略”纳入 determinism/cacheKey（避免同任务分配抖动导致 cache miss）。
+
 ### 2.2 总设计稿覆盖矩阵（P3 相关 Section → 本计划落点）
 
 > 目的：确保不会漏掉总设计稿中 P3 相关的章节/要求；同时让后续实施可以按里程碑对账。
@@ -200,7 +222,7 @@
 | 4 Evidence Pack（对齐 Ideal Evidence Pack） | L0–L4 分层；pack.json/pack.md/manifest/events；micro→macro 合并 | 已具备（P0–P2）；P3 只做必要补强（Milestone 1.1/0.5） |
 | 5.1 六个“可验证吸收点”（Codex/GPT 对齐） | call-scoped context pack / workbench / router-first / worker 结构化 / cache 分层 / 可解释时间线 | 贯穿 Milestone 1/2.5/3/4/5（见 2.2.1） |
 | 6 沙盒内外上下文与缓存边界 | daemon 统一构建/缓存；沙盒只做一次性执行；缓存按 project/worktree 分域 | Milestone 3（cache scope）+ Milestone 2.6（least disclosure） |
-| 7 oh-my 多代理机制吸收 | planning/execution 分离；子任务默认后台；目录级规则注入 | 已具备部分（P1.6/P2）；P3 补齐“通用任务的结构化 handoff”（Milestone 1.1） |
+| 7 oh-my 多代理机制吸收 | 按角色分工与委派契约（category/role + skills）；子任务可并行；会话连续性；输出必须产物化可合并 | 已具备部分（P1.6/P2）；P3 明确“子会话=可扩展 worker”（2.1.6）+ 补齐 `delegate-frame.json`/micro-pack 合并（Milestone 1.1）+ 并行治理（Milestone 0.5） |
 | 13.3 沙盒内置工具带（Tool Belt） | 用工具检索/抽取/对账换取超长上下文与低幻觉；输出必须指针化可复盘 | Milestone 2.7（Tool Belt v1） |
 | 14.1 PythonTool 脚本注册表 | allowlisted registry + sha256 校验；输出必须 evidence 化 | Milestone 2.7（以 allowlisted scripts 形态交付） |
 | 17.1 配置层叠 + effective config | P3 能开关/降级/自救；值来源可对账 | Milestone 3/5（加 feature flags 与自救开关） |
@@ -341,10 +363,22 @@
 **后端（DoD）**
 - 每个 user turn（messageId）生成一个 `task-frame.json` artifact（稳定路径建议）：
   - `.opencode/artifacts/<sessionId>/task/<messageId>/task-frame.json`
-- 子会话/子任务不是“只靠记忆传话”，而是 **同一协议体系的可合并产物**：
-  - 子会话启动时必须能拿到一个明确的输入（至少：父会话的 `task-frame.json` 指针 + 本子任务的目标/预算/工具限制）
-  - 子会话完成后必须产出 micro Evidence Pack（P1/P2 已具备），主会话只合并指针与 claims/checks（不粘贴全文）
+- 子会话/子任务不是“只靠记忆传话”，而是 **同一协议体系的可合并产物**（参考 `oh-my-opencode` 的“分工代理”思想，但以本仓库协议为 SSOT）：
+  - 父会话在启动子会话前必须生成一个 `delegate-frame.json`（建议稳定路径）：
+    - `.opencode/artifacts/<sessionId>/delegate/<delegateId>/delegate-frame.json`
+    - 最小字段建议（v1 可不 schema 化，但必须 stableJson）：`role`、`agent`、`skills[]`、`policy`、`budgets`、`inputs[]`（pointers）
+  - 子会话启动时必须拿到明确输入：
+    - 父会话 `delegate-frame.json` 指针（而不是复制一大段上下文）
+    - 本子任务的目标/预算/工具限制（与 `Config.Agent.permission` 对齐）
+  - 子会话完成后必须产出 micro Evidence Pack（P1/P2 已具备）：
+    - 主会话只合并 **指针 + claims/checks**（不粘贴全文）
+    - 若子会话产生代码变更：必须提供 patch/diff artifact 指针（避免“我改了但你看不到”）
   - 这套机制提供“跨会话协作能力”，但不等同于“跨会话记忆系统”（记忆系统延期专题研究）
+- P3 默认支持的子会话角色（Role）建议（可通过 `.opencode/agents/*.md` 扩展，不写死）：
+  - `librarian`：资料/文档“馆员”（以检索与指针为产出，不写结论；产出 hits + anchors）
+  - `research`：调查研究（产出 findings + 支撑 pointers；必要时触发 verifier）
+  - `writing`：写作/整理文档（产出结构化草稿 + 引用指针；不改代码）
+  - `engineering`：实现/改代码（默认 isolated workdir；产出 patch + tests 结果 + 风险/回滚）
 - `task-frame.json` 必须满足 **0 幻觉** 约束：
   - 只包含两类信息：
     1) **可直接对账的事实**（来自用户输入、配置、路由/检索 artifacts、workbench inputs 等）
