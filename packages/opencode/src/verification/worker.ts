@@ -104,21 +104,28 @@ const joinHints = (items: VerificationReason[]) => {
 }
 
 const buildView = (report: z.infer<typeof VerificationReport>) => {
+  const modeMap: Record<string, string> = { strict: "严格", balanced: "均衡" }
+  const statusMap: Record<string, string> = { supported: "可验证", unsupported: "不支持", unknown: "未知" }
+  const modeLabel = modeMap[report.mode] ?? report.mode
+  const resultLabel = report.ok ? "通过" : "未通过"
+  const degradedLabel = report.degraded ? "是" : "否"
+  const incompleteLabel = report.incomplete ? "是" : "否"
   const lines = [
-    "# Verification Report",
+    "# 核验报告",
     "",
-    `Mode: ${report.mode}`,
-    `OK: ${report.ok}`,
-    `Degraded: ${report.degraded}`,
-    `Incomplete: ${report.incomplete}`,
+    `模式: ${modeLabel} (${report.mode})`,
+    `结论: ${resultLabel}`,
+    `降级: ${degradedLabel}`,
+    `不完整: ${incompleteLabel}`,
     "",
-    `Claims: ${report.summary.totalClaims} (supported ${report.summary.supported}, unsupported ${report.summary.unsupported}, unknown ${report.summary.unknown})`,
+    `断言统计: ${report.summary.totalClaims}（可验证 ${report.summary.supported}，不支持 ${report.summary.unsupported}，未知 ${report.summary.unknown}）`,
     "",
   ]
   const claims = report.claims
   for (const claim of claims) {
     const text = claim.text ?? ""
-    const line = `- ${claim.id}: ${claim.status} ${text}`.trim()
+    const label = statusMap[claim.status] ?? claim.status
+    const line = `- ${claim.id}: ${label} (${claim.status})${text ? ` ${text}` : ""}`
     lines.push(line)
   }
   lines.push("")
