@@ -39,7 +39,7 @@ describe("routing.workers", () => {
       git: true,
       init: async (dir) => {
         await fs.mkdir(path.join(dir, "src"), { recursive: true })
-        for (const idx of Array.from({ length: 5000 }).keys()) {
+        for (const idx of Array.from({ length: 50 }).keys()) {
           await Bun.write(path.join(dir, "src", `file-${idx}.ts`), `export const n${idx} = ${idx}\n`)
         }
       },
@@ -48,11 +48,13 @@ describe("routing.workers", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const controller = new AbortController()
+        queueMicrotask(() => controller.abort())
         const result = await WorkerA.run({
           root: Instance.worktree,
           topK: 200,
           intent: "routing test",
-          signal: AbortSignal.timeout(1),
+          signal: controller.signal,
         })
 
         expect(result.status).toBe("error")

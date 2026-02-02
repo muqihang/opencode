@@ -280,34 +280,22 @@ export const RoutingRunner = {
     const data = RunInput.parse(input)
     const config = resolveRoutingConfig(data.config)
     const worktreeRoot = Instance.worktree === "/" ? Instance.directory : Instance.worktree
-    const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
     const runId = ulid()
     const runAbort = new AbortController()
     const current = inflightMap(data.sessionId)
     const limit = config.maxRoutingRunsInFlight
-    if (current.size >= limit) {
-      const previousEntry = current.entries().next().value as [string, AbortController] | undefined
-      if (previousEntry) {
-        const [previousRunId, previousAbort] = previousEntry
-        previousAbort.abort()
-        current.delete(previousRunId)
-        await writer.event({
-          specVersion: "event/1.0",
-          ts: new Date().toISOString(),
-          sessionId: data.sessionId,
-          severity: "info",
-          actor: "routing:runner",
-          type: "routing.cancelled",
-          summary: "routing cancelled",
-          data: {
-            previousRunId,
-            newRunId: runId,
-            reason: "superseded",
-          },
-          redaction: { applied: true, policyVersion: "v1" },
-        })
-      }
-    }
+    const previousEntry =
+      current.size >= limit
+        ? (current.entries().next().value as [string, AbortController] | undefined)
+        : undefined
+    const superseded = previousEntry
+      ? (() => {
+          const [previousRunId, previousAbort] = previousEntry
+          previousAbort.abort()
+          current.delete(previousRunId)
+          return previousRunId
+        })()
+      : ""
     current.set(runId, runAbort)
     using _ = defer(() => removeInflight(data.sessionId, runId))
     const budget = { timedOut: false }
@@ -318,6 +306,24 @@ export const RoutingRunner = {
     }, config.maxWallClockMs)
     using __ = defer(() => clearTimeout(budgetTimer))
     const runSignal = AbortSignal.any([runAbort.signal, budgetAbort.signal])
+    const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
+    if (superseded) {
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: data.sessionId,
+        severity: "info",
+        actor: "routing:runner",
+        type: "routing.cancelled",
+        summary: "routing cancelled",
+        data: {
+          previousRunId: superseded,
+          newRunId: runId,
+          reason: "superseded",
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
     const started = new Date().toISOString()
     await writer.event({
       specVersion: "event/1.0",

@@ -153,9 +153,8 @@ describe("routing.runner", () => {
       git: true,
       init: async (dir) => {
         await fs.mkdir(path.join(dir, "src"), { recursive: true })
-        for (const idx of Array.from({ length: 3000 }).keys()) {
-          await Bun.write(path.join(dir, "src", `file-${idx}.ts`), `export const n${idx} = ${idx}\n`)
-        }
+        await Bun.write(path.join(dir, "src", "alpha.ts"), "export const alpha = 1\n")
+        await Bun.write(path.join(dir, "src", "beta.ts"), "export const beta = 2\n")
       },
     })
 
@@ -204,7 +203,7 @@ describe("routing.runner", () => {
       git: true,
       init: async (dir) => {
         await fs.mkdir(path.join(dir, "src"), { recursive: true })
-        for (const idx of Array.from({ length: 5000 }).keys()) {
+        for (const idx of Array.from({ length: 800 }).keys()) {
           await Bun.write(path.join(dir, "src", `slow-${idx}.ts`), `export const n${idx} = ${idx}\n`)
         }
       },
