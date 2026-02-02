@@ -218,6 +218,20 @@
 5) **缓存分层（本地 SSOT，provider 为加速器）** → Milestone 3（本地 cache store）+ Milestone 4（provider usage 归一为辅助指标）
 6) **可解释时间线（默认安全）** → Milestone 1/3/5（Timeline 展示预算/命中/压缩；审计懒加载；失败自动展开）
 
+#### 2.2.2 对齐 GPT-5.2 / ChatGPT 工具机制（来自 `/Users/muqihang/chelingxi_workspace/OpenAI`，只吸收“可验证机制”）
+
+> 你要求“对齐乃至升华超越 GPT 的能力”。这里遵循总设计稿 Section 5 的原则：**不猜内部实现，只吸收可验证机制**，并把它们落到 P3 的工程 DoD 上。
+>
+> 对照材料（已阅读）：`gpt-5.2-thinking.md`、`tool-file_search.md`、`tool-advanced-memory.md`、`tool-memory-bio.md`、`prompt-automation-context.md`、`codex-cli.md`。
+
+**可直接吸收的机制（并明确 P3 落点）**
+- **Decision boundary（工具触发的确定性门槛）**：哪些情况“必须检索/必须核验/必须降级”，写成规则并纳入 `ContextPack` 的稳定 blocks（Milestone 2 + Milestone 2.6/2.8）。
+- **file_search 的“Precision + Recall”双查询习惯**：同一问题至少两类 query（精确问句 + 关键词召回）提升召回率并降低重写误差；并将 query 集合作为 cacheKey 输入（Milestone 2.5 + Milestone 3）。
+- **检索 query 的可控 operator**：`+()` boost / `--QDF=` freshness（在本项目中映射为：路径/符号 boost + git recency/mtime 权重），避免“召回靠运气”（Milestone 2.5）。
+- **Citations 纪律（引用格式稳定 + 可验证）**：所有“事实/引用”必须能落到 pointers（path+sha256+anchor），并能被 `citation-check` 校验；禁止“看起来像引用但不可点击/不可对账”的伪引用（Milestone 2.7/2.8）。
+- **Memory 的结构化注入**：偏好/洞见按条目、带置信度、可审计；并且明确“不要存敏感/不要存短期”（Milestone 2.9（可选））。
+- **Automation 非交互模式**：当系统处于 batch/自动化时，减少追问、倾向 best-effort 输出；但必须保持证据化与可回滚（P4/后续，P3 只留概念，不实装）。
+
 ### 2.3 暂不做（Fusion 冲刺项 / P4 项）
 
 **Fusion 冲刺项（质感封神点，不阻塞 P3）**：
@@ -356,6 +370,7 @@
   4) toolset（工具列表 + schema）
   5) environment_context（cwd/worktree/runtime）
   6) capsule+pointers（本轮证据摘要与指针）
+  7) decision_boundary（工具触发/核验/降级规则，确定性文本块）
 - 实现 **toolset determinism**：
   - tool list 必须稳定排序（`toolName asc`）
   - tool schema 需 canonicalize（stableJson）并生成 hash
@@ -388,6 +403,14 @@
   3) **Rerank（v1 规则优先）**：输出 `score_bps`（整数）+ 稳定 tie-break
   4) **Budgeted Selection**：按 `budgetTokens` 选择片段并稳定排序
   5) **Dedup**：内容哈希去重 + 重叠去重（产出 report）
+- 对齐 `tool-file_search.md` 的“最小可控检索习惯”（把检索做成工程纪律）：
+  - Query Rewrite 至少产出两类 query（同一轮必须都有，且都进入 cacheKey）：
+    1) **Precision Query**：用户原始问题的“消歧完整句”（中文/英文各一份，避免代码/文档只写英文导致搜不到）
+    2) **Recall Query**：1–2 个短关键词（不加修饰，最大化召回；用于兜底）
+  - 支持最小 operator（落在 JSON 中，v1 可不拼字符串也行）：
+    - `boost`: `paths[]` / `symbols[]` / `kinds[]`（对齐 `+()` boost 的思想）
+    - `freshness`: `gitRecencyDays` / `mtimeDays`（对齐 `--QDF=` 的思想）
+  - retrieval 输出 hits 必须带 `anchor`（行号/页号/段落 id），用于后续 `doc-quote-anchor`/`citation-check` 校验与 UI 打开定位
 - 代码通道最小实现建议（优先复用仓库既有模块，避免重复造轮子）：
   - ripgrep：优先使用 `packages/opencode/src/file/ripgrep.ts`（`Ripgrep.search` 已是 `--json` 解析）产出结构化 matches。
   - 文件树：优先使用 `Ripgrep.tree` / `Ripgrep.files` 做“可解释的候选空间收敛”（并确保稳定排序）。
@@ -530,6 +553,10 @@
 - 将 “可信输出策略”做成可配置的通用策略（见 2.1.3）：
   - 默认建议：`balanced`
   - 通过 skill/profile 可切换为 `strict`（高风险门槛）或 `loose`（创意/探索任务）
+- 对齐 “Citations 纪律” 的硬要求：
+  - 主代理对用户输出的关键 claim 必须能映射到 `verification.report.json` 的 evidence 列表
+  - evidence 引用必须是“可核验指针”（path+sha256+anchor），禁止只写“我看过某文件/某 PDF”
+  - `citation-check` 必须能检测并阻断“伪引用”（格式看似引用但无法在 manifest 中定位）
 - Verification 必须写入 evidence events：
   - `verification.started` / `verification.completed`
   - `verification.blocked`（strict 模式下无法输出关键结论）
@@ -550,6 +577,40 @@
   - strict：缺证据 → 阻断结论输出
   - balanced：缺证据 → 自动触发补检索/补核验一次（若仍不足则降级）
   - loose：允许输出推测，但必须显式标注推测且不能伪装成事实
+
+---
+
+### Milestone 2.9（可选/Stretch）：Memory Pack v1（可审计的偏好/洞见记忆，不锁场景）
+
+**目标**：把“记忆”变成可控资产，而不是隐式黑盒：既能提升体验（更懂用户、更省 token），又不引入不可审计/不可撤销的风险。
+
+> 对齐材料：`tool-advanced-memory.md` + `tool-memory-bio.md` 的精神内核：**结构化条目 + 置信度 + 明确禁止项**。
+
+**后端（DoD）**
+- 新增 `memory-pack.json`（建议 `memory-pack/1.0`）作为 artifact：
+  - `.opencode/artifacts/<sessionId>/memory/memory-pack.json`（或 project/worktree scoped 目录）
+- 最小数据模型（建议）：
+  - `preferences[]`：输出风格/偏好（可公开、可长期，带 `confidence`）
+  - `facts[]`：用户明确陈述且可长期成立的事实（必须带 evidence 指针或 “user-stated” 标识）
+  - `topics[]`：长期关注主题（可选，必须可关闭）
+  - `bans[]`：明确禁止存储的类别（敏感/短期），用于 verifier 检查
+- **硬约束**（写进 verifier 与 UI）：
+  - 禁止写入敏感个人信息（健康/政治/性取向等）
+  - 禁止写入短期事项（临时任务、一次性偏好）
+  - 任何 memory 变更必须 evidence 化（event：`memory.updated`，含 diff 摘要 + 指针）
+
+**UI（DoD）**
+- 提供用户可见入口（默认安全）：
+  - `查看记忆`（懒加载，默认只展示摘要）
+  - `关闭记忆`（立即生效，写 event）
+  - `删除某条记忆`（产生新的 memory-pack 版本，不覆写旧证据）
+
+**测试（DoD）**
+- fixture 测试：
+  - 敏感字段 → 必须被拒绝并写入 `verification.blocked`
+  - 同一输入 → memory-pack stableJson hash 稳定（用于缓存）
+
+> 说明：这是 Stretch，取决于你是否希望 P3 同期引入“跨会话记忆”。如果你更保守，可只做“本 session 内可审计记忆”，跨会话延后到 P4。
 
 ---
 
