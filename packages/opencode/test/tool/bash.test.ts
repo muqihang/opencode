@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import fs from "fs/promises"
 import path from "path"
 import { BashTool } from "../../src/tool/bash"
 import { Instance } from "../../src/project/instance"
@@ -171,17 +172,23 @@ describe("tool.bash permissions", () => {
             requests.push(req)
           },
         }
+
+        const externalDir = path.join(
+          path.dirname(tmp.path),
+          `opencode-test-external-${path.basename(tmp.path)}`,
+        )
+        await fs.mkdir(externalDir, { recursive: true })
         await bash.execute(
           {
             command: "ls",
-            workdir: "/tmp",
-            description: "List /tmp",
+            workdir: externalDir,
+            description: "List external directory",
           },
           testCtx,
         )
         expect(requests.length).toBe(1)
         expect(requests[0].permission).toBe("bash")
-        expect(requests[0].metadata.external_directories).toContain("/tmp")
+        expect(requests[0].metadata.external_directories).toContain(externalDir)
         expect(requests[0].metadata.bash_patterns).toContain("ls")
       },
     })
