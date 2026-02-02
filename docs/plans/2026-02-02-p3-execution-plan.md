@@ -348,8 +348,9 @@
   - 实现 `maxWallClockMs`：到达总预算后取消剩余 worker，并立即聚合已有结果写 `routing.completed`
   - 增加事件（最小可用即可，命名遵循 dotted 规范）：
     - `routing.timeout`：总预算触发（data: routingRunId + cancelledWorkers）
-    - `routing.cancelled`：被新请求取消（data: previousRunId/newRunId）
+    - `routing.cancelled`：同一 session 的新 routing run 取消旧 run（受 `maxRoutingRunsInFlight` 约束，默认 1），或用户显式取消（data: previousRunId/newRunId + reason）；**不用于“全局并发淘汰”**
   - 将 `AbortSignal` 传入 WorkerA/B/C，并在 WorkerA 的扫描循环内周期性检查 `signal.aborted`（避免大仓库扫描卡死）
+  - 同步补齐 `maxRoutingRunsInFlight` 的真实语义（目前 config 已有但 runner 未实现）：默认 1 → 新输入 supersede 旧输入，避免“并行越多越慢/越乱”
 
 **协议（DoD）**
 - 不新增 schema（v1 先靠 events + artifacts），但事件字段必须稳定、可 grep、可用于 UI 人话叙事。
@@ -361,6 +362,7 @@
 - `packages/opencode`：新增单测构造一个“慢 worker”场景，断言：
   - 达到 `maxWallClockMs` 后不会等待慢 worker
   - 写入对应事件，且 `routing.completed` 仍会产出（证据不断链）
+  - 同一 session 在前一 run 未完成时发起新 run → 旧 run 被取消并写入 `routing.cancelled`（并且不会把 Evidence 链写断）
 
 ---
 
@@ -561,7 +563,7 @@
   4) `redaction-scan`：最小泄露扫描器（用于导出、共享、审计视图；不自动改写原 artifacts，避免破坏证据链）
 - 每个脚本必须具备统一的“可缓存可复盘”约束：
   - 输入：stableJson（包含 `specVersion` + `policyVersion`）
-  - 输出：stableJson + rg-friendly 的 `.md` view（可选，但强烈推荐）
+  - 输出：stableJson + rg-friendly 的 `.md` view（v1 默认生成；view 只用于人类阅读，不承载 SSOT）
   - cacheKey：`sha256(stableJson(input_json))`（版本变更必须 bump）
   - 失败：必须产出 error artifact + event（不得 silent fail）
 
@@ -574,7 +576,7 @@
   - 追加 allowlist：`packages/opencode/src/python/scripts.manifest.json`（每次变更必须更新 sha256）
 - 统一输入：`input_json.specVersion` + `input_json.policyVersion` + `input_json.pointers[]`（若适用）
 - 统一输出（JSON）：`specVersion` + `cacheKey` + `summary` + `items[]`（必须稳定排序）
-- 统一输出（可选 MD）：`<script-id>.view.md`（rg-friendly，人类可读但不承载 SSOT）
+- 统一输出（v1 默认生成 MD）：`<script-id>.view.md`（rg-friendly，人类可读但不承载 SSOT）
 - 统一事件：`toolbelt.<script_id>.completed`（data 至少包含 counts + cacheKey + ok）
 
 1) `citation-check`（引用校验器）
