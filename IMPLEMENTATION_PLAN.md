@@ -7,24 +7,66 @@
 *目标：在 Tailwind 中建立双重质感系统。*
 
 ### 1.1 CSS Variables Strategy
-*   **File**: `packages/ui/src/global.css`
-*   **Action**: 定义 CSS 变量以支持 `data-theme`.
-    ```css
-    :root {
-      --bg-void: #050509;
-      --beam-color: #FFFFFF;
-      --effect-noise: url('/noise-dark.svg');
-    }
-    [data-theme="light"] {
-      --bg-void: #FAFAFA;
-      --beam-color: #2563EB;
-      --effect-noise: url('/noise-light.svg');
+*   **Reality Check (Stack-Aligned)**:
+    *   OpenCode 现有主题引擎通过 `packages/ui/src/theme/loader.ts` 注入 CSS，并设置 `html[data-theme="<themeId>"]`。
+    *   Light/Dark（Day/Night）不是通过 `data-theme="light"` 切换，而是由同一个 Theme 的 `@media (prefers-color-scheme: dark)` 切换 variant。
+
+*   **Primary File**: `packages/ui/src/theme/themes/<themeId>.json`
+    *   **Action**: 用 theme JSON 的 `overrides` 注入新语义变量（例如 `bg-void`, `beam`, `tick`），避免在 UI 层到处写分支。
+
+*   **Fallback File (Optional)**: `packages/ui/src/styles/theme.css`
+    *   **Action**: 如果需要“未加载主题也可用”的兜底变量，可以在这里提供 fallback（但应优先走 theme engine）。
+
+*   **Example (Theme Overrides)**: 定义 `--bg-void` / `--beam` / `--tick`（注意 overrides key **不带** `--` 前缀）
+    ```json
+    {
+      "name": "Axiom",
+      "id": "axiom",
+      "light": {
+        "seeds": {
+          "neutral": "#F8F7F7",
+          "primary": "#2563EB",
+          "success": "#16A34A",
+          "warning": "#F59E0B",
+          "error": "#EF4444",
+          "info": "#6366F1",
+          "interactive": "#2563EB",
+          "diffAdd": "#22C55E",
+          "diffDelete": "#EF4444"
+        },
+        "overrides": {
+          "bg-paper": "#FAFAFA",
+          "beam": "#2563EB",
+          "tick": "#1E40AF"
+        }
+      },
+      "dark": {
+        "seeds": {
+          "neutral": "#0B0B10",
+          "primary": "#93C5FD",
+          "success": "#86EFAC",
+          "warning": "#FCD34D",
+          "error": "#FCA5A5",
+          "info": "#A5B4FC",
+          "interactive": "#93C5FD",
+          "diffAdd": "#86EFAC",
+          "diffDelete": "#FCA5A5"
+        },
+        "overrides": {
+          "bg-void": "#050509",
+          "beam": "#FFFFFF",
+          "tick": "#3B82F6"
+        }
+      }
     }
     ```
 
 ### 1.2 Motion One Setup
-*   **Action**: `npm install motion` (in `packages/ui` and `packages/desktop`).
-*   **Usage**: 用于替代 CSS Keyframes 以获得弹簧物理效果。
+*   **原则**: 默认优先 CSS keyframes / transition；只有“Spring Snap”这类物理动效需要时才引入 Motion One。
+*   **Action (bun workspace)**:
+    *   如果组件在 `packages/app` 使用：在 `packages/app` 添加依赖（而不是到处都装）。
+    *   示例：`bun add motion --cwd packages/app`
+*   **Usage**: 用于弹簧物理（spring）与更一致的入场/吸附手感；不强制替代全部 CSS keyframes。
 
 ---
 
@@ -97,10 +139,16 @@
 ## Phase 4: Integration & Polish
 
 ### 4.1 Theme Sync
-*   **Task**: 在 Tauri 的 Rust 后端或 JS 前端监听系统主题变化，自动切换 `data-theme` 属性。
+*   **Task**:
+    *   监听系统主题变化（light/dark），切换 color-scheme（或让 theme 的 `@media (prefers-color-scheme: dark)` 自动生效）。
+    *   `data-theme` 仅用于主题 ID（例如 `oc-1` / `axiom`），不用于 light/dark。
 
 ### 4.2 Asset Generation
-*   **Task**: 生成 `noise-dark.svg` (opacity 4%) 和 `noise-light.svg` (opacity 15%) 文件并放入 `public` 目录。
+*   **Task**:
+    *   生成 `noise-dark.svg`（~4%）和 `noise-light.svg`（Day 模式可更高，但必须保证可读性）
+    *   放入 `packages/app/public/`（或 `packages/ui/src/assets/` 后通过 app 引用），并以 overlay 的方式使用：
+        *   `pointer-events: none`
+        *   `prefers-reduced-motion` 下不需要变化（静态即可）
 
 ---
 

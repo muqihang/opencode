@@ -54,10 +54,12 @@
 ---
 
 ## 5. Extreme Micro-Interactions (变态级细节)
-> **Mandatory for World-Class Feel**
+> **Fusion 冲刺项 / 质感封神点**  
+> **Scope Note**: 这些是“世界级质感”的目标形态，但**不应阻塞 P3/P4 功能交付**。  
+> 需要可靠的 streaming 信号与严格的性能预算；若信号不可得或性能不允许，应降级为低频 Pulse/Breathe。
 
 ### 5.1 Neuro-Link Jitter (神经震颤)
-*   **Trigger**: 每当 LLM 输出一个新的 Token (字符) 时触发。
+*   **Trigger**: 每当 LLM streaming 输出产生一个新的增量 chunk 时触发（**不是每个字符**；必须限流/去抖）。
 *   **Effect**: 光柱瞬间膨胀并高亮。
 *   **Params**: 
     *   Scale X: `1.5`
@@ -68,7 +70,7 @@
 
 ### 5.2 Liquid Morph (液态变形)
 *   **Trigger**: 思考结束，转为完成态时。
-*   **Logic**: 严禁 DOM 切换。必须对同一个 `div` 进行属性过渡。
+*   **Logic**: 尽量避免 DOM 切换；优先对同一个 element 做属性过渡。若受技术限制，可退化为 FLIP/height 动画，但必须保持“同一对象变形”的叙事感。
 *   **Transition**: 
     *   Height: `60px` -> `8px`
     *   Color: `White` -> `Blue`

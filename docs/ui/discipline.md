@@ -1,7 +1,7 @@
-# Axiom UI Engineering Constitution (P3/P4)
-> **Status**: Living Document  
-> **Philosophy**: Magic in the Soul, Physics in the Bone.  
-> **Scope**: GUI (`packages/app`, `packages/desktop`) & TUI (`packages/opencode`)  
+# Axiom UI Engineering Constitution（P3/P4）
+> **Status**: Living Document（活文档，随 P3/P4 迭代）  
+> **Philosophy**: Magic in the Soul, Physics in the Bone（灵在魂，理在骨）  
+> **Scope**: GUI（`packages/app`, `packages/desktop`）& TUI（`packages/opencode`）  
 > **Goal**: Guide P3/P4 UI development to align with the "Living Organism" design language while maintaining strict engineering discipline.
 
 ---
@@ -11,9 +11,13 @@
 
 1.  **No Hardcoded Values**:
     *   ❌ `color: #050509`, `box-shadow: 0 4px...`, `border-radius: 99px`
-    *   ✅ Use Semantic Tokens: `bg-[var(--bg-void)]`, `shadow-[var(--beam-glow)]`, `rounded-[var(--radius-capsule)]`.
+    *   ✅ Use existing semantic tokens / vars first:
+        *   `bg-background-base`, `bg-surface-base`, `text-text-base`, `border-border-weak-base`, `shadow-xs-border-base`, `rounded-xl`
+        *   or `bg-[var(--background-base)]` / `text-[var(--text-base)]` / `border-[var(--border-weak-base)]`
+    *   ✅ Future design tokens (e.g. `--bg-void`, `--beam`, `--tick`) are allowed **only after they are defined** via theme overrides (see `IMPLEMENTATION_PLAN.md`).
 2.  **Human View vs. Audit View**:
     *   **Human View** (Default): "Product Narrative". Verbs + Objects. No raw JSON, no UUIDs, no timestamps (unless relative).
+        *   **Locale rule**: Microcopy must match the user's language (产品默认中文；英文仅作为可选/开发参考).
     *   **Audit View** (Lazy): "Engineering Reality". Raw data, full logs, absolute timestamps. *Must be lazy-loaded.*
 3.  **Visual Throttling**:
     *   High-frequency events must be throttled.
@@ -75,7 +79,7 @@ Don't build a "Log Waterfall". Build a "Narrative Stream".
 *   **Snap**: Spring Physics (`stiffness: 400, damping: 25`). Use for "Done" states.
 
 ### 3.3 Future Sprint: Micro-Interactions (Placeholder)
-*P3/P4 implementation note: Reserve architectural space for these, but strictly use `Motion One` if implementing now.*
+*P3/P4 implementation note: Reserve architectural space for these (design target), but do **not** let them block feature delivery.*
 *   **Neuro-Link Jitter**: Triggered by token stream signals.
 *   **Liquid Morph**: Layout projection from Beam to Card.
 *   **Haptic Ripple**: Visual feedback on task completion.
@@ -87,16 +91,16 @@ Don't build a "Log Waterfall". Build a "Narrative Stream".
 
 ### 4.1 Verb Structure
 *   ✅ **Verb + Object + Context**
-    *   "Analyzing 3 files in `src/`..."
-    *   "Refactoring `auth.ts`..."
+    *   中文（默认）：`正在分析 src/ 下的 3 个文件…` / `正在重构 auth.ts…`
+    *   English（可选）："Analyzing 3 files in `src/`..." / "Refactoring `auth.ts`..."
 *   ❌ **Engineering Jargon**
     *   "Running tool: file_search..."
     *   "Step 1 completed."
 
 ### 4.2 Anxiety Management
-*   **0-2s**: "Thinking..." (Instant)
-*   **2-8s**: "Analyzing dependencies..." (Specific context)
-*   **>8s**: "This is taking longer than usual, still working on..." (Reassurance)
+*   **0-2s**: `正在思考…`（即时反馈）
+*   **2-8s**: `正在分析依赖关系…`（给出具体对象）
+*   **>8s**: `耗时较长，但仍在处理中…`（安抚 + 不制造焦虑）
 
 ### 4.3 The "Confirmation" Beat
 *   When a long task finishes, **pause for 1-2s** showing the "Success" state (Tick) before collapsing or moving on. Let the user feel the "Snap".
@@ -108,7 +112,7 @@ Don't build a "Log Waterfall". Build a "Narrative Stream".
 | Feature | ❌ Engineering Style (Don't) | ✅ Product Style (Do) |
 | :--- | :--- | :--- |
 | **Tool Execution** | Show raw JSON: `{"tool": "read", "args": "..."}` | Show Narrative Card: "Reading `package.json`..." |
-| **Success State** | Text: "Exit Code: 0" | Visual: Blue Tick + "Completed" |
+| **Success State** | Text: "Exit Code: 0" | Visual: Blue Tick + `已完成`（仅失败显示 exit code） |
 | **Timestamps** | `2026-02-01T10:00:00Z` | `Just now` or `2s ago` (Hover for absolute) |
 | **File Paths** | `/Users/admin/project/src/index.ts` | `~/project/.../src/index.ts` (Smart truncate) |
 | **Error Logs** | Dump full stack trace to main view | Summary: "Connection failed" + [View Logs] button |
@@ -123,7 +127,7 @@ Before submitting your UI PR, verify:
 ```markdown
 - [ ] **Token Check**: No hardcoded colors/shadows? (Used `var(--bg-void)`, etc.)
 - [ ] **Motion Safety**: Did I test with `prefers-reduced-motion` enabled?
-- [ ] **Narrative**: Does the UI read like English, not JSON?
+- [ ] **Narrative**: Does the UI read like human language (中文优先), not JSON?
 - [ ] **Throttle**: Do loading states last at least 800ms?
 - [ ] **Theme**: Did I verify both Light and Dark modes?
 ```
