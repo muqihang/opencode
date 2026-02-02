@@ -147,6 +147,46 @@ describe("activity-narrative", () => {
       const result = mapActivityItem(item)
       expect(result.titleZh).toBe("已完成规划")
     })
+
+    it("maps routing timeout", () => {
+      const item = mockItem({
+        category: "routing",
+        events: [mockEvent({ type: "routing.timeout" })],
+      })
+      const result = mapActivityItem(item)
+      expect(result.titleZh).toBe("规划超时，已降级")
+      expect(result.severity).toBe("warning")
+    })
+
+    it("maps routing cancelled by user", () => {
+      const item = mockItem({
+        category: "routing",
+        events: [mockEvent({ type: "routing.cancelled", data: { reason: "user_abort" } })],
+      })
+      const result = mapActivityItem(item)
+      expect(result.titleZh).toContain("用户终止")
+    })
+
+    it("maps routing superseded", () => {
+      const item = mockItem({
+        category: "routing",
+        events: [mockEvent({ type: "routing.cancelled", data: { reason: "superseded" } })],
+      })
+      const result = mapActivityItem(item)
+      expect(result.titleZh).toContain("Superseded")
+    })
+  })
+  
+  describe("context narrative", () => {
+    it("maps context.pack_built", () => {
+      const item = mockItem({ 
+        category: "other",
+        events: [mockEvent({ type: "context.pack_built" })]
+      })
+      const result = mapActivityItem(item)
+      expect(result.titleZh).toBe("上下文包已就绪")
+      expect(result.isMilestone).toBe(true)
+    })
   })
   
   describe("workbench narrative", () => {

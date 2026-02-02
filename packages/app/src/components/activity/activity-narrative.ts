@@ -66,68 +66,170 @@ function mapTool(item: ActivityItem, events: readonly EventV1[]): NarrativeResul
   return { titleZh, subtitleZh }
 }
 
-function mapRouting(item: ActivityItem): NarrativeResult {
+function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
+  if (events.some((e) => e.type === "routing.timeout")) {
+
+    return { titleZh: "规划超时，已降级", severity: "warning" }
+
+  }
+
+
+
+  const cancelEvent = events.find((e) => e.type === "routing.cancelled")
+
+  if (cancelEvent) {
+
+    const reason = cancelEvent.data?.reason
+
+    if (reason === "user_abort") {
+
+      return { titleZh: "规划已取消 (用户终止)", severity: "warning" }
+
+    }
+
+    if (reason === "superseded") {
+
+      return { titleZh: "规划已更新 (Superseded)", severity: "info", isNoise: true }
+
+    }
+
+    return { titleZh: "规划已取消" }
+
+  }
+
+
+
   if (item.status === "running") return { titleZh: "正在规划下一步…" }
+
   return { titleZh: "已完成规划" }
+
 }
+
+
 
 function mapWorkbench(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
   const isDoc = events.some((e) => e.type.startsWith("doc."))
+
   if (isDoc) {
+
     if (item.status === "running") return { titleZh: "正在解析文档…" }
+
     return { titleZh: "文档解析完成" }
+
   }
+
+
 
   if (item.status === "running") return { titleZh: "正在处理文件…" }
+
   return { titleZh: "文件处理完成" }
+
 }
+
+
 
 function mapCache(item: ActivityItem): NarrativeResult {
+
   if (item.status === "running") return { titleZh: "正在读取缓存…" }
+
   return { titleZh: "命中缓存" }
+
 }
+
+
 
 function mapOther(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
   const type = events[0]?.type || item.title
 
-  if (type.startsWith("sandbox.") || type.startsWith("policy.")) {
-    return { titleZh: "系统事件", subtitleZh: type, isNoise: true }
+
+
+  if (type === "context.pack_built") {
+
+    return { titleZh: "上下文包已就绪", subtitleZh: "Context Pack Ready", isMilestone: true, isNoise: false }
+
   }
+
+
+
+  if (type.startsWith("sandbox.") || type.startsWith("policy.")) {
+
+    return { titleZh: "系统事件", subtitleZh: type, isNoise: true }
+
+  }
+
+
 
   if (type === "worktree.merge_skipped" || type === "evidence.macro_pack_merged") {
-    const title = type === "worktree.merge_skipped" ? "合并已跳过" : "宏包已合并"
+
+    const title = type === "worktree.merge_skipped" ? "合并已跳过" : "宏包 已合并"
+
     return { titleZh: `里程碑：${title}`, subtitleZh: type, isMilestone: true, isNoise: false }
+
   }
+
+
 
   return { titleZh: "系统活动", subtitleZh: type, isNoise: true }
+
 }
+
+
 
 function mapStatus(status: ActivityStatus): { badgeZh?: string; severity?: NarrativeResult["severity"] } {
+
   switch (status) {
+
     case "running":
+
       return { badgeZh: "进行中", severity: "info" }
+
     case "failed":
+
       return { badgeZh: "失败", severity: "error" }
+
     case "needs_attention":
+
       return { badgeZh: "需要处理", severity: "warning" }
+
     case "done":
+
       // Avoid repeating "完成" on every card; the list section + duration already communicate completion.
+
       return { badgeZh: undefined, severity: "success" }
+
   }
+
 }
 
+
+
 export function mapActivityItem(item: ActivityItem): NarrativeResult {
+
   let result: NarrativeResult = { titleZh: item.title }
 
+
+
   switch (item.category) {
+
     case "tool":
+
       result = mapTool(item, item.events)
+
       break
+
     case "routing":
-      result = mapRouting(item)
+
+      result = mapRouting(item, item.events)
+
       break
+
     case "workbench":
+
       result = mapWorkbench(item, item.events)
+
       break
     case "cache":
       result = mapCache(item)
@@ -139,7 +241,9 @@ export function mapActivityItem(item: ActivityItem): NarrativeResult {
 
   const statusMeta = mapStatus(item.status)
   result.badgeZh = statusMeta.badgeZh
-  if (statusMeta.severity) result.severity = statusMeta.severity
+  if (!result.severity && statusMeta.severity) {
+    result.severity = statusMeta.severity
+  }
 
   if (item.status === "failed" || item.status === "needs_attention") {
     result.isNoise = false
