@@ -51,10 +51,17 @@ const readLines = async (file: string) => {
 const firstPageAnchor = async (root: string, file: string) => {
   const doc = await readJson(file)
   if (!doc || typeof doc !== "object") return
-  const pages = Array.isArray((doc as any).pages) ? (doc as any).pages : []
-  const entry = pages.find((item: any) => typeof item?.page_number === "number")
+  const view = doc as Record<string, unknown>
+  const pages = Array.isArray(view.pages) ? view.pages : []
+  const entry = pages.find((item) => {
+    if (!item || typeof item !== "object") return false
+    const value = (item as Record<string, unknown>).page_number
+    return typeof value === "number"
+  }) as Record<string, unknown> | undefined
   if (!entry) return
-  const page = entry.page_number as number
+  const pageValue = entry.page_number
+  if (typeof pageValue !== "number") return
+  const page = pageValue
   const rel = entry.text_path
   if (typeof rel !== "string") return
   const textPath = path.join(root, rel)
@@ -66,7 +73,8 @@ const firstPageAnchor = async (root: string, file: string) => {
 const firstParagraphAnchor = async (file: string) => {
   const doc = await readJson(file)
   if (!doc || typeof doc !== "object") return
-  const count = (doc as any).paragraphCount
+  const view = doc as Record<string, unknown>
+  const count = view.paragraphCount
   if (typeof count !== "number" || count <= 0) return
   return { paragraphIndex: 0 }
 }
@@ -74,9 +82,9 @@ const firstParagraphAnchor = async (file: string) => {
 const firstChunkAnchor = async (file: string) => {
   const doc = await readJson(file)
   if (!Array.isArray(doc)) return
-  const entry = doc.find((item) => item && typeof item === "object")
+  const entry = doc.find((item) => item && typeof item === "object") as Record<string, unknown> | undefined
   if (!entry) return
-  const index = (entry as any).chunk_index ?? (entry as any).chunkIndex
+  const index = entry["chunk_index"] ?? entry["chunkIndex"]
   if (typeof index !== "number") return
   return { chunkIndex: index }
 }

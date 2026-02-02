@@ -13,6 +13,13 @@ export const ContextPackBuilder = {
     messages: ModelMessage[]
     tools: Record<string, Tool>
     maxOutputTokens?: number
+    evidencePointers?: {
+      retrievalId: string
+      retrievalCacheKey: string
+      summary: { total: number; code: number; workbench: number }
+      artifacts: Array<{ path: string; sha256: string; kind: string }>
+      topK: Array<{ path: string; sha256: string }>
+    }
   }): ContextPackType {
     const now = new Date().toISOString()
     const packId = ulid()
@@ -78,6 +85,31 @@ export const ContextPackBuilder = {
         tokenEstimate: Token.estimate(historyText),
         sources: [],
         preview: preview(historyText),
+      })
+    }
+
+    if (input.evidencePointers) {
+      const evidence = input.evidencePointers
+      const artifactLines = evidence.artifacts.map((item) => `- ${item.path} (${item.sha256})`)
+      const topLines = evidence.topK.map((item) => `- ${item.path} (${item.sha256})`)
+      const lines = [
+        "retrieval",
+        `id: ${evidence.retrievalId}`,
+        `cacheKey: ${evidence.retrievalCacheKey}`,
+        `summary: total=${evidence.summary.total} code=${evidence.summary.code} workbench=${evidence.summary.workbench}`,
+        "artifacts:",
+        ...artifactLines,
+        "topK:",
+        ...topLines,
+      ]
+      const text = lines.join("\n")
+      segments.push({
+        id: "seg:evidence",
+        kind: "evidence_pointers",
+        priority: "p1",
+        tokenEstimate: Token.estimate(text),
+        sources: evidence.artifacts.map((item) => ({ kind: "artifact", ref: item.path, sha256: item.sha256 })),
+        preview: text,
       })
     }
 

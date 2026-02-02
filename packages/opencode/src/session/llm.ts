@@ -27,6 +27,7 @@ import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
 import { ContextPackBuilder } from "./context-pack"
+import { runRetrieval } from "@/retrieval/runner"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -203,6 +204,40 @@ export namespace LLM {
       })
     }
 
+    const extractText = (message: ModelMessage) => {
+      if (typeof message.content === "string") return message.content
+      if (Array.isArray(message.content)) {
+        const parts = message.content
+          .map((part) => {
+            if (typeof part === "string") return part
+            if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+              return part.text
+            }
+            return JSON.stringify(part) ?? ""
+          })
+          .filter((value): value is string => typeof value === "string" && value.length > 0)
+        return parts.join("\n")
+      }
+      return ""
+    }
+
+    const intentText = (() => {
+      const reversed = [...input.messages].reverse()
+      for (const msg of reversed) {
+        if (msg.role !== "user") continue
+        const text = extractText(msg).trim()
+        if (text) return text
+      }
+      return ""
+    })()
+
+    const retrieval = await runRetrieval({
+      sessionId: input.sessionID,
+      messageId: input.user.id,
+      intentText,
+      abort: input.abort,
+    })
+
     const pack = ContextPackBuilder.build({
       sessionId: input.sessionID,
       messageId: input.user.id,
@@ -211,6 +246,7 @@ export namespace LLM {
       messages: input.messages,
       tools,
       maxOutputTokens,
+      evidencePointers: retrieval.evidencePointers,
     })
     const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
     const entry = await writer.artifact({
