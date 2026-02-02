@@ -34,6 +34,33 @@ describe("routing.workers", () => {
     })
   })
 
+  test("worker a stops when signal is aborted", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "src"), { recursive: true })
+        for (const idx of Array.from({ length: 5000 }).keys()) {
+          await Bun.write(path.join(dir, "src", `file-${idx}.ts`), `export const n${idx} = ${idx}\n`)
+        }
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const result = await WorkerA.run({
+          root: Instance.worktree,
+          topK: 200,
+          intent: "routing test",
+          signal: AbortSignal.timeout(1),
+        })
+
+        expect(result.status).toBe("error")
+        expect(result.errors[0]?.message).toContain("aborted")
+      },
+    })
+  })
+
   test("worker b/c degrade when unavailable", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

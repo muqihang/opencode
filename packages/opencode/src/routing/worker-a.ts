@@ -53,6 +53,9 @@ export const WorkerA = {
       onlyFiles: true,
       followSymlinks: false,
     })) {
+      if (data.signal?.aborted) {
+        return empty("error", "worker aborted")
+      }
       if (FileIgnore.match(item)) continue
       files.push(item)
     }
