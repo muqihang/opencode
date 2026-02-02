@@ -259,6 +259,7 @@
 | 13.3 沙盒内置工具带（Tool Belt） | 用工具检索/抽取/对账换取超长上下文与低幻觉；输出必须指针化可复盘 | Milestone 2.7（Tool Belt v1） |
 | 14.1 PythonTool 脚本注册表 | allowlisted registry + sha256 校验；输出必须 evidence 化 | Milestone 2.7（以 allowlisted scripts 形态交付） |
 | 17.1 配置层叠 + effective config | P3 能开关/降级/自救；值来源可对账 | Milestone 3/5（加 feature flags 与自救开关） |
+| 17.3 Feature flags + Maturity | 易变/高风险能力必须上 feature flags，并标注成熟度（Experimental/Beta/Stable），避免实验能力污染生产 | Milestone 3（feature flags + cache/检索/核验开关与成熟度） |
 | 18 回归与门禁 | 同输入→同 cacheKey；版本化；必要时加回归测试 | Milestone 2/3/5（determinism + cache + compaction 回归） |
 | 18.1 最小 Evals（质量护栏） | routing/引用/压缩/证据链的离线回归；避免“悄悄退化” | Milestone 6（Minimal Evals） |
 
@@ -354,7 +355,7 @@
 - 不新增 schema（v1 先靠 events + artifacts），但事件字段必须稳定、可 grep、可用于 UI 人话叙事。
 
 **UI（DoD）**
-- App 的 turn timeline 能把 `routing.timeout/routing.cancelled` 映射成中文人话，并在 `needs_attention/failed` 语义下自动展开（符合 UI 工程纪律）。
+- App/TUI 的 turn timeline 能把 `routing.timeout/routing.cancelled` 映射成中文人话，并在 `needs_attention/failed` 语义下自动展开（符合 UI 工程纪律）。
 
 **测试（DoD）**
 - `packages/opencode`：新增单测构造一个“慢 worker”场景，断言：
@@ -379,7 +380,7 @@
 - 复用现有 schema：`packages/opencode/src/protocol/context-pack.ts`（不得随意改字段；如需变更，先 bump specVersion 并加回归）。
 
 **UI（DoD）**
-- App Chronology engine 能识别 `context.pack_built` 并在“人话视图”展示为：
+- App/TUI Chronology engine 能识别 `context.pack_built` 并在“人话视图”展示为：
   - 示例：`上下文：已整理（18%）` / `上下文：预算 60k / 128k`（中文人话）
 - 审计信息（segments 明细/原始 JSON）必须懒加载：默认不读文件内容；用户点击 Inspect 才通过 `file.read` 拉取 `.opencode/.../context-pack.json`。
 
@@ -423,7 +424,7 @@
 - v1 先不新增 Zod schema（避免扩散协议面），但必须 stableJson + 版本号字段（例如 `specVersion: task-frame/1.0`）以便后续缓存与回归。
 
 **UI（DoD）**
-- App 审计视图可通过 pointers 打开 `task-frame.json`（懒加载），并在人话视图展示为“已整理任务上下文（可追溯）”。
+- App/TUI 审计视图可通过 pointers 打开 `task-frame.json`（懒加载），并在人话视图展示为“已整理任务上下文（可追溯）”。
 
 **测试（DoD）**
 - 单测覆盖：`task-frame.json` 的生成是确定性的（同输入/同指针集合→同 stableJson 输出）；且不允许出现“没有 evidence 的断言字段”（硬门禁）。
@@ -501,9 +502,9 @@
   - 资料派生结果必须能被 retrieval 消费：至少确保存在可 rg 的文本产物（例如 `derived/<inputId>/text/*.txt` 或等价路径），并能回溯到 `inputId` 与来源文件名。
   - retrieval 输出的 hits 必须能指向 workbench artifacts（路径 + sha256），而不是只写“我看过某 PDF”。
 - 事件：`retrieval.started` / `retrieval.completed` / `dedupe_applied`（都要带 artifacts pointers）。
- - 降级必须可复盘（总设计稿 Section 2.3.* 的硬约束）：
-   - LSP 不可用 → `worker.unavailable` 或 `retrieval.degraded`（二选一，但命名要稳定）+ 风险提示（影响：只能 lexical，可能漏召回）
-   - 资料派生不可用（例如 `pdftotext` 缺失）→ 产出 error artifact（WorkBench 已有 `file-pdf-error`/`file-docx-error`/`file-unpack-error` 的模式）+ `retrieval.degraded`
+- 降级必须可复盘（总设计稿 Section 2.3.* 的硬约束）：
+  - LSP 不可用 → `worker.unavailable` 或 `retrieval.degraded`（二选一，但命名要稳定）+ 风险提示（影响：只能 lexical，可能漏召回）
+  - 资料派生不可用（例如 `pdftotext` 缺失）→ 产出 error artifact（WorkBench 已有 `file-pdf-error`/`file-docx-error`/`file-unpack-error` 的模式）+ `retrieval.degraded`
 
 **协议（DoD）**
 - v1 可先不引入新 Zod schema（只要 stableJson + evidence 不断链）；但必须做到：
@@ -662,6 +663,14 @@
   - hit 时：复用已落盘 context-pack.json（或复用 segments 资产），并写 event：`cache.hit`（含 key、scope、reason）。
   - miss 时：写 event：`cache.miss`（含 reason：repo_changed/toolset_changed/ttl_expired/disabled）。
 - 需要有 LRU/TTL（最小可用即可）：避免 cache 无限增长；淘汰策略与容量写入配置（可先默认值）。
+- **Feature flags + Maturity（总设计稿 Section 17.3，P3 最小落地）**：
+  - 把易变/高风险能力都做成可治理开关（并标注成熟度），至少包含：
+    - `context_cache`（Stable/Beta：取决于你对稳定性的要求；默认开启）
+    - `retrieval`（Beta：默认开启）
+    - `toolbelt`（Beta：默认开启；可一键关闭以快速定位问题）
+    - `verification`（Beta：默认开启；strict/balanced/loose 由 profile 决定）
+    - `gemini_cached_content_automation`（Experimental：默认关闭或灰度开启，避免一次性引入复杂生命周期）
+  - 每个开关的 effective 值必须能被对账：至少写入一次 evidence event（例如 `config.effective` 或按模块写 `context_cache.effective`），并能解释 cache miss 的 `reason=disabled`。
 - 同期把缓存从“只缓存 context-pack”扩展到“缓存构建依赖”（P3 核心要求）：
   - 文件内容哈希/切片结果缓存（避免重复读取与重复估算）
   - retrieval hits 缓存（配合 Milestone 2.5 的确定性输出）
