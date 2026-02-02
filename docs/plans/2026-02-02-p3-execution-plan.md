@@ -229,7 +229,7 @@
 - **file_search 的“Precision + Recall”双查询习惯**：同一问题至少两类 query（精确问句 + 关键词召回）提升召回率并降低重写误差；并将 query 集合作为 cacheKey 输入（Milestone 2.5 + Milestone 3）。
 - **检索 query 的可控 operator**：`+()` boost / `--QDF=` freshness（在本项目中映射为：路径/符号 boost + git recency/mtime 权重），避免“召回靠运气”（Milestone 2.5）。
 - **Citations 纪律（引用格式稳定 + 可验证）**：所有“事实/引用”必须能落到 pointers（path+sha256+anchor），并能被 `citation-check` 校验；禁止“看起来像引用但不可点击/不可对账”的伪引用（Milestone 2.7/2.8）。
-- **Memory 的结构化注入**：偏好/洞见按条目、带置信度、可审计；并且明确“不要存敏感/不要存短期”（Milestone 2.9（可选））。
+- **Memory 的结构化注入**：偏好/洞见按条目、带置信度、可审计；并且明确“不要存敏感/不要存短期”（延期到专题研究，不在 P3 实装）。
 - **Automation 非交互模式**：当系统处于 batch/自动化时，减少追问、倾向 best-effort 输出；但必须保持证据化与可回滚（P4/后续，P3 只留概念，不实装）。
 
 ### 2.3 暂不做（Fusion 冲刺项 / P4 项）
@@ -244,6 +244,7 @@
 
 **明确属于 P4（不在 P3 承诺范围内）**：
 - 硬沙盒后端（bwrap/nsjail/sandbox-exec/Job Object）与真实能力声明、OTel GenAI semconv 全量对齐、企业治理（requirements/managed defaults）、远端归档/Retention/索引。
+- **Memory / 记忆系统（跨会话偏好/洞见沉淀）**：延期到专题研究（单独写 design + threat model + UI/治理；避免 P3 引入黑盒风险）。
 
 **说明（避免重复造轮子）**：
 - **Undo / Snapshot**：仓库已具备（`packages/opencode/src/snapshot/*`），P3 不再重复“发明撤销机制”，只需要在 Context Pack/Timeline 的叙事里能正确引用其 evidence/events（如果相关）。
@@ -340,6 +341,10 @@
 **后端（DoD）**
 - 每个 user turn（messageId）生成一个 `task-frame.json` artifact（稳定路径建议）：
   - `.opencode/artifacts/<sessionId>/task/<messageId>/task-frame.json`
+- 子会话/子任务不是“只靠记忆传话”，而是 **同一协议体系的可合并产物**：
+  - 子会话启动时必须能拿到一个明确的输入（至少：父会话的 `task-frame.json` 指针 + 本子任务的目标/预算/工具限制）
+  - 子会话完成后必须产出 micro Evidence Pack（P1/P2 已具备），主会话只合并指针与 claims/checks（不粘贴全文）
+  - 这套机制提供“跨会话协作能力”，但不等同于“跨会话记忆系统”（记忆系统延期专题研究）
 - `task-frame.json` 必须满足 **0 幻觉** 约束：
   - 只包含两类信息：
     1) **可直接对账的事实**（来自用户输入、配置、路由/检索 artifacts、workbench inputs 等）
@@ -577,40 +582,6 @@
   - strict：缺证据 → 阻断结论输出
   - balanced：缺证据 → 自动触发补检索/补核验一次（若仍不足则降级）
   - loose：允许输出推测，但必须显式标注推测且不能伪装成事实
-
----
-
-### Milestone 2.9（可选/Stretch）：Memory Pack v1（可审计的偏好/洞见记忆，不锁场景）
-
-**目标**：把“记忆”变成可控资产，而不是隐式黑盒：既能提升体验（更懂用户、更省 token），又不引入不可审计/不可撤销的风险。
-
-> 对齐材料：`tool-advanced-memory.md` + `tool-memory-bio.md` 的精神内核：**结构化条目 + 置信度 + 明确禁止项**。
-
-**后端（DoD）**
-- 新增 `memory-pack.json`（建议 `memory-pack/1.0`）作为 artifact：
-  - `.opencode/artifacts/<sessionId>/memory/memory-pack.json`（或 project/worktree scoped 目录）
-- 最小数据模型（建议）：
-  - `preferences[]`：输出风格/偏好（可公开、可长期，带 `confidence`）
-  - `facts[]`：用户明确陈述且可长期成立的事实（必须带 evidence 指针或 “user-stated” 标识）
-  - `topics[]`：长期关注主题（可选，必须可关闭）
-  - `bans[]`：明确禁止存储的类别（敏感/短期），用于 verifier 检查
-- **硬约束**（写进 verifier 与 UI）：
-  - 禁止写入敏感个人信息（健康/政治/性取向等）
-  - 禁止写入短期事项（临时任务、一次性偏好）
-  - 任何 memory 变更必须 evidence 化（event：`memory.updated`，含 diff 摘要 + 指针）
-
-**UI（DoD）**
-- 提供用户可见入口（默认安全）：
-  - `查看记忆`（懒加载，默认只展示摘要）
-  - `关闭记忆`（立即生效，写 event）
-  - `删除某条记忆`（产生新的 memory-pack 版本，不覆写旧证据）
-
-**测试（DoD）**
-- fixture 测试：
-  - 敏感字段 → 必须被拒绝并写入 `verification.blocked`
-  - 同一输入 → memory-pack stableJson hash 稳定（用于缓存）
-
-> 说明：这是 Stretch，取决于你是否希望 P3 同期引入“跨会话记忆”。如果你更保守，可只做“本 session 内可审计记忆”，跨会话延后到 P4。
 
 ---
 
