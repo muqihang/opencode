@@ -4,6 +4,7 @@ import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
 import { EvidenceWriter } from "@/evidence/writer"
 import { stableJson } from "@/util/stable-json"
+import { sha256Text } from "@/routing/cache"
 import {
   streamText,
   wrapLanguageModel,
@@ -27,6 +28,9 @@ import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
 import { ContextPackBuilder } from "./context-pack"
+import { ContextBlocks } from "./context-blocks"
+import { DecisionBoundary } from "./decision-boundary"
+import { ulid } from "ulid"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -44,6 +48,8 @@ export namespace LLM {
     small?: boolean
     tools: Record<string, Tool>
     retries?: number
+    permission?: PermissionNext.Ruleset
+    historySummary?: string
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
@@ -88,20 +94,50 @@ export namespace LLM {
     ])
     const isCodex = provider.id === "openai" && auth?.type === "oauth"
 
-    const system = []
-    system.push(
-      [
-        // use agent prompt otherwise provider prompt
-        // For Codex sessions, skip SystemPrompt.provider() since it's sent via options.instructions
-        ...(input.agent.prompt ? [input.agent.prompt] : isCodex ? [] : SystemPrompt.provider(input.model)),
-        // any custom prompt passed into this call
-        ...input.system,
-        // any custom prompt from last user message
-        ...(input.user.system ? [input.user.system] : []),
-      ]
-        .filter((x) => x)
-        .join("\n"),
+    const providerPrompt = input.agent.prompt
+      ? input.agent.prompt
+      : isCodex
+        ? ""
+        : SystemPrompt.provider(input.model).join("\n\n")
+    const codexInstructions = isCodex ? SystemPrompt.instructions() : ""
+    const developerText = [codexInstructions, providerPrompt].filter((x) => x.trim().length > 0).join("\n\n")
+    const permissionRules = (input.permission ?? input.agent.permission)
+      .map((rule) => ({
+        permission: rule.permission,
+        pattern: rule.pattern,
+        action: rule.action,
+      }))
+      .toSorted((a, b) => {
+        const permission = a.permission.localeCompare(b.permission)
+        if (permission !== 0) return permission
+        const pattern = a.pattern.localeCompare(b.pattern)
+        if (pattern !== 0) return pattern
+        return a.action.localeCompare(b.action)
+      })
+    const permissionText = stableJson({
+      specVersion: "permission-rules/1.0",
+      rules: permissionRules,
+    })
+    const systemItems = input.system.map((item) => item.trim()).filter((item) => item.length > 0)
+    const capsuleIndex = systemItems.findIndex(
+      (item) => item.trimStart().startsWith("<routing>") && item.includes("</routing>"),
     )
+    const capsuleText = capsuleIndex >= 0 ? systemItems[capsuleIndex] : ""
+    const environmentText = (capsuleIndex >= 0
+      ? systemItems.filter((_, index) => index !== capsuleIndex)
+      : systemItems
+    ).join("\n\n")
+    const userText = input.user.system ?? ""
+    const systemBase = [
+      providerPrompt,
+      permissionText,
+      DecisionBoundary.text,
+      environmentText,
+      capsuleText,
+      userText,
+    ].filter((item) => item.trim().length > 0)
+    if (systemBase.length === 0) systemBase.push("")
+    const system = [...systemBase]
 
     const header = system[0]
     const original = clone(system)
@@ -136,7 +172,7 @@ export namespace LLM {
       mergeDeep(variant),
     )
     if (isCodex) {
-      options.instructions = SystemPrompt.instructions()
+      options.instructions = codexInstructions
     }
 
     const params = await Plugin.trigger(
@@ -203,16 +239,63 @@ export namespace LLM {
       })
     }
 
+    const toolset = Object.entries(tools).map(([name, item]) => {
+      const schema = (() => {
+        if (item.inputSchema && typeof item.inputSchema === "object" && "jsonSchema" in item.inputSchema) {
+          const parsed = item.inputSchema as { jsonSchema?: unknown }
+          return parsed.jsonSchema ?? {}
+        }
+        return {}
+      })()
+      const description = typeof item.description === "string" ? item.description : ""
+      return { name, description, schema }
+    })
+    const workspaceFingerprint = sha256Text(
+      stableJson({
+        specVersion: "workspace-fingerprint/1.0",
+        projectId: Instance.project.id,
+        worktree: Instance.worktree,
+        directory: Instance.directory,
+        vcs: Instance.project.vcs ?? "none",
+      }),
+    )
+    const contextPackId = ulid()
+    const createdAtUtc = new Date().toISOString()
+    const artifactRoot = ["context", contextPackId, "blocks"].join("/")
+    const blocks = ContextBlocks.build({
+      permissions: permissionText,
+      developer: developerText,
+      user: userText,
+      toolset: {
+        version: "v1",
+        tools: toolset,
+      },
+      environment: environmentText,
+      capsule: capsuleText,
+      decisionBoundary: DecisionBoundary.text,
+      historySummary: input.historySummary,
+      workspaceFingerprint,
+      artifactRoot,
+    })
     const pack = ContextPackBuilder.build({
       sessionId: input.sessionID,
       messageId: input.user.id,
       model: input.model,
-      system,
-      messages: input.messages,
-      tools,
+      blocks,
       maxOutputTokens,
+      contextPackId,
+      createdAtUtc,
     })
     const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
+    await Promise.all(
+      blocks.blocks.map((block) =>
+        writer.artifact({
+          kind: "context-block",
+          path: block.source.ref,
+          data: block.artifact,
+        }),
+      ),
+    )
     const entry = await writer.artifact({
       kind: "context-pack",
       path: ["context", pack.contextPackId, "context-pack.json"].join("/"),
@@ -232,6 +315,9 @@ export namespace LLM {
         artifact: entry.path,
         window: pack.window,
         totals: pack.totals,
+        toolsetFingerprint: blocks.toolsetFingerprint,
+        blockFingerprints: blocks.blockFingerprints,
+        cacheKey: blocks.cacheKey,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
