@@ -660,7 +660,7 @@
 **后端（DoD）**
 - 新增 Context Pack cache（默认 memory+disk）：
   - key = sha256(stableJson({ versions + blockFingerprints + toolsetFingerprint + repo/worktree scope + capsule fingerprint + file hashes }))
-  - hit 时：复用已落盘 context-pack.json（或复用 segments 资产），并写 event：`cache.hit`（含 key、scope、reason）。
+  - hit 时：复用 cached segments/template（避免重复检索/切片/估算），但**仍然为本次调用生成新的** `contextPackId/createdAtUtc` 并落盘新的 `context-pack.json`；同时写 event：`cache.hit`（含 key、scope、reason）。
   - miss 时：写 event：`cache.miss`（含 reason：repo_changed/toolset_changed/ttl_expired/disabled）。
 - 需要有 LRU/TTL（最小可用即可）：避免 cache 无限增长；淘汰策略与容量写入配置（可先默认值）。
 - **Feature flags + Maturity（总设计稿 Section 17.3，P3 最小落地）**：
