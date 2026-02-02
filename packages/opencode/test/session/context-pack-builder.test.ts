@@ -1,34 +1,37 @@
 import { describe, expect, test } from "bun:test"
 import { ContextPack } from "../../src/protocol/context-pack"
 import { ContextPackBuilder } from "../../src/session/context-pack"
-import { tool, jsonSchema, type ModelMessage } from "ai"
+import { ContextBlocks } from "../../src/session/context-blocks"
+
+const model = {
+  providerID: "openai",
+  id: "gpt-test",
+  limit: { context: 4096, input: 2048, output: 1024 },
+}
+
+const blocks = ContextBlocks.build({
+  permissions: "PERMS",
+  developer: "DEV",
+  user: "USER",
+  toolset: {
+    version: "v1",
+    tools: [],
+  },
+  environment: "ENV",
+  capsule: "CAP",
+  decisionBoundary: "DECISION",
+  historySummary: "HIST",
+  workspaceFingerprint: "ws-1",
+  artifactRoot: "context/pack-test/blocks",
+})
 
 describe("session.context-pack", () => {
   test("build returns schema-valid pack with consistent totals", () => {
-    const messages: ModelMessage[] = [
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: "Hi" },
-    ]
-
-    const tools = {
-      hello: tool({
-        description: "say hi",
-        inputSchema: jsonSchema({ type: "object", properties: {} }),
-        execute: async () => ({ output: "ok", title: "", metadata: {} }),
-      }),
-    }
-
     const pack = ContextPackBuilder.build({
       sessionId: "session_test",
       messageId: "message_test",
-      model: {
-        providerID: "openai",
-        id: "gpt-test",
-        limit: { context: 4096, input: 2048, output: 1024 },
-      },
-      system: ["System"],
-      messages,
-      tools,
+      model,
+      blocks,
       maxOutputTokens: 1024,
     })
 
@@ -43,14 +46,8 @@ describe("session.context-pack", () => {
     const pack = ContextPackBuilder.build({
       sessionId: "session_test",
       messageId: "message_test",
-      model: {
-        providerID: "openai",
-        id: "gpt-test",
-        limit: { context: 4096, input: 2048, output: 1024 },
-      },
-      system: ["System"],
-      messages: [{ role: "user", content: "Hello" }],
-      tools: {},
+      model,
+      blocks,
       maxOutputTokens: 1024,
     })
 

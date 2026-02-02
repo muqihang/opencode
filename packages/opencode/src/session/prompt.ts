@@ -643,14 +643,34 @@ export namespace SessionPrompt {
           systemPrompts.push(routingInjection.systemPrompt)
         }
 
+        const historySummary = (() => {
+          const summaryMessage = sessionMessages.findLast(
+            (msg) => msg.info.role === "assistant" && msg.info.summary === true,
+          )
+          if (!summaryMessage) return undefined
+          const text = summaryMessage.parts
+            .filter((part): part is MessageV2.TextPart => part.type === "text")
+            .map((part) => part.text.trim())
+            .filter((part) => part.length > 0)
+            .join("\n\n")
+          if (text.length === 0) return undefined
+          return text
+        })()
+        const messagesForModel = sessionMessages.filter(
+          (msg) => !(msg.info.role === "assistant" && msg.info.summary === true),
+        )
+        const permission = PermissionNext.merge(agent.permission, session.permission ?? [])
+
         const result = await processor.process({
           user: lastUser,
           agent,
           abort,
           sessionID,
           system: systemPrompts,
+          historySummary,
+          permission,
           messages: [
-            ...MessageV2.toModelMessages(sessionMessages, model),
+            ...MessageV2.toModelMessages(messagesForModel, model),
             ...(isLastStep
               ? [
                   {

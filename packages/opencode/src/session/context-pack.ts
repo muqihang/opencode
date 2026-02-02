@@ -1,21 +1,21 @@
 import { ContextPack, type ContextPack as ContextPackType } from "@/protocol/context-pack"
 import type { Provider } from "@/provider/provider"
-import type { ModelMessage, Tool } from "ai"
 import { Token } from "@/util/token"
 import { ulid } from "ulid"
+import type { ContextBlocks } from "./context-blocks"
 
 export const ContextPackBuilder = {
   build(input: {
     sessionId: string
     messageId: string
     model: Pick<Provider.Model, "providerID" | "id" | "limit">
-    system: string[]
-    messages: ModelMessage[]
-    tools: Record<string, Tool>
+    blocks: ContextBlocks.Result
     maxOutputTokens?: number
+    contextPackId?: string
+    createdAtUtc?: string
   }): ContextPackType {
-    const now = new Date().toISOString()
-    const packId = ulid()
+    const now = input.createdAtUtc ?? new Date().toISOString()
+    const packId = input.contextPackId ?? ulid()
     const maxTokens = Math.max(1, input.model.limit.context || 1)
     const output = input.maxOutputTokens ?? input.model.limit.output
     const rawBudget = input.model.limit.input ?? maxTokens - output
@@ -23,63 +23,14 @@ export const ContextPackBuilder = {
 
     const preview = (text: string) => text.trim().slice(0, 200)
 
-    const toolNames = Object.keys(input.tools).sort().join("\n")
-
-    const messageText = (message: ModelMessage) => {
-      if (typeof message.content === "string") return message.content
-      if (Array.isArray(message.content)) {
-        const parts = message.content
-          .map((part) => {
-            if (typeof part === "string") return part
-            if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-              return part.text
-            }
-            return JSON.stringify(part) ?? ""
-          })
-          .filter((value): value is string => typeof value === "string" && value.length > 0)
-
-        return parts.join("\n")
-      }
-      return ""
-    }
-
-    const systemText = input.system.join("\n\n").trim()
-    const historyText = input.messages.map(messageText).filter((value) => value).join("\n")
-
-    const segments: ContextPackType["segments"] = []
-
-    if (systemText) {
-      segments.push({
-        id: "seg:system",
-        kind: "system",
-        priority: "p0",
-        tokenEstimate: Token.estimate(systemText),
-        sources: [],
-        preview: preview(systemText),
-      })
-    }
-
-    if (toolNames) {
-      segments.push({
-        id: "seg:tools",
-        kind: "tools",
-        priority: "p1",
-        tokenEstimate: Token.estimate(toolNames),
-        sources: [],
-        preview: preview(toolNames),
-      })
-    }
-
-    if (historyText) {
-      segments.push({
-        id: "seg:history",
-        kind: "history_summary",
-        priority: "p1",
-        tokenEstimate: Token.estimate(historyText),
-        sources: [],
-        preview: preview(historyText),
-      })
-    }
+    const segments: ContextPackType["segments"] = input.blocks.blocks.map((block) => ({
+      id: block.id,
+      kind: block.kind,
+      priority: block.priority,
+      tokenEstimate: Token.estimate(block.text),
+      sources: [block.source],
+      preview: preview(block.text),
+    }))
 
     const total = segments.reduce((sum, segment) => sum + segment.tokenEstimate, 0)
 
