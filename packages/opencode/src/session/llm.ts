@@ -2,6 +2,8 @@ import os from "os"
 import { Installation } from "@/installation"
 import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
+import { EvidenceWriter } from "@/evidence/writer"
+import { stableJson } from "@/util/stable-json"
 import {
   streamText,
   wrapLanguageModel,
@@ -24,6 +26,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
+import { ContextPackBuilder } from "./context-pack"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -199,6 +202,39 @@ export namespace LLM {
         execute: async () => ({ output: "", title: "", metadata: {} }),
       })
     }
+
+    const pack = ContextPackBuilder.build({
+      sessionId: input.sessionID,
+      messageId: input.user.id,
+      model: input.model,
+      system,
+      messages: input.messages,
+      tools,
+      maxOutputTokens,
+    })
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
+    const entry = await writer.artifact({
+      kind: "context-pack",
+      path: ["context", pack.contextPackId, "context-pack.json"].join("/"),
+      data: stableJson(pack),
+    })
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: input.sessionID,
+      severity: "info",
+      actor: "session:llm",
+      type: "context.pack_built",
+      summary: "context pack built",
+      data: {
+        contextPackId: pack.contextPackId,
+        messageId: input.user.id,
+        artifact: entry.path,
+        window: pack.window,
+        totals: pack.totals,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
 
     return streamText({
       onError(error) {
