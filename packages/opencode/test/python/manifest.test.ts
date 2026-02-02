@@ -8,4 +8,15 @@ describe("python.scripts manifest", () => {
     expect(entry).toBeDefined()
     expect(entry!.sha256.length).toBe(64)
   })
+
+  test("manifest includes toolbelt scripts", async () => {
+    const manifest = await ScriptRegistry.manifest()
+    const scriptIds = ["citation-check", "doc-quote-anchor", "table-check", "redaction-scan"]
+    for (const id of scriptIds) {
+      const entry = manifest.find((item) => item.id === id)
+      expect(entry).toBeDefined()
+      expect(entry!.sha256.length).toBe(64)
+      expect(entry!.path.endsWith(".py")).toBe(true)
+    }
+  })
 })

@@ -18,5 +18,25 @@
     "id": "doc-ocr-image",
     "path": "scripts/doc-ocr-image.py",
     "sha256": "8672c5ba5c0103831d44d410df58685535af3ceec251509c26f79b0e0fe0ef53"
+  },
+  {
+    "id": "citation-check",
+    "path": "scripts/citation-check.py",
+    "sha256": "fd3cf03a7a203fa1a949410bcdda598b33b853a90eb54cf34f31e299405f7fe5"
+  },
+  {
+    "id": "doc-quote-anchor",
+    "path": "scripts/doc-quote-anchor.py",
+    "sha256": "3c000c226b7d97e21d53fe439e3a519929de986bbaceb0a20db7dfa998c1ccc3"
+  },
+  {
+    "id": "table-check",
+    "path": "scripts/table-check.py",
+    "sha256": "1597a3d514478c03297f0bede5860b8b161847b2418676cf8805a5fb138d56e9"
+  },
+  {
+    "id": "redaction-scan",
+    "path": "scripts/redaction-scan.py",
+    "sha256": "e3b470d000e9f38f3a28fa01c5fc1871151c85b6f66a23c9cc808b1d22f8a846"
   }
 ]
