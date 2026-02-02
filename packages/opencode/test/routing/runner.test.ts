@@ -148,6 +148,103 @@ describe("routing.runner", () => {
     })
   })
 
+  test("superseded run writes routing.cancelled event", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "src"), { recursive: true })
+        for (const idx of Array.from({ length: 3000 }).keys()) {
+          await Bun.write(path.join(dir, "src", `file-${idx}.ts`), `export const n${idx} = ${idx}\n`)
+        }
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const first = RoutingRunner.run({
+          sessionId: "session_cancel",
+          messageId: "message_first",
+          intentText: "Cancel test",
+          tier: "plan",
+        })
+
+        const second = await RoutingRunner.run({
+          sessionId: "session_cancel",
+          messageId: "message_second",
+          intentText: "Cancel test",
+          tier: "plan",
+        })
+
+        const firstRun = await first
+        const base = path.join(
+          Instance.worktree,
+          ".opencode",
+          "evidence",
+          "session_cancel",
+          "events.jsonl",
+        )
+        const lines = (await Bun.file(base).text())
+          .trim()
+          .split("\n")
+          .filter((line) => line.trim())
+        const events = lines.map((line) => JSON.parse(line))
+        const match = events.find(
+          (item) => item.type === "routing.cancelled" && item.data?.newRunId === second.routingRunId,
+        )
+        expect(match?.data?.previousRunId).toBe(firstRun.routingRunId)
+        expect(match?.data?.newRunId).toBe(second.routingRunId)
+        expect(match?.data?.reason).toBe("superseded")
+      },
+    })
+  })
+
+  test("max wall clock writes routing.timeout and routing.completed", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "src"), { recursive: true })
+        for (const idx of Array.from({ length: 5000 }).keys()) {
+          await Bun.write(path.join(dir, "src", `slow-${idx}.ts`), `export const n${idx} = ${idx}\n`)
+        }
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const run = await RoutingRunner.run({
+          sessionId: "session_timeout",
+          messageId: "message_timeout",
+          intentText: "Timeout test",
+          tier: "plan",
+          config: {
+            maxWallClockMs: 5,
+            workerTimeoutMs: 5,
+          },
+        })
+
+        const base = path.join(
+          Instance.worktree,
+          ".opencode",
+          "evidence",
+          "session_timeout",
+          "events.jsonl",
+        )
+        const lines = (await Bun.file(base).text())
+          .trim()
+          .split("\n")
+          .filter((line) => line.trim())
+        const events = lines.map((line) => JSON.parse(line))
+        const timeoutEvent = events.find((item) => item.type === "routing.timeout")
+        const completedEvent = events.find((item) => item.type === "routing.completed")
+        expect(timeoutEvent?.data?.routingRunId).toBe(run.routingRunId)
+        expect(Array.isArray(timeoutEvent?.data?.cancelledWorkers)).toBe(true)
+        expect(completedEvent?.data?.routingRunId).toBe(run.routingRunId)
+      },
+    })
+  })
+
   test("non-git projects write routing cache under directory (not /)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {

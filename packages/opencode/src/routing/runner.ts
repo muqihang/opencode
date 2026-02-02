@@ -3,6 +3,7 @@ import path from "path"
 import { $ } from "bun"
 import { ulid } from "ulid"
 import { stableJson } from "@/util/stable-json"
+import { defer } from "@/util/defer"
 import { EvidenceWriter } from "@/evidence/writer"
 import { Instance } from "@/project/instance"
 import { RoutingRunRequest, RoutingTier, RoutingWorkerId } from "@/protocol/routing-run-request"
@@ -83,6 +84,13 @@ const timeoutCore = (workerId: z.infer<typeof RoutingWorkerId>, message: string)
   errors: [{ message, code: "worker_timeout" }],
 })
 
+const abortedCore = (workerId: z.infer<typeof RoutingWorkerId>, message: string): WorkerCore => ({
+  status: "error",
+  result: emptyResult[workerId],
+  capsule: baseCapsule(message),
+  errors: [{ message, code: "worker_aborted" }],
+})
+
 const buildResult = (input: {
   runId: string
   sessionId: string
@@ -110,6 +118,43 @@ const buildResult = (input: {
     capsule: input.core.capsule,
     errors: input.core.errors,
   })
+}
+
+const inflight = new Map<string, Map<string, AbortController>>()
+
+const inflightMap = (sessionId: string) => {
+  const existing = inflight.get(sessionId)
+  if (existing) return existing
+  const created = new Map<string, AbortController>()
+  inflight.set(sessionId, created)
+  return created
+}
+
+const removeInflight = (sessionId: string, runId: string) => {
+  const current = inflight.get(sessionId)
+  if (!current) return
+  current.delete(runId)
+  if (current.size === 0) inflight.delete(sessionId)
+}
+
+const withBudget = async <T>(
+  promise: Promise<T>,
+  input: { timeoutMs: number; signal: AbortSignal },
+) => {
+  const timeout = delay(input.timeoutMs).then(() => ({ ok: false as const, reason: "timeout" as const }))
+  const aborted = input.signal.aborted
+    ? Promise.resolve({ ok: false as const, reason: "aborted" as const })
+    : new Promise<{ ok: false; reason: "aborted" }>((resolve) => {
+        input.signal.addEventListener("abort", () => resolve({ ok: false as const, reason: "aborted" as const }), {
+          once: true,
+        })
+      })
+  const result = await Promise.race([
+    promise.then((value) => ({ ok: true as const, value })),
+    timeout,
+    aborted,
+  ])
+  return result
 }
 
 const gitDiff = async (root: string) => {
@@ -201,12 +246,78 @@ const capsuleText = (input: {
 }
 
 export const RoutingRunner = {
+  async cancel(input: { sessionId: string; reason: "user_abort" }) {
+    const current = inflight.get(input.sessionId)
+    if (!current) return
+    const entries = Array.from(current.entries())
+    current.clear()
+    inflight.delete(input.sessionId)
+    for (const [, abort] of entries) {
+      abort.abort()
+    }
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionId })
+    await Promise.all(
+      entries.map(([runId]) =>
+        writer.event({
+          specVersion: "event/1.0",
+          ts: new Date().toISOString(),
+          sessionId: input.sessionId,
+          severity: "info",
+          actor: "routing:runner",
+          type: "routing.cancelled",
+          summary: "routing cancelled",
+          data: {
+            previousRunId: runId,
+            newRunId: "",
+            reason: input.reason,
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        }),
+      ),
+    )
+  },
   async run(input: z.infer<typeof RunInput>) {
     const data = RunInput.parse(input)
     const config = resolveRoutingConfig(data.config)
     const worktreeRoot = Instance.worktree === "/" ? Instance.directory : Instance.worktree
     const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
     const runId = ulid()
+    const runAbort = new AbortController()
+    const current = inflightMap(data.sessionId)
+    const limit = config.maxRoutingRunsInFlight
+    if (current.size >= limit) {
+      const previousEntry = current.entries().next().value as [string, AbortController] | undefined
+      if (previousEntry) {
+        const [previousRunId, previousAbort] = previousEntry
+        previousAbort.abort()
+        current.delete(previousRunId)
+        await writer.event({
+          specVersion: "event/1.0",
+          ts: new Date().toISOString(),
+          sessionId: data.sessionId,
+          severity: "info",
+          actor: "routing:runner",
+          type: "routing.cancelled",
+          summary: "routing cancelled",
+          data: {
+            previousRunId,
+            newRunId: runId,
+            reason: "superseded",
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        })
+      }
+    }
+    current.set(runId, runAbort)
+    using _ = defer(() => removeInflight(data.sessionId, runId))
+    const budget = { timedOut: false }
+    const budgetAbort = new AbortController()
+    const budgetTimer = setTimeout(() => {
+      budget.timedOut = true
+      budgetAbort.abort()
+    }, config.maxWallClockMs)
+    using __ = defer(() => clearTimeout(budgetTimer))
+    const runSignal = AbortSignal.any([runAbort.signal, budgetAbort.signal])
     const started = new Date().toISOString()
     await writer.event({
       specVersion: "event/1.0",
@@ -307,6 +418,7 @@ export const RoutingRunner = {
     const limited = workers.slice(0, config.maxWorkersInFlight)
     const skipped = workers.slice(config.maxWorkersInFlight)
 
+    const cancelledWorkers = new Set<z.infer<typeof RoutingWorkerId>>()
     const executed = await Promise.all(
       limited.map(async (item) => {
         const key = routingCacheKey({
@@ -360,17 +472,25 @@ export const RoutingRunner = {
         }
 
         const start = Date.now()
-        const output = await withTimeout(
+        const output = await withBudget(
           item.run({
             root: worktreeRoot,
             topK: item.topK,
             intent: data.intentText,
+            signal: runSignal,
           }),
-          timeoutMs,
+          { timeoutMs, signal: runSignal },
         )
         const end = Date.now()
 
         if (!output.ok) {
+          if (budget.timedOut) cancelledWorkers.add(item.id)
+          const core =
+            output.reason === "timeout"
+              ? timeoutCore(item.id, "worker timeout")
+              : budget.timedOut
+                ? timeoutCore(item.id, "worker timeout")
+                : abortedCore(item.id, "worker aborted")
           const result = buildResult({
             runId,
             sessionId: data.sessionId,
@@ -382,7 +502,7 @@ export const RoutingRunner = {
               durationMs: Math.max(0, end - start),
             },
             inputs: { intentFingerprint, repoFingerprint, configFingerprint },
-            core: timeoutCore(item.id, "worker timeout"),
+            core,
           })
           await writeRoutingCache(key, result)
           return result
@@ -466,6 +586,23 @@ export const RoutingRunner = {
       path: path.join("routing", runId, "routing.capsule.md"),
       data: capsule,
     })
+
+    if (budget.timedOut) {
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: data.sessionId,
+        severity: "warn",
+        actor: "routing:runner",
+        type: "routing.timeout",
+        summary: "routing timeout",
+        data: {
+          routingRunId: runId,
+          cancelledWorkers: Array.from(cancelledWorkers),
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
 
     await writer.event({
       specVersion: "event/1.0",
