@@ -155,8 +155,10 @@ export namespace LLM {
     if (system.length === 0) {
       system.push(...original)
     }
+    const isGemini = input.model.api.npm === "@ai-sdk/google"
     // rejoin to maintain 2-part structure for caching if header unchanged
-    if (system.length > 2 && system[0] === header) {
+    // (Gemini cached content needs stable system segments, keep them split)
+    if (!isGemini && system.length > 2 && system[0] === header) {
       const rest = system.slice(1)
       system.length = 0
       system.push(header, rest.join("\n"))
@@ -340,6 +342,9 @@ export namespace LLM {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
+    const isRoutingCapsule = (text: string) =>
+      text.trimStart().startsWith("<routing>") && text.includes("</routing>")
+
     const geminiCached = await iife(async () => {
       if (input.model.api.npm !== "@ai-sdk/google") return null
       if (Flag.OPENCODE_DISABLE_GEMINI_CACHED_CONTENT) return null
@@ -379,6 +384,7 @@ export namespace LLM {
 
       const root = Instance.worktree === "/" ? Instance.directory : Instance.worktree
       const scope = { projectId: Instance.project.id, worktreeRoot: root }
+      const systemInstruction = system.filter((item) => !isRoutingCapsule(item))
 
       const res = await GeminiCachedContent.resolve({
         sessionId: input.sessionID,
@@ -389,7 +395,7 @@ export namespace LLM {
           api: { npm: input.model.api.npm, id: input.model.api.id },
         },
         provider: { baseURL, apiKey },
-        blocks,
+        systemInstruction,
         scope,
         ttlMs,
         policy: { enabled: true },
@@ -615,6 +621,11 @@ export namespace LLM {
     })
 
     const paramsOptions = geminiCached?.cachedContentId ? { ...params.options, cachedContent: geminiCached.cachedContentId } : params.options
+    const systemForModel = iife(() => {
+      if (input.model.api.npm !== "@ai-sdk/google") return system
+      if (!geminiCached?.cachedContentId) return system
+      return system.filter((item) => isRoutingCapsule(item))
+    })
 
     return streamText({
       onError(error) {
@@ -678,10 +689,10 @@ export namespace LLM {
           ? [
               {
                 role: "user",
-                content: system.join("\n\n"),
+                content: systemForModel.join("\n\n"),
               } as ModelMessage,
             ]
-          : system.map(
+          : systemForModel.map(
               (x): ModelMessage => ({
                 role: "system",
                 content: x,

@@ -26,18 +26,6 @@ type ProviderRef = {
   apiKey?: string
 }
 
-type Block = {
-  id: string
-  text: string
-}
-
-type Blocks = {
-  blocks: Block[]
-  blockFingerprints: Record<string, string>
-  toolsetFingerprint: string
-  cacheKey: string
-}
-
 type Decision = "created" | "reused" | "invalidated" | "degraded" | "disabled"
 
 type Result = {
@@ -56,12 +44,15 @@ type Result = {
   } | null
   reason?: string
   meta: {
-    selector: "v1"
+    selector: "v2"
     model: { providerID: string; apiNpm: string; apiId: string; modelId: string }
     fingerprint: {
-      blocksCacheKey: string
-      toolsetFingerprint: string
-      blockFingerprints: Record<string, string>
+      baseURL: string
+      systemInstruction: {
+        sha256: string
+        partsSha256: string[]
+        partsCount: number
+      }
     }
   }
 }
@@ -87,41 +78,21 @@ const joinURL = (baseURL: string, path: string) => {
   return `${left}/${right}`
 }
 
-const selectedIds = () => new Set(["block:developer_instructions", "block:permissions_instructions", "block:decision_boundary"])
+const normalizeParts = (parts: readonly string[]) =>
+  parts
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
 
-const prefixText = (blocks: Blocks) => {
-  const allow = selectedIds()
-  const parts = blocks.blocks
-    .filter((b) => allow.has(b.id))
-    .map((b) => b.text.trim())
-    .filter((t) => t.length > 0)
-  return parts.join("\n\n")
+const systemFingerprint = (parts: readonly string[]) => {
+  const normalized = normalizeParts(parts)
+  const partsSha256 = normalized.map((text) => sha256Text(text))
+  const sha256 = sha256Text(normalized.join("\n\n"))
+  return { parts: normalized, sha256, partsSha256 }
 }
 
-const fingerprint = (blocks: Blocks) => {
-  const allow = selectedIds()
-  const ids = Object.keys(blocks.blockFingerprints)
-    .filter((id) => allow.has(id))
-    .toSorted((a, b) => a.localeCompare(b))
-
-  const picked: Record<string, string> = {}
-  for (const id of ids) {
-    const fp = blocks.blockFingerprints[id]
-    if (typeof fp === "string" && fp.length > 0) {
-      picked[id] = fp
-    }
-  }
-
-  return {
-    blocksCacheKey: blocks.cacheKey,
-    toolsetFingerprint: blocks.toolsetFingerprint,
-    blockFingerprints: picked,
-  }
-}
-
-const keySpec = (input: { model: ModelRef; ttlMs: number; fingerprint: ReturnType<typeof fingerprint> }) => ({
+const keySpec = (input: { model: ModelRef; ttlMs: number; baseURL: string; system: ReturnType<typeof systemFingerprint> }) => ({
   specVersion: "gemini-cached-content-key/1.0",
-  selector: "v1",
+  selector: "v2",
   model: {
     providerID: input.model.providerID,
     apiNpm: input.model.api.npm,
@@ -129,14 +100,30 @@ const keySpec = (input: { model: ModelRef; ttlMs: number; fingerprint: ReturnTyp
     modelId: input.model.id,
   },
   ttlMs: input.ttlMs,
-  fingerprint: input.fingerprint,
+  baseURL: normalizeBaseURL(input.baseURL),
+  systemInstruction: {
+    sha256: input.system.sha256,
+    partsSha256: input.system.partsSha256,
+    partsCount: input.system.parts.length,
+  },
   versions: { stableJson: "v1" },
 })
 
-const cachedContentKey = (input: { model: ModelRef; ttlMs: number; blocks: Blocks }) => {
-  const fp = fingerprint(input.blocks)
-  const spec = keySpec({ model: input.model, ttlMs: input.ttlMs, fingerprint: fp })
-  return { key: sha256Text(stableJson(spec)), meta: { selector: "v1" as const, model: spec.model, fingerprint: fp } }
+const cachedContentKey = (input: { model: ModelRef; ttlMs: number; provider: ProviderRef; systemInstruction: readonly string[] }) => {
+  const system = systemFingerprint(input.systemInstruction)
+  const spec = keySpec({ model: input.model, ttlMs: input.ttlMs, baseURL: input.provider.baseURL, system })
+  return {
+    key: sha256Text(stableJson(spec)),
+    meta: {
+      selector: "v2" as const,
+      model: spec.model,
+      fingerprint: {
+        baseURL: spec.baseURL,
+        systemInstruction: spec.systemInstruction,
+      },
+    },
+    system,
+  }
 }
 
 const headers = (input: ProviderRef) => ({
@@ -170,7 +157,7 @@ const validate = async (input: { provider: ProviderRef; cachedContentId: string;
 const create = async (input: {
   provider: ProviderRef
   model: ModelRef
-  prefix: string
+  systemInstruction: readonly string[]
   ttlMs: number
   abort: AbortSignal
   timeoutMs: number
@@ -178,15 +165,11 @@ const create = async (input: {
 }) => {
   const url = joinURL(input.provider.baseURL, "cachedContents")
   const ttlSeconds = Math.max(1, Math.ceil(input.ttlMs / 1000))
+  const parts = normalizeParts(input.systemInstruction).map((text) => ({ text }))
   const body = stableJson({
     model: input.model.api.id.includes("/") ? input.model.api.id : `models/${input.model.api.id}`,
     ttl: `${ttlSeconds}s`,
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: input.prefix }],
-      },
-    ],
+    ...(parts.length > 0 ? { systemInstruction: { parts } } : {}),
   })
 
   const signal = AbortSignal.any([input.abort, AbortSignal.timeout(input.timeoutMs)])
@@ -222,7 +205,7 @@ export namespace GeminiCachedContent {
     messageId: string
     model: ModelRef
     provider: ProviderRef
-    blocks: Blocks
+    systemInstruction: readonly string[]
     scope: Scope
     ttlMs: number
     policy: Policy
@@ -232,8 +215,25 @@ export namespace GeminiCachedContent {
   }): Promise<Result> {
     const clock = input.clock ?? { nowMs: () => Date.now() }
     const timeoutMs = input.timeoutMs ?? 10_000
-    const computed = cachedContentKey({ model: input.model, ttlMs: input.ttlMs, blocks: input.blocks })
+    const computed = cachedContentKey({
+      model: input.model,
+      ttlMs: input.ttlMs,
+      provider: input.provider,
+      systemInstruction: input.systemInstruction,
+    })
     const key = computed.key
+
+    if (computed.system.parts.length === 0) {
+      return {
+        cachedContentKey: key,
+        cachedContentId: null,
+        expiresAtUtc: null,
+        ttlMs: input.ttlMs,
+        decision: "disabled",
+        cache: null,
+        meta: computed.meta,
+      }
+    }
 
     if (!input.policy.enabled) {
       return {
@@ -256,11 +256,10 @@ export namespace GeminiCachedContent {
 
     const compute = async (): Promise<Entry> => {
       const nowMs = clock.nowMs()
-      const prefix = prefixText(input.blocks)
       const created = await create({
         provider: input.provider,
         model: input.model,
-        prefix,
+        systemInstruction: computed.system.parts,
         ttlMs: input.ttlMs,
         abort: input.abort,
         timeoutMs,

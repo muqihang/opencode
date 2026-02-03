@@ -5,7 +5,7 @@
 **Goal:** For Gemini requests via `@ai-sdk/google` (`providerID=google`, sdkKey `google`), automate **Cached Content** lifecycle (create/reuse/expire/invalidate/degrade) so Gemini can report `usageMetadata.cachedContentTokenCount` → `tokens.cache.read` and we can observe/cache-audit it.
 
 **Architecture:** Build a small `GeminiCachedContent` helper that:
-1) selects a deterministic, explainable “cacheable prefix” derived from `ContextBlocks` (stable, cross-turn blocks),
+1) selects a deterministic, explainable “cacheable system instruction prefix” derived from the **actual system messages** sent to Gemini (excluding the routing capsule),
 2) computes `cachedContentKey = sha256(stableJson(spec + versions + model + ttl + fingerprint))`,
 3) stores `{ cachedContentId, expiresAtUtc }` in local `CacheStore` namespace `provider.gemini.cached-content`,
 4) emits evidence events for lifecycle edges, referencing a small summary artifact (no raw prompt text in events),
@@ -44,10 +44,10 @@ Expected: FAIL (module not found / behavior missing)
 
 **Step 1: Define deterministic key + prefix selection**
 
-- Select cacheable prefix from `ContextBlocks.blocks`:
-  - Include: `block:developer_instructions`, `block:permissions_instructions`, `block:decision_boundary`
-  - Optionally include: `block:environment_context`, `block:capsule`, `block:user_instructions` (behind a stable selector version)
-  - Exclude: `block:toolset` (tool definitions must still be passed separately)
+- Select cacheable prefix from **system instructions actually sent to Gemini**:
+  - Include: stable system message segments (permissions / decision boundary / environment / user instructions, etc.)
+  - Exclude: the routing capsule (`<routing>...</routing>`) to avoid per-call churn
+  - Exclude: tool definitions (tools are still passed in the request)
 - Build an **explainable** spec object:
   - `specVersion`, `selectorVersion`, `stableJsonVersion`, `model`, `ttlMs`, `blockFingerprints`, `toolsetFingerprint`
 - Compute `cachedContentKey = sha256Text(stableJson(spec))`
@@ -64,7 +64,7 @@ Expected: FAIL (module not found / behavior missing)
 - Create cached content:
   - `POST {baseURL}/cachedContents` with JSON:
     - `ttl` (seconds) or provider-supported ttl field
-    - `contents` or provider-supported cached content payload
+    - `systemInstruction` (preferred) so semantics match Gemini system instructions
   - Parse `name` as `cachedContentId` and compute `expiresAtUtc`
 - Validate cached content id on reuse:
   - `GET {baseURL}/{cachedContentId}`
@@ -107,7 +107,7 @@ Apply cached content automation only when:
 - After `ContextBlocksCache.build()` (so we have block fingerprints) and before `streamText()`:
   - resolve cached content id via `GeminiCachedContent.resolve(...)`
   - inject into provider options (google provider options) with the correct field name supported by `@ai-sdk/google`
-  - omit the cached prefix system blocks from request messages to maximize hit rate
+  - omit the cached prefix system segments from request system messages to maximize hit rate and avoid duplication
 
 **Step 3: Evidence events**
 
@@ -133,4 +133,3 @@ Keep the branch + worktree as-is and report:
 - key files touched (with `:1`)
 - test command + pass summary
 - at most 1 open question
-

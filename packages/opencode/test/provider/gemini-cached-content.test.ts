@@ -5,54 +5,7 @@ import { GeminiCachedContent } from "../../src/provider/gemini-cached-content"
 
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
 
-const blocks = () => ({
-  blocks: [
-    {
-      id: "block:developer_instructions",
-      kind: "system",
-      priority: "p0",
-      specVersion: "block/developer_instructions/1.0",
-      text: "DEV",
-      artifact: "",
-      source: { kind: "artifact" as const, ref: "x", sha256: "sha_dev" },
-    },
-    {
-      id: "block:permissions_instructions",
-      kind: "system",
-      priority: "p0",
-      specVersion: "block/permissions_instructions/1.0",
-      text: "PERMS",
-      artifact: "",
-      source: { kind: "artifact" as const, ref: "x", sha256: "sha_perms" },
-    },
-    {
-      id: "block:decision_boundary",
-      kind: "system",
-      priority: "p0",
-      specVersion: "block/decision_boundary/1.0",
-      text: "BOUNDARY",
-      artifact: "",
-      source: { kind: "artifact" as const, ref: "x", sha256: "sha_boundary" },
-    },
-    {
-      id: "block:toolset",
-      kind: "tools",
-      priority: "p1",
-      specVersion: "block/toolset/1.0",
-      text: "{\"tools\":[]}",
-      artifact: "",
-      source: { kind: "artifact" as const, ref: "x", sha256: "sha_toolset" },
-    },
-  ],
-  blockFingerprints: {
-    "block:developer_instructions": "sha_dev",
-    "block:permissions_instructions": "sha_perms",
-    "block:decision_boundary": "sha_boundary",
-    "block:toolset": "sha_toolset",
-  },
-  toolsetFingerprint: "toolset_fp",
-  cacheKey: "blocks_cache_key",
-})
+const systemInstruction = () => ["DEV", "PERMS", "BOUNDARY"]
 
 describe("gemini cached content (lifecycle)", () => {
   test("create → reuse → expire → recreate", async () => {
@@ -64,13 +17,32 @@ describe("gemini cached content (lifecycle)", () => {
           created: 0,
           gets: 0,
           ids: new Set<string>(),
+          systemInstructionSeen: 0,
         }
 
         const srv = Bun.serve({
           port: 0,
-          fetch(req) {
+          async fetch(req) {
             const url = new URL(req.url)
             if (req.method === "POST" && url.pathname === "/v1beta/cachedContents") {
+              const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
+              const sys = typeof body?.systemInstruction === "object" && body?.systemInstruction ? body.systemInstruction : null
+              const parts = (() => {
+                if (!sys || typeof sys !== "object") return []
+                const raw = (sys as Record<string, unknown>).parts
+                return Array.isArray(raw) ? raw : []
+              })()
+              const texts = parts
+                .map((p) => {
+                  if (!p || typeof p !== "object") return ""
+                  const text = (p as Record<string, unknown>).text
+                  return typeof text === "string" ? text : ""
+                })
+                .filter((t) => t.length > 0)
+
+              expect(texts).toEqual(systemInstruction())
+              expect("contents" in (body ?? {})).toBe(false)
+              state.systemInstructionSeen += 1
               state.created += 1
               const id = `cachedContents/${state.created}`
               state.ids.add(id)
@@ -97,7 +69,7 @@ describe("gemini cached content (lifecycle)", () => {
           messageId: "message_x",
           model: { providerID: "google", id: "gemini-3-flash", api: { npm: "@ai-sdk/google", id: "gemini-3-flash" } },
           provider: { baseURL, apiKey: "test" },
-          blocks: blocks(),
+          systemInstruction: systemInstruction(),
           scope,
           ttlMs,
           policy: { enabled: true },
@@ -108,13 +80,14 @@ describe("gemini cached content (lifecycle)", () => {
         expect(one.cachedContentId).toBe("cachedContents/1")
         expect(one.decision).toBe("created")
         expect(state.created).toBe(1)
+        expect(state.systemInstructionSeen).toBe(1)
 
         const two = await GeminiCachedContent.resolve({
           sessionId: "session_x",
           messageId: "message_x",
           model: { providerID: "google", id: "gemini-3-flash", api: { npm: "@ai-sdk/google", id: "gemini-3-flash" } },
           provider: { baseURL, apiKey: "test" },
-          blocks: blocks(),
+          systemInstruction: systemInstruction(),
           scope,
           ttlMs,
           policy: { enabled: true },
@@ -125,6 +98,7 @@ describe("gemini cached content (lifecycle)", () => {
         expect(two.cachedContentId).toBe("cachedContents/1")
         expect(two.decision).toBe("reused")
         expect(state.created).toBe(1)
+        expect(state.systemInstructionSeen).toBe(1)
 
         now.value = 11
         const three = await GeminiCachedContent.resolve({
@@ -132,7 +106,7 @@ describe("gemini cached content (lifecycle)", () => {
           messageId: "message_x",
           model: { providerID: "google", id: "gemini-3-flash", api: { npm: "@ai-sdk/google", id: "gemini-3-flash" } },
           provider: { baseURL, apiKey: "test" },
-          blocks: blocks(),
+          systemInstruction: systemInstruction(),
           scope,
           ttlMs,
           policy: { enabled: true },
@@ -143,6 +117,7 @@ describe("gemini cached content (lifecycle)", () => {
         expect(three.cachedContentId).toBe("cachedContents/2")
         expect(three.decision).toBe("created")
         expect(state.created).toBe(2)
+        expect(state.systemInstructionSeen).toBe(2)
 
         srv.stop(true)
       },
@@ -161,9 +136,26 @@ describe("gemini cached content (lifecycle)", () => {
 
         const srv = Bun.serve({
           port: 0,
-          fetch(req) {
+          async fetch(req) {
             const url = new URL(req.url)
             if (req.method === "POST" && url.pathname === "/v1beta/cachedContents") {
+              const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
+              const sys = typeof body?.systemInstruction === "object" && body?.systemInstruction ? body.systemInstruction : null
+              const parts = (() => {
+                if (!sys || typeof sys !== "object") return []
+                const raw = (sys as Record<string, unknown>).parts
+                return Array.isArray(raw) ? raw : []
+              })()
+              const texts = parts
+                .map((p) => {
+                  if (!p || typeof p !== "object") return ""
+                  const text = (p as Record<string, unknown>).text
+                  return typeof text === "string" ? text : ""
+                })
+                .filter((t) => t.length > 0)
+
+              expect(texts).toEqual(systemInstruction())
+              expect("contents" in (body ?? {})).toBe(false)
               state.created += 1
               const id = `cachedContents/${state.created}`
               state.ids.add(id)
@@ -187,7 +179,7 @@ describe("gemini cached content (lifecycle)", () => {
           messageId: "message_x",
           model: { providerID: "google", id: "gemini-3-flash", api: { npm: "@ai-sdk/google", id: "gemini-3-flash" } },
           provider: { baseURL, apiKey: "test" },
-          blocks: blocks(),
+          systemInstruction: systemInstruction(),
           scope,
           ttlMs: 60_000,
           policy: { enabled: true },
@@ -205,7 +197,7 @@ describe("gemini cached content (lifecycle)", () => {
           messageId: "message_x",
           model: { providerID: "google", id: "gemini-3-flash", api: { npm: "@ai-sdk/google", id: "gemini-3-flash" } },
           provider: { baseURL, apiKey: "test" },
-          blocks: blocks(),
+          systemInstruction: systemInstruction(),
           scope,
           ttlMs: 60_000,
           policy: { enabled: true },
@@ -230,7 +222,7 @@ describe("gemini cached content (lifecycle)", () => {
         const state = { created: 0 }
         const srv = Bun.serve({
           port: 0,
-          fetch(req) {
+          async fetch(req) {
             const url = new URL(req.url)
             if (req.method === "POST" && url.pathname === "/v1beta/cachedContents") {
               state.created += 1
@@ -248,7 +240,7 @@ describe("gemini cached content (lifecycle)", () => {
           messageId: "message_x",
           model: { providerID: "google", id: "gemini-3-flash", api: { npm: "@ai-sdk/google", id: "gemini-3-flash" } },
           provider: { baseURL, apiKey: "test" },
-          blocks: blocks(),
+          systemInstruction: systemInstruction(),
           scope,
           ttlMs: 60_000,
           policy: { enabled: false },
@@ -265,4 +257,3 @@ describe("gemini cached content (lifecycle)", () => {
     })
   })
 })
-
