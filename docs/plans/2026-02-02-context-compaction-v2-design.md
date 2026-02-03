@@ -437,17 +437,31 @@ Compaction v2 的推荐开关（示例命名；实施时对齐现有 Flag/Config
 > 目的：这份设计稿的核心落点是“工程可控（SSOT/可核验/可回放/可缓存）”，不是追逐某个模型的内部技巧。  
 > 下面列出一些外部高质量材料，用于校准方向与术语，并帮助后续实施阶段做更谨慎的取舍（例如：何时需要更激进的压缩，何时应转为外置检索/回填）。
 
+### 11.0 近期（2025–2026）更贴近“Compaction v2”的系统级研究
+
+> 注：这些更贴近 “agent 侧的上下文压缩 / 可解释策略 / 抗漂移”，但仍需结合本仓库的 SSOT/证据链/门禁约束做取舍。
+
+- Active Context Compression（2026）：https://arxiv.org/abs/2601.07190
+- Adaptive Context Compression（ACON, 2025）：https://arxiv.org/abs/2510.08907
+- Semantic-aware Context Compression for LLM-based agentic systems（SAC, 2025）：https://arxiv.org/abs/2503.07178
+
 ### 11.1 为什么“长上下文 ≠ 质量线性提升”
 
 - Lost in the Middle（长上下文中间信息易被忽略）：https://arxiv.org/abs/2307.03172
+- Anthropic long context prompting tips（工程层面的“长上下文使用姿势”）：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/long-context-tips
 
 ### 11.2 内存分层（Hot/Warm/Cold）的系统化类比
 
 - MemGPT（把 LLM 当作“有限内存 CPU”，通过多层 memory 实现“看起来更大”的上下文）：https://arxiv.org/abs/2310.08560
+- Anthropic Context Management（Context Editing + Memory Tool, 2025-09-29）：https://claude.com/blog/context-management
+- OpenAI Agents SDK Sessions（包含 “compaction session wrapper / history merge hook” 的实践入口）：
+  - JS：https://openai.github.io/openai-agents-js/guides/sessions
+  - Python：https://openai.github.io/openai-agents-python/sessions/
 
 ### 11.3 厂商缓存：稳定前缀/差分注入的现实依据
 
 - Anthropic Prompt Caching（cache_read/cache_creation/input_tokens 的口径与行为）：https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+- OpenAI Prompt Caching（cached tokens + prompt caching 的产品化口径与限制）：https://platform.openai.com/docs/guides/prompt-caching
 - Gemini / Vertex AI Context Caching（implicit/explicit caching、cachedContentTokenCount、最小 token 门槛）：  
   - https://ai.google.dev/gemini-api/docs/caching/  
   - https://docs.cloud.google.com/vertex-ai/generative-ai/docs/context-cache/context-cache-overview
@@ -455,12 +469,17 @@ Compaction v2 的推荐开关（示例命名；实施时对齐现有 Flag/Config
 ### 11.4 轻量小模型（Worker/子会话）生态（用于选型与自部署评估）
 
 > 注：这里只列“代表性入口”，具体选型要结合 license、语言、JSON/tool-call 可靠性与运行硬件。
+>
+> 决策记录（2026-02-03）：开发/测试阶段先用 `GLM4.7 Flash`（API）作为 worker；后续再评估自部署（候选：`Qwen3 4B`、`Ministral 3` 系列）。
 
 - Qwen2.5 Model Card（0.5B–72B，含 license 差异）：https://qwen2.org/qwen2-5/
 - Qwen2.5-Coder family（0.5B–32B 的 coder variants）：https://qwenlm.github.io/blog/qwen2.5-coder-family/
+- Qwen3 Technical Report（家族能力/训练与评测口径）：https://arxiv.org/abs/2505.09388
+- Qwen3 4B Instruct Model Card（具体 4B 版本的参数/用法/许可）：https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
 - Meta Llama model cards（含 Llama 3.2）：https://github.com/meta-llama/llama-models
 - Microsoft Phi-3 mini 128K instruct（3.8B）：https://ai.azure.com/catalog/models/Phi-3-mini-128k-instruct
 - Mistral 7B（Apache 2.0）：https://mistral.ai/news/announcing-mistral-7b/
+- Ministral 3（3B/8B/14B）官方型号列表与定位（docs）：https://docs.mistral.ai/getting-started/models
 
 ### 11.5 未来方向（模型级压缩研究：仅做参考，不作为 v2 主路线）
 
