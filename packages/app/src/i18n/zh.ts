@@ -560,6 +560,29 @@ export const dict = {
   "settings.permissions.tool.doom_loop.title": "Doom Loop",
   "settings.permissions.tool.doom_loop.description": "检测具有相同输入的重复工具调用",
 
+  "settings.memory.title": "记忆与数据",
+  "settings.memory.description": "管理您的数据隐私、记忆偏好与捐赠设置",
+  "settings.memory.section.donation": "数据捐赠 (Donation)",
+  "settings.memory.section.memory": "长期记忆 (Memory)",
+  "settings.memory.section.retention": "数据保留 (Retention)",
+  
+  "settings.memory.donation.title": "帮助改进模型",
+  "settings.memory.donation.description": "允许将脱敏后的非敏感数据用于模型训练与评测（默认关闭）",
+  
+  "settings.memory.autoSave.title": "自动保存记忆",
+  "settings.memory.autoSave.description": "允许系统自动提取并保存偏好（建议保持关闭，仅使用候选模式）",
+  
+  "settings.memory.candidates.title": "待确认记忆 ({{count}})",
+  "settings.memory.candidates.ignoreAll": "全部忽略",
+  
+  "settings.memory.retention.title": "本地数据保留期",
+  "settings.memory.retention.description": "超过该期限的会话证据将被清理（Pinned 会话除外）",
+  "settings.memory.retention.cleanup.button": "立即清理过期数据 (预览)",
+  "settings.memory.retention.option.7days": "7 天",
+  "settings.memory.retention.option.30days": "30 天",
+  "settings.memory.retention.option.90days": "90 天",
+  "settings.memory.retention.option.1year": "1 年",
+
   "session.delete.failed.title": "删除会话失败",
   "session.delete.title": "删除会话",
   "session.delete.confirm": '删除会话 "{{name}}"?',

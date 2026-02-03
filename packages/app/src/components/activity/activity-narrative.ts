@@ -130,51 +130,405 @@ function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeRe
 
     
 
-    function mapCache(item: ActivityItem): NarrativeResult {
-
-      if (item.status === "running") return { titleZh: "正在读取缓存…" }
-
-      return { titleZh: "命中缓存" }
-
-    }
+        function mapCompaction(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
 
     
 
-    function mapOther(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
-
-      const type = events[0]?.type || item.title
+          if (item.status === "failed") return { titleZh: "上下文压缩失败", severity: "error" }
 
     
 
-      if (type === "context.pack_built") {
+          if (item.status === "running") return { titleZh: "正在压缩上下文…" }
 
-        return { titleZh: "上下文包已就绪", subtitleZh: "已生成 context-pack.json", isMilestone: true, isNoise: false }
+    
 
-      }
+    
 
+    
 
+          if (events.some(e => e.type === "compaction.degraded")) {
 
-  if (type.startsWith("sandbox.") || type.startsWith("policy.")) {
+    
 
-    return { titleZh: "系统事件", subtitleZh: type, isNoise: true }
+            return { titleZh: "上下文压缩已降级", severity: "warning" }
 
-  }
+    
 
+          }
 
+    
 
-  if (type === "worktree.merge_skipped" || type === "evidence.macro_pack_merged") {
+          if (events.some(e => e.type === "compaction.timeout")) {
 
-    const title = type === "worktree.merge_skipped" ? "合并已跳过" : "宏包 已合并"
+    
 
-    return { titleZh: `里程碑：${title}`, subtitleZh: type, isMilestone: true, isNoise: false }
+            return { titleZh: "上下文压缩超时", severity: "warning" }
 
-  }
+    
 
+          }
 
+    
 
-  return { titleZh: "系统活动", subtitleZh: type, isNoise: true }
+          if (events.some(e => e.type === "compaction.cancelled")) {
 
-}
+    
+
+            return { titleZh: "上下文压缩已取消", severity: "warning" }
+
+    
+
+          }
+
+    
+
+    
+
+    
+
+          return { titleZh: "上下文压缩完成", severity: "success" }
+
+    
+
+        }
+
+    
+
+    
+
+    
+
+        function mapVerification(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
+    
+
+          if (item.status === "failed") return { titleZh: "验证任务失败", severity: "error" }
+
+    
+
+          if (item.status === "running") return { titleZh: "正在验证输出…" }
+
+    
+
+    
+
+    
+
+          if (events.some(e => e.type === "verification.degraded")) {
+
+    
+
+            return { titleZh: "验证已降级 (Best Effort)", severity: "warning" }
+
+    
+
+          }
+
+    
+
+          if (events.some(e => e.type === "verification.timeout")) {
+
+    
+
+            return { titleZh: "验证超时", severity: "warning" }
+
+    
+
+          }
+
+    
+
+          return { titleZh: "验证完成", severity: "success" }
+
+    
+
+        }
+
+    
+
+    
+
+    
+
+        function mapSecureOutput(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
+    
+
+          if (events.some(e => e.type === "protocol.violation")) {
+
+    
+
+            return { titleZh: "安全协议违规", subtitleZh: "输出未符合安全协议（格式解析/校验失败）", severity: "error" }
+
+    
+
+          }
+
+    
+
+          if (item.status === "failed") return { titleZh: "安全输出处理失败", severity: "error" }
+
+    
+
+          if (item.status === "running") return { titleZh: "正在生成安全输出…" }
+
+    
+
+    
+
+    
+
+          if (events.some(e => e.type === "secure_output.degraded")) {
+
+    
+
+            return { titleZh: "安全输出已降级", severity: "warning" }
+
+    
+
+          }
+
+    
+
+          return { titleZh: "安全输出已生成", severity: "success" }
+
+    
+
+        }
+
+    
+
+    
+
+    
+
+        function mapUsage(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
+    
+
+          if (events.some(e => e.type === "usage.normalized")) {
+
+    
+
+            return { titleZh: "用量已归一化", subtitleZh: "Token 统计已对账", isNoise: true }
+
+    
+
+          }
+
+    
+
+          return { titleZh: "用量统计", isNoise: true }
+
+    
+
+        }
+
+    
+
+    
+
+    
+
+        function mapCache(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
+    
+
+          const hit = events.find(e => e.type === "cache.hit")
+
+    
+
+          const miss = events.find(e => e.type === "cache.miss")
+
+    
+
+          const write = events.find(e => e.type === "cache.write")
+
+    
+
+          const config = events.find(e => e.type === "cache.config_effective")
+
+    
+
+    
+
+    
+
+          if (config) {
+
+    
+
+            const enabled = typeof config.data?.storeEnabled === "boolean" ? config.data.storeEnabled : null
+            const force = typeof config.data?.forceContextPack === "boolean" ? config.data.forceContextPack : null
+            const strict = typeof config.data?.strict === "boolean" ? config.data.strict : null
+            const flags = [
+              enabled === null ? "" : `SSOT:${enabled ? "开" : "关"}`,
+              force === null ? "" : `强制重建:${force ? "开" : "关"}`,
+              strict === null ? "" : `严格:${strict ? "开" : "关"}`,
+            ].filter((x) => x.length > 0)
+            const subtitle = flags.length > 0 ? flags.join(" · ") : "Default"
+
+            return { titleZh: "缓存配置生效", subtitleZh: subtitle, isNoise: true }
+
+    
+
+          }
+
+    
+
+    
+
+    
+
+          if (hit) {
+
+    
+
+            const reason = hit.data?.reason ? `(${hit.data.reason})` : ""
+
+    
+
+            return { titleZh: "命中缓存", subtitleZh: `跳过重复计算 ${reason}`, severity: "success" }
+
+    
+
+          }
+
+    
+
+          if (miss) {
+
+    
+
+            return { titleZh: "缓存未命中", subtitleZh: "执行完整计算", isNoise: true }
+
+    
+
+          }
+
+    
+
+          if (write) {
+
+    
+
+            return { titleZh: "写入缓存", subtitleZh: "已保存计算结果", isNoise: true }
+
+    
+
+          }
+
+    
+
+    
+
+    
+
+          if (item.status === "running") return { titleZh: "正在访问缓存…" }
+
+    
+
+          return { titleZh: "缓存操作完成" }
+
+    
+
+        }
+
+    
+
+    
+
+    
+
+        function mapOther(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+
+    
+
+          const type = events[0]?.type || item.title
+
+    
+
+    
+
+    
+
+          if (type.startsWith("compaction.")) return mapCompaction(item, events)
+
+    
+
+          if (type.startsWith("verification.")) return mapVerification(item, events)
+
+    
+
+          if (type.startsWith("secure_output.") || type === "protocol.violation") return mapSecureOutput(item, events)
+
+    
+
+          if (type.startsWith("usage.")) return mapUsage(item, events)
+
+    
+
+    
+
+    
+
+          if (type === "context.pack_built") {
+
+    
+
+            return { titleZh: "上下文包已就绪", subtitleZh: "已生成 context-pack.json", isMilestone: true, isNoise: false }
+
+    
+
+          }
+
+    
+
+    
+
+    
+
+          if (type.startsWith("sandbox.") || type.startsWith("policy.")) {
+
+    
+
+            return { titleZh: "系统事件", subtitleZh: type, isNoise: true }
+
+    
+
+          }
+
+    
+
+    
+
+    
+
+          if (type === "worktree.merge_skipped" || type === "evidence.macro_pack_merged") {
+
+    
+
+            const title = type === "worktree.merge_skipped" ? "合并已跳过" : "宏包已合并"
+
+    
+
+            return { titleZh: `里程碑：${title}`, subtitleZh: type, isMilestone: true, isNoise: false }
+
+    
+
+          }
+
+    
+
+    
+
+    
+
+          return { titleZh: "系统活动", subtitleZh: type, isNoise: true }
+
+    
+
+        }
 
 
 
@@ -232,7 +586,7 @@ export function mapActivityItem(item: ActivityItem): NarrativeResult {
 
       break
     case "cache":
-      result = mapCache(item)
+      result = mapCache(item, item.events)
       break
     case "other":
       result = mapOther(item, item.events)
@@ -252,12 +606,41 @@ export function mapActivityItem(item: ActivityItem): NarrativeResult {
   return result
 }
 
+export function getFailureSuggestions(item: ActivityItem): string[] {
+  if (item.status !== "failed") return []
+
+  const suggestions: string[] = []
+  const events = item.events
+
+  if (events.some(e => e.type.startsWith("cache."))) {
+    suggestions.push("尝试禁用缓存重试 (--no-cache)")
+  }
+
+  if (events.some(e => e.type.startsWith("compaction."))) {
+    suggestions.push("尝试强制重建上下文 (Force Rebuild)")
+  }
+
+  if (events.some(e => e.type.startsWith("secure_output.") || e.type === "protocol.violation")) {
+    suggestions.push("检查敏感信息策略设置")
+  }
+  
+  if (events.some(e => e.type.startsWith("verification."))) {
+    suggestions.push("尝试切换至严格模式 (Strict Mode)")
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push("查看详细日志以排查问题")
+  }
+
+  return suggestions
+}
+
 function isLikelySha(value: string) {
   return /^[a-f0-9]{7,64}$/i.test(value)
 }
 
 export function extractPointers(events: readonly EventV1[]): NarrativePointer[] {
-  const keys = new Set([
+  const stringKeys = new Set([
     "artifact",
     "manifestPath",
     "manifest",
@@ -267,28 +650,75 @@ export function extractPointers(events: readonly EventV1[]): NarrativePointer[] 
     "sha256",
     "filePath",
     "directory",
+    "namespace",
+    "key",
+    "decision",
+    "tier",
+    "reason",
+    "cachedContentId",
+    "cachedContentKey",
   ])
 
   const out: NarrativePointer[] = []
   const seen = new Set<string>()
 
+  const push = (key: string, value: string) => {
+    const next = value.trim()
+    if (!next) return
+    const sig = `${key}:${next}`
+    if (seen.has(sig)) return
+    seen.add(sig)
+    out.push({ key, value: next })
+  }
+
+  const pushPointerObject = (key: string, value: unknown) => {
+    if (!value || typeof value !== "object") return
+    const obj = value as Record<string, unknown>
+    const path = typeof obj.path === "string" ? obj.path : ""
+    const sha256 = typeof obj.sha256 === "string" ? obj.sha256 : ""
+    const kind = typeof obj.kind === "string" ? obj.kind : ""
+    if (path) push(`${key}.path`, path)
+    if (sha256) push(`${key}.sha256`, sha256)
+    if (kind) push(`${key}.kind`, kind)
+  }
+
   for (const e of events) {
     if (!e.data) continue
     for (const [k, v] of Object.entries(e.data)) {
-      if (typeof v !== "string") continue
-      const value = v.trim()
-      if (!value) continue
+      if (typeof v === "string") {
+        const value = v.trim()
+        const take =
+          stringKeys.has(k) ||
+          value.includes(".opencode/") ||
+          ((k.toLowerCase().includes("sha") || k.toLowerCase().includes("hash")) && isLikelySha(value))
+        if (!take) continue
+        push(k, value)
+        continue
+      }
 
-      const take =
-        keys.has(k) ||
-        value.includes(".opencode/") ||
-        ((k.toLowerCase().includes("sha") || k.toLowerCase().includes("hash")) && isLikelySha(value))
-      if (!take) continue
+      if (typeof v === "number" || typeof v === "boolean") {
+        if (!stringKeys.has(k)) continue
+        push(k, String(v))
+        continue
+      }
 
-      const sig = `${k}:${value}`
-      if (seen.has(sig)) continue
-      seen.add(sig)
-      out.push({ key: k, value })
+      if (k === "artifact") {
+        pushPointerObject(k, v)
+        continue
+      }
+
+      if (k === "cache") {
+        const obj = typeof v === "object" && v ? (v as Record<string, unknown>) : null
+        const namespace = typeof obj?.namespace === "string" ? obj.namespace : ""
+        const key = typeof obj?.key === "string" ? obj.key : ""
+        const decision = typeof obj?.status === "string" ? obj.status : typeof obj?.decision === "string" ? obj.decision : ""
+        const tier = typeof obj?.tier === "string" ? obj.tier : ""
+        if (namespace) push("cache.namespace", namespace)
+        if (key) push("cache.key", key)
+        if (decision) push("cache.decision", decision)
+        if (tier) push("cache.tier", tier)
+        continue
+      }
     }
   }
 
