@@ -654,7 +654,10 @@ export namespace SessionPrompt {
           const ledger = await ContextLedger.read(sessionID)
 
           const preferredText = await iife(async () => {
-            const stored = ledger.lastCapsuleRendered?.path
+            const stored =
+              Flag.OPENCODE_EXPERIMENTAL_CAPSULE_LLM
+                ? ledger.lastCapsuleAssistedRendered?.path ?? ledger.lastCapsuleRendered?.path
+                : ledger.lastCapsuleRendered?.path
             if (!stored) return undefined
             const abs = path.join(baseDir, stored)
             const text = await Bun.file(abs).text().catch(() => "")

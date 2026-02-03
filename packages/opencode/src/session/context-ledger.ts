@@ -21,6 +21,15 @@ const Handoff = z
   })
   .strict()
 
+const AssistedMeta = z
+  .object({
+    ok: z.boolean(),
+    generatedAtUtc: z.string().min(1),
+    model: z.string().min(1).optional(),
+    compactionId: z.string().min(1).optional(),
+  })
+  .strict()
+
 const Ledger = z
   .object({
     specVersion: z.literal("context-ledger/1.0"),
@@ -29,12 +38,28 @@ const Ledger = z
     lastContextPackId: z.string().min(1).optional(),
     lastCapsuleSession: CapsulePtr.optional(),
     lastCapsuleRendered: CapsulePtr.optional(),
+    lastCapsuleAssisted: CapsulePtr.optional(),
+    lastCapsuleAssistedRendered: CapsulePtr.optional(),
+    lastCapsuleAssistedInput: CapsulePtr.optional(),
+    lastCapsuleAssistedMeta: AssistedMeta.optional(),
     handoffs: z.array(Handoff).optional(),
   })
   .strict()
 
 type Ledger = z.infer<typeof Ledger>
-type Patch = Partial<Pick<Ledger, "lastContextPackId" | "lastCapsuleSession" | "lastCapsuleRendered" | "handoffs">>
+type Patch = Partial<
+  Pick<
+    Ledger,
+    | "lastContextPackId"
+    | "lastCapsuleSession"
+    | "lastCapsuleRendered"
+    | "lastCapsuleAssisted"
+    | "lastCapsuleAssistedRendered"
+    | "lastCapsuleAssistedInput"
+    | "lastCapsuleAssistedMeta"
+    | "handoffs"
+  >
+>
 
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
 
@@ -75,6 +100,16 @@ export const ContextLedger = {
       ...(input.patch.lastContextPackId === undefined ? {} : { lastContextPackId: input.patch.lastContextPackId }),
       ...(input.patch.lastCapsuleSession === undefined ? {} : { lastCapsuleSession: input.patch.lastCapsuleSession }),
       ...(input.patch.lastCapsuleRendered === undefined ? {} : { lastCapsuleRendered: input.patch.lastCapsuleRendered }),
+      ...(input.patch.lastCapsuleAssisted === undefined ? {} : { lastCapsuleAssisted: input.patch.lastCapsuleAssisted }),
+      ...(input.patch.lastCapsuleAssistedRendered === undefined
+        ? {}
+        : { lastCapsuleAssistedRendered: input.patch.lastCapsuleAssistedRendered }),
+      ...(input.patch.lastCapsuleAssistedInput === undefined
+        ? {}
+        : { lastCapsuleAssistedInput: input.patch.lastCapsuleAssistedInput }),
+      ...(input.patch.lastCapsuleAssistedMeta === undefined
+        ? {}
+        : { lastCapsuleAssistedMeta: input.patch.lastCapsuleAssistedMeta }),
       ...(input.patch.handoffs === undefined ? {} : { handoffs: input.patch.handoffs }),
       specVersion: "context-ledger/1.0",
       sessionId: input.sessionId,

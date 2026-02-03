@@ -3,7 +3,7 @@ type Limits = {
   diskMaxEntries: number
 }
 
-type Namespace = "retrieval" | "verification" | "context-pack" | "context-blocks"
+type Namespace = "retrieval" | "verification" | "context-pack" | "context-blocks" | "capsule-assisted"
 
 type Effective = {
   storeEnabled: boolean
@@ -46,6 +46,7 @@ export const CachePolicy = {
     if (namespace === "retrieval") return 30 * 60 * 1000
     if (namespace === "verification") return 24 * 60 * 60 * 1000
     if (namespace === "context-pack" || namespace === "context-blocks") return 2 * 60 * 60 * 1000
+    if (namespace === "capsule-assisted") return 6 * 60 * 60 * 1000
     return 0
   },
 
@@ -55,4 +56,3 @@ export const CachePolicy = {
     return { enabled: cfg.storeEnabled, force }
   },
 }
-

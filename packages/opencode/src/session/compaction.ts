@@ -20,6 +20,7 @@ import path from "path"
 import { ContextLedger } from "./context-ledger"
 import { withTimeout } from "@/util/timeout"
 import { Capsule } from "./capsule"
+import { CapsuleAssistedRunner } from "./capsule-assisted"
 
 export namespace SessionCompaction {
   const log = Log.create({ service: "session.compaction" })
@@ -472,6 +473,23 @@ export namespace SessionCompaction {
             delta: finalReport.delta,
           },
           redaction: { applied: true, policyVersion: "v1" },
+        })
+
+        void CapsuleAssistedRunner.runFromCompaction({
+          sessionId: input.sessionID,
+          compactionId,
+          parentId: input.parentID,
+          hintText: capsuleRendered,
+          modelFallback: { providerID: user.model.providerID, modelID: user.model.modelID },
+          artifacts: [
+            { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
+            { path: capsuleSessionEntry.path, sha256: capsuleSessionEntry.sha256, kind: capsuleSessionEntry.kind },
+            { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },
+            { path: inputEntry.path, sha256: inputEntry.sha256, kind: inputEntry.kind },
+            { path: reportEntry.path, sha256: reportEntry.sha256, kind: reportEntry.kind },
+          ],
+        }).catch((error) => {
+          log.warn("capsule assisted failed", { error })
         })
 
         await Session.updatePart({
