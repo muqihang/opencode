@@ -20,6 +20,9 @@ const ALLOWLIST_KINDS = new Set([
   "event-log",
   "execpolicy-eval",
   "worktree-patch",
+  "compaction-capsule-assisted",
+  "compaction-capsule-assisted-view",
+  "compaction-capsule-assisted-verify",
 ])
 
 const EVIDENCE_FILES = new Set(["pack.json", "pack.md", "manifest.json", "events.jsonl", "micro-pack.json"])
@@ -124,6 +127,12 @@ function classifyEntry(entry: { path: string; sessionId: string }) {
   if (parts[0] === ".opencode" && parts[1] === "artifacts" && parts[2] === entry.sessionId) {
     const rel = parts.slice(3).join("/")
     if (rel.startsWith("policy/") || rel.startsWith("worktree/")) {
+      return { kind: "artifact", rel }
+    }
+    if (
+      rel.startsWith("compaction/") &&
+      (rel.endsWith("/capsule.assisted.md") || rel.endsWith("/capsule.assisted.json") || rel.endsWith("/capsule.assisted.verify.json"))
+    ) {
       return { kind: "artifact", rel }
     }
     return null

@@ -58,7 +58,12 @@ const pointerPath = (value: unknown) => {
 
 const normRel = (value: string) => value.replace(/\\/g, "/").replace(/\/+/g, "/")
 
-const isCapsuleRef = (ref: string) => ref.endsWith("capsule.session.json") || ref.endsWith("capsule.handoff.json")
+const isCapsuleRef = (ref: string) =>
+  ref.endsWith("capsule.session.json") ||
+  ref.endsWith("capsule.handoff.json") ||
+  ref.endsWith("capsule.assisted.json") ||
+  ref.endsWith("capsule.assisted.md") ||
+  ref.endsWith("capsule.assisted.verify.json")
 
 const exportArtifactPath = (input: { sessionId: string; ref: string }) => {
   const normalized = normRel(input.ref)
@@ -99,7 +104,7 @@ export const verifyOfflineExportEvidenceChain = async (input: {
   return verifyEvidenceChain({
     entries: required.map((p) => ({ path: p, kind: "export:required" })),
     existing,
-    headerZh: "证据断链：导出目录缺失被引用的 capsule/handoff 产物（引用了就不断链）",
+    headerZh: "证据断链：导出目录缺失被引用的 capsule/handoff/assisted 产物（引用了就不断链）",
   })
 }
 

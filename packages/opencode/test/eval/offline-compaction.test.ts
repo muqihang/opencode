@@ -63,6 +63,38 @@ describe("eval.offline > export capsule/handoff chain", () => {
     expect(result.errorZh).toContain("artifacts/compaction/C0/capsule.session.json")
   })
 
+  test("fails when manifest references capsule.assisted.json but export dir missing it", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const sessionId = "ses"
+    const exportDir = path.join(tmp.path, "export")
+
+    await fs.mkdir(exportDir, { recursive: true })
+    await Bun.write(
+      path.join(exportDir, "manifest.json"),
+      JSON.stringify(
+        manifestJson({
+          sessionId,
+          entries: [
+            {
+              path: `.opencode/artifacts/${sessionId}/compaction/C0/capsule.assisted.json`,
+              kind: "compaction-capsule-assisted",
+            },
+          ],
+        }),
+      ),
+    )
+
+    const verify = (offline as unknown as { verifyOfflineExportEvidenceChain?: Verify }).verifyOfflineExportEvidenceChain
+    expect(typeof verify).toBe("function")
+    if (typeof verify !== "function") return
+
+    const result = await verify({ exportDir, sessionId })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errorZh).toContain("capsule.assisted.json")
+    expect(result.errorZh).toContain("artifacts/compaction/C0/capsule.assisted.json")
+  })
+
   test("fails when pack capsule pointers reference capsule.handoff.json but export dir missing it", async () => {
     await using tmp = await tmpdir({ git: true })
     const sessionId = "ses"
@@ -90,5 +122,32 @@ describe("eval.offline > export capsule/handoff chain", () => {
     expect(result.errorZh).toContain("capsule.handoff.json")
     expect(result.errorZh).toContain("artifacts/handoff/child/capsule.handoff.json")
   })
-})
 
+  test("fails when pack capsule pointers reference capsule.assisted.md but export dir missing it", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const sessionId = "ses"
+    const exportDir = path.join(tmp.path, "export")
+
+    await fs.mkdir(exportDir, { recursive: true })
+    await Bun.write(path.join(exportDir, "manifest.json"), JSON.stringify(manifestJson({ sessionId, entries: [] })))
+    await Bun.write(
+      path.join(exportDir, "pack.json"),
+      JSON.stringify(
+        packJson({
+          sessionId,
+          pointers: [{ kind: "capsule-assisted-view", ref: "compaction/C0/capsule.assisted.md" }],
+        }),
+      ),
+    )
+
+    const verify = (offline as unknown as { verifyOfflineExportEvidenceChain?: Verify }).verifyOfflineExportEvidenceChain
+    expect(typeof verify).toBe("function")
+    if (typeof verify !== "function") return
+
+    const result = await verify({ exportDir, sessionId })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errorZh).toContain("capsule.assisted.md")
+    expect(result.errorZh).toContain("artifacts/compaction/C0/capsule.assisted.md")
+  })
+})
