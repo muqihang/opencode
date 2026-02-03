@@ -442,8 +442,9 @@ Compaction v2 的推荐开关（示例命名；实施时对齐现有 Flag/Config
 > 注：这些更贴近 “agent 侧的上下文压缩 / 可解释策略 / 抗漂移”，但仍需结合本仓库的 SSOT/证据链/门禁约束做取舍。
 
 - Active Context Compression（2026）：https://arxiv.org/abs/2601.07190
-- Adaptive Context Compression（ACON, 2025）：https://arxiv.org/abs/2510.08907
-- Semantic-aware Context Compression for LLM-based agentic systems（SAC, 2025）：https://arxiv.org/abs/2503.07178
+- ACON: Optimizing Context Compression for Long-horizon LLM Agents（2025）：https://arxiv.org/abs/2510.00615
+- Semantic-Anchor Compression（SAC, 2025）：https://arxiv.org/abs/2510.08907
+- PAACE: A Plan-Aware Automated Agent Context Engineering Framework（2025）：https://arxiv.org/abs/2512.16970
 
 ### 11.1 为什么“长上下文 ≠ 质量线性提升”
 
