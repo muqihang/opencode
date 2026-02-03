@@ -37,3 +37,4 @@ packages/opencode/bin/opencode.backup
 .opencode/evidence/
 .opencode/worktrees/
 .opencode/artifacts/
+**/.opencode/evals/

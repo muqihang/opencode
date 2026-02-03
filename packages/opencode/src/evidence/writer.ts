@@ -112,6 +112,33 @@ const RollbackInput = z
   })
   .strict()
 
+const PointerInput = z.union([
+  z.string().min(1),
+  z
+    .object({
+      kind: z.string().min(1),
+      ref: z.string().min(1),
+      label: z.string().min(1).optional(),
+    })
+    .strict(),
+])
+
+const CapsuleInput = z
+  .object({
+    pointers: z.array(PointerInput),
+    openQuestions: z.array(z.string().min(1)),
+  })
+  .strict()
+
+const TaskInput = z
+  .object({
+    title: z.string().min(1),
+    intent: z.string().min(1),
+    successCriteria: z.array(z.string().min(1)),
+    constraints: z.array(z.string().min(1)).optional(),
+  })
+  .strict()
+
 const Entry = z
   .object({
     path: z.string().min(1),
@@ -626,6 +653,16 @@ export const EvidenceWriter = {
     return {
       event,
       artifact,
+      capsule: (inputCapsule: z.infer<typeof CapsuleInput>) => {
+        const next = CapsuleInput.parse(inputCapsule)
+        capsule = { ...capsule, pointers: next.pointers, openQuestions: next.openQuestions }
+        return capsule
+      },
+      task: (inputTask: z.infer<typeof TaskInput>) => {
+        const next = TaskInput.parse(inputTask)
+        task = next
+        return task
+      },
       claim: async (inputClaim: z.infer<typeof ClaimInput>) => {
         const claim = ClaimInput.parse(inputClaim)
         const index = claims.findIndex((item) => item.id === claim.id)

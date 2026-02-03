@@ -136,7 +136,8 @@ export const runCodeRetrieval = async (input: {
   }
 
   const sample = files[0]
-  const lspReady = sample ? await LSP.hasClients(path.join(input.root, sample)) : false
+  const lspDisabled = process.env["OPENCODE_DISABLE_LSP"] === "1"
+  const lspReady = !lspDisabled && sample ? await LSP.hasClients(path.join(input.root, sample)) : false
   if (lspReady) {
     for (const query of input.queries) {
       if (input.abort.aborted) break

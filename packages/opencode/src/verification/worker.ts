@@ -128,7 +128,7 @@ const joinHints = (items: VerificationReason[]) => {
 }
 
 const buildView = (report: z.infer<typeof VerificationReport>) => {
-  const modeMap: Record<string, string> = { strict: "严格", balanced: "均衡" }
+  const modeMap: Record<string, string> = { strict: "严格", balanced: "均衡", loose: "宽松" }
   const statusMap: Record<string, string> = { supported: "可验证", unsupported: "不支持", unknown: "未知" }
   const modeLabel = modeMap[report.mode] ?? report.mode
   const resultLabel = report.ok ? "通过" : "未通过"
