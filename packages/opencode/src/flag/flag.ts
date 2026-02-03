@@ -52,6 +52,8 @@ export namespace Flag {
   export const OPENCODE_DISABLE_FILETIME_CHECK = truthy("OPENCODE_DISABLE_FILETIME_CHECK")
   export const OPENCODE_EXPERIMENTAL_PLAN_MODE = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_PLAN_MODE")
   export const OPENCODE_MODELS_URL = process.env["OPENCODE_MODELS_URL"]
+  export const OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT = truthy("OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT")
+  export const OPENCODE_DISABLE_HANDOFF_HINTS = truthy("OPENCODE_DISABLE_HANDOFF_HINTS")
 
   function number(key: string) {
     const value = process.env[key]
