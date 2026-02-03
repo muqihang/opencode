@@ -30,6 +30,7 @@ import { Auth } from "@/auth"
 import { ContextPackBuilder } from "./context-pack"
 import { ContextBlocks } from "./context-blocks"
 import { DecisionBoundary } from "./decision-boundary"
+import { SecureOutputContract } from "./secure-output-contract"
 import { runRetrieval } from "@/retrieval/runner"
 import { ulid } from "ulid"
 
@@ -101,7 +102,7 @@ export namespace LLM {
         ? ""
         : SystemPrompt.provider(input.model).join("\n\n")
     const codexInstructions = isCodex ? SystemPrompt.instructions() : ""
-    const developerText = [codexInstructions, providerPrompt].filter((x) => x.trim().length > 0).join("\n\n")
+    const developerText = [codexInstructions, providerPrompt, SecureOutputContract.text].filter((x) => x.trim().length > 0).join("\n\n")
     const permissionRules = (input.permission ?? input.agent.permission)
       .map((rule) => ({
         permission: rule.permission,
