@@ -449,24 +449,24 @@ function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeRe
     
 
           if (type.startsWith("handoff.")) {
-            const data = events[0]?.data as any
-            const childSessionId = data?.childSessionId
-            const appliedFilesCount = Array.isArray(data?.appliedFiles) ? data.appliedFiles.length : 0
+            const data = events[0]?.data
+            const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : undefined
+            const child = typeof obj?.childSessionId === "string" ? obj.childSessionId : undefined
+            const raw = Array.isArray(obj?.appliedFiles) ? obj.appliedFiles : []
+            const files = raw.filter((v): v is string => typeof v === "string")
+            const count = files.length
 
-            let subtitleZh: string | undefined
-            if (childSessionId) {
-              subtitleZh = `会话 ID: ${childSessionId}`
-            }
-            if (appliedFilesCount > 0) {
-              const fileStr = `${appliedFilesCount} 个文件`
-              subtitleZh = subtitleZh ? `${subtitleZh} · ${fileStr}` : fileStr
-            }
+            const parts = [
+              child ? `会话 ID: ${child}` : "",
+              count > 0 ? `${count} 个文件` : "",
+            ].filter((s) => s.length > 0)
+            const subtitleZh = parts.length > 0 ? parts.join(" · ") : undefined
 
             return {
               titleZh: "已生成交接摘要",
               subtitleZh,
               severity: "success",
-              isNoise: false
+              isNoise: false,
             }
           }
 
