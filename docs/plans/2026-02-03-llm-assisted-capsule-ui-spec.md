@@ -1,141 +1,138 @@
-# LLM-assisted Capsule UI/UX Specification (v2.0: Axiom Aligned)
+# LLM-assisted Capsule UI/UX Specification (v2.1: Axiom Final)
 
-> **Version**: 2.0 (Axiom Aligned)
-> **Date**: 2026-02-03
+> **Version**: 2.1 (Production Ready)
 > **Status**: APPROVED
-> **Philosophy**: "Truth, Computed." —— 强调确定性、物理实感与真理锚点。
+> **Philosophy**: "Axiom Truth" —— 视觉上强调物理质感，逻辑上强调可核验性。
 
-本文档定义了 **Axiom Truth Capsule（AI 真理胶囊）** 的用户界面规范。它必须遵循 **"Magic & Physics"** 设计哲学，将 AI 的建议从“虚无的文本”转化为“可触碰的真理”。
-
----
-
-## 1. 入口：能量的凝结 (The Entry)
-
-在 Activity 流中，该胶囊不是一张普通的卡片，它是一枚 **"Truth Seal" (真理印记)**。
-
-### 1.1 Activity Item (The Seal)
-*   **Visual**: 不使用通用图标。使用 **Axiom Logo (垂直中轴 + 核心圆点)**。
-*   **Motion**: 当生成完成时，它应该有一个 **"Spring Snap" (弹簧吸附)** 的入场动画，仿佛一枚印章盖在了时间轴上。
-*   **Color Logic**:
-    *   **Success**: `var(--axiom-dark)` (深蓝，代表确定性)。
-    *   **Degraded**: `Amber-600` (琥珀色，代表警示)。
-    *   **Failed**: `Red-600` (红色，代表阻断)。
-
-### 1.2 叙事状态 (Narrative State)
-
-| 状态 | 标题 (Headline) | 摘要 (Summary) | 视觉隐喻 |
-| :--- | :--- | :--- | :--- |
-| **Running** | **正在推演...** | [Neuro-Link Jitter] | **Living Beam**: 蓝色光柱正在呼吸与震颤。 |
-| **Success** | **真理胶囊 (可核验)** | 共 3 条决策 · 1 个待定项 | **Ceramic Card**: 纯白陶瓷卡片，带有深蓝印记。 |
-| **Degraded**| **推演降级** | 部分证据链断裂 | **Fractured Glass**: 卡片边缘带有琥珀色微光。 |
+本文档定义了 **Axiom Truth Capsule（AI 真理胶囊）** 的用户界面规范。它结合了 "Living Organism" 的动效设计与严格的产品逻辑约束。
 
 ---
 
-## 2. 详情面板：陶瓷与蓝图 (The Ceramic Panel)
+## 1. 核心原则 (Core Principles)
 
-点击印记后，展开详情面板。这不应该是一个弹窗，而应该像 **"展开图纸"** 一样自然铺开。
+1.  **非事实声明**: UI 必须处处暗示“这是 AI 的推演，请核验”。标题强制使用 **“AI 建议 (可核验)”**。
+2.  **未知可见性**: `unknown` 条目严禁静默丢弃。它们是风险提示的一部分，必须以 **琥珀色 (Amber)** 醒目展示。
+3.  **真理锚点**: 每一条决策建议必须附带 **引用来源 (Evidence)**，点击可溯源。
 
-### 2.1 头部 (Header)
-*   **Title**: **AI 建议要点** (Serif 字体，强调严肃性)。
-*   **Action**: `[复制蓝图]` (Copy Blueprint)。不叫“复制要点”，叫“蓝图”，暗示其结构化属性。
+---
 
-### 2.2 信息层级 (The Content Flow)
+## 2. 交互形态 (Interaction Flow)
 
-内容区采用 **"Swiss Print" (瑞士印刷)** 风格：高对比度、清晰的网格。
+### 2.1 入口：真理印记 (The Truth Seal)
+在 Activity 流中，表现为一个高密度的印记组件。
+
+*   **视觉**: 左侧垂直轴线贯穿，印记吸附在轴线上。
+*   **状态色**:
+    *   **Success**: `Axiom Blue` (工程蓝) —— 信心充足。
+    *   **Degraded**: `Amber` (琥珀色) —— 证据链不完整。
+    *   **Failed**: `Red` (红色) —— 推演中断。
+
+### 2.2 展开：蓝图铺开 (Unfolding Blueprint)
+点击印记，详情面板在下方**原位展开**（手风琴效果），而非弹窗。背景色微微加深，形成“聚焦感”。
+
+---
+
+## 3. 详情面板结构 (The Panel)
+
+### 3.1 头部 (Header)
+*   **Title**: **AI 建议要点** (Serif 字体)。
+*   **Subtitle**: "以下内容基于当前上下文推演，请人工核实。" (灰色小字)。
+*   **Action**: `[复制蓝图]` 按钮 (Copy Markdown)。
+
+### 3.2 内容区域 (The Body)
+
+分为三个严格的物理区域：
 
 #### A 区：已决之理 (Decisions) —— "The Solid"
 *   **Icon**: ✅ (实心蓝)。
-*   **Typography**: `font-weight: 500`，深黑色。
-*   **Truth Anchors (真理锚点)**:
-    *   引用不再是 `[Ref]` 这种极客写法。
-    *   **UI 组件**: **"Chip" (胶囊)**。
-    *   **Style**: 浅蓝色背景 (`#EFF6FF`)，深蓝文字。
-    *   **Interaction**: Hover 时，胶囊会有微弱的 **"Magnetic Lift" (磁吸上浮)** 效果。
+*   **Style**: 正常黑色文本。
+*   **Evidence**: 文本下方跟随 **Truth Anchor Chips** (见下文)。
 
 #### B 区：未决之疑 (Open Questions) —— "The Fluid"
 *   **Icon**: ❓ (空心灰)。
-*   **Typography**: `font-weight: 400`，深灰色。
-*   **Visual**: 每一项前面带有一个虚线圆圈，暗示“待填充”。
+*   **Style**: 灰色文本，带虚线边框，暗示“待填充”。
 
-#### C 区：未知 (Unknowns) —— "The Void"
-*   **Style**: 带有噪点的琥珀色背景块。
-*   **Metaphor**: "Data Corruption" (数据损坏)。不仅是警告，更是一种物理上的“不完整感”。
-
----
-
-## 3. 真理锚点：交互物理学 (Anchor Physics)
-
-当用户点击某个 **"Truth Anchor" (引用胶囊)** 时：
-
-### 3.1 证据透镜 (Evidence Lens)
-*   **Behavior**: 不是弹出一个方框。而是从胶囊中心**展开 (Expand)** 一个透镜层。
+#### C 区：未知/风险 (Unknowns) —— "The Void"
+*   **Visibility**: **默认可见**。如果超过 3 条，可折叠为 "展开剩余 N 条未知项"。
+*   **Style**: **琥珀色背景块** (`#FFFBEB`) + 橙色边框。
 *   **Content**:
-    *   **Source**: `packages/utils.ts` (Monospace).
-    *   **Fingerprint**: `SHA: a1b2c3` (像钞票上的防伪水印一样显示).
-    *   **Action**: `[Teleport]` (跳转)。不叫“打开”，叫“传送”，暗示瞬间到达。
-
-### 3.2 引用截断 (Smart Truncation)
-*   **Logic**: 保留文件名的“语义部分”。
-    *   `.../src/components/Button.tsx` -> **Button.tsx** (加粗) in `components`
+    *   文本: `[原问题描述]`
+    *   **Reason**: ⚠️ **无法核验**: `[unknownReasonZh]` (例如: "引用文件不存在")。
 
 ---
 
-## 4. 文案系统：严谨的诗意 (The Voice of Axiom)
+## 4. 组件规范：真理锚点 (Truth Anchors)
 
-### 4.1 状态词典
-*   `Running` -> **正在推演 (Reasoning)**
-*   `Success` -> **推演完成 (Reasoned)**
-*   `Degraded` -> **证据链不完整 (Evidence Incomplete)**
-*   `Unknown` -> **无法溯源 (Untraceable)**
+### 4.1 视觉样式
+*   不再是简单的 `[Link]` 文字。
+*   **组件**: `Chip` (胶囊)。
+*   **外观**: 浅蓝背景 (`#EFF6FF`)，深蓝文字，带有一个微小的文件图标。
+*   **文本**: `📄 store.ts` (文件名) 或 `📑 RFC-003` (标题)。
 
-### 4.2 降级解释 (Degraded Reasons)
-*   `ref_unresolvable`: **证据丢失 (Evidence Lost)** - 原文件已不在该坐标。
-*   `sha_mismatch`: **版本冲突 (Version Conflict)** - 文件内容已发生物理变动。
+### 4.2 交互逻辑 (The Lens)
+*   **Hover/Click**: 触发 **"Evidence Lens" (证据透镜)**。
+*   **Lens Content**:
+    *   **Path**: `packages/server/src/store.ts`
+    *   **Version**: `SHA: a1b2c3` (防伪指纹)
+    *   **Action**: `[复制路径]` / `[打开文件]`
+
+---
+
+## 5. 文案与状态映射 (Copywriting)
+
+| 后端状态 | UI 标题 | 状态解释文案 | 颜色 |
+| :--- | :--- | :--- | :--- |
+| `success` | **AI 建议要点 (可核验)** | 共 N 条决策 · M 个待定项 | Blue |
+| `degraded` | **AI 建议 (已降级)** | 部分引用无法溯源，请谨慎采纳 | Amber |
+| `failed` | **推演中断** | 建议生成失败，请检查日志 | Red |
 
 ---
 
-## 5. 产物格式：结构化蓝图 (The Blueprint)
+## 6. 数据契约 (Backend Schema)
 
-当点击 `[复制蓝图]` 时，生成格式如下：
+```typescript
+interface CapsulePayload {
+  status: 'success' | 'degraded' | 'failed';
+  degradedReasonZh?: string; // e.g. "Token limit exceeded"
+  
+  items: {
+    type: 'decision' | 'question';
+    status: 'known' | 'unknown';
+    text: string;
+    unknownReasonZh?: string; // 关键: 为什么 unknown
+    evidenceIndices: number[]; // 指向 anchors
+  }[];
 
-```markdown
-# Axiom Summary (2026-02-03)
-
-## ✅ 已决之理 (Decisions)
-- [x] 迁移 Context Store 至 SQLite
-  > 依据: `packages/server/src/store/context.ts` (SHA: a1b2c3)
-
-## ❓ 未决之疑 (Open Questions)
-- [ ] SQLite 版本锁定策略
-  > 依据: `.env.development`
-
----
-*Generated by Axiom Engine. Verified.*
+  anchors: {
+    path: string;
+    sha256?: string;
+    kind: 'file' | 'diff' | 'issue';
+  }[];
+}
 ```
 
 ---
 
-## 6. 后端契约 (Data Contract)
+## 7. 完整示例 (Mockups)
 
-*(保持原文档逻辑，仅统一命名风格)*
+### 示例 A：完美推演 (Happy Path)
+> **✅ 已形成的决策**
+> *   将 Context Store 迁移至 SQLite
+>     *   `[📄 store.ts]` `[📑 RFC-003]`
+>
+> **❓ 仍待确认的问题**
+> *   确认 SQLite 版本锁定策略
+>     *   `[⚙️ .env]`
 
-1.  **`items`**: 包含 `Decisions` 和 `Questions`。
-2.  **`anchors` (原 evidence)**: 所有的引用池。我们称之为“锚点”。
-3.  **`integrity` (原 meta)**: 完整性校验。
-
----
-
-## 7. 视觉验收标准 (Visual QA)
-
-### 场景 A：完美推演 (Perfect Reasoning)
-*   **Activity**: 深蓝色实心圆点。标题为 **"真理胶囊 (可核验)"**。
-*   **Panel**: 纯白背景。每一个引用胶囊都清晰可见，点击时有弹簧回馈。
-
-### 场景 B：熵增降级 (Entropy Increase)
-*   **Activity**: 琥珀色空心圆环。标题为 **"推演降级"**。
-*   **Panel**: 顶部出现琥珀色横幅：“部分证据链已断裂”。丢失引用的条目呈半透明状 (`opacity: 0.6`)。
+### 示例 B：含未知项 (With Unknowns)
+> **✅ 已形成的决策**
+> *   (略)...
+>
+> **⚠️ 存在未知项 (Unknowns)**
+> *   [?] 是否需要兼容 IE11
+>     *   ⚠️ **无法核验**: 项目文档未提及浏览器兼容性标准。
 
 ---
 
 *Spec Updated by Chief Design Officer.*
-*Aligned with Axiom Design System v3.3*
+*Aligned with Axiom Design System v3.3 & Product Logic.*
