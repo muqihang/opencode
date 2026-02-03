@@ -5,6 +5,9 @@ import { stableJson } from "@/util/stable-json"
 import { EvidenceWriter } from "@/evidence/writer"
 import { Instance } from "@/project/instance"
 import { defer } from "@/util/defer"
+import { CacheStore } from "@/cache/store"
+import { CachePolicy } from "@/cache/policy"
+import { sha256Text } from "@/routing/cache"
 import { runCodeRetrieval } from "./code"
 import { runWorkbenchRetrieval } from "./workbench"
 import { resolveWorkspaceFingerprint } from "./workspace"
@@ -164,6 +167,36 @@ const writeCache = async (key: string, data: unknown) => {
   await Bun.write(cachePath(key), stableJson(data))
 }
 
+const storeScope = () => ({
+  projectId: Instance.project.id,
+  worktreeRoot: baseDir(),
+})
+
+const storeLimits = () => CachePolicy.limits()
+
+const storeTtlMs = () => CachePolicy.ttlMs("retrieval")
+
+const storeKey = (retrievalCacheKey: string) => {
+  const scope = storeScope()
+  return CacheStore.key({
+    namespace: "retrieval",
+    scope,
+    input: {
+      specVersion: "retrieval-code-cache-key/1.0",
+      retrievalCacheKey,
+      versions: { runner: "v2", stableJson: "v1" },
+    },
+  })
+}
+
+const storeArtifact = async (key: string) => {
+  const rel = [".opencode", "cache", "store", "retrieval", "entries", `${key}.json`].join("/")
+  const file = path.join(baseDir(), ...rel.split("/"))
+  const text = await Bun.file(file).text().catch(() => "")
+  if (!text) return
+  return { path: rel, sha256: sha256Text(text), kind: "cache-entry" }
+}
+
 const pointerFromHit = (value: unknown) => {
   if (!value || typeof value !== "object") return
   const hit = value as Record<string, unknown>
@@ -277,10 +310,27 @@ export const RetrievalRunner = {
     const plan = buildPlan(input.intentText)
     const cacheKey = retrievalCacheKey({ plan, workspace })
 
-    const writer = await EvidenceWriter.open({ sessionId: input.sessionId })
+    const seed = await EvidenceWriter.open({ sessionId: input.sessionId })
+    const cfg = CachePolicy.effective()
+    await seed.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: input.sessionId,
+      severity: "info",
+      actor: "cache:policy",
+      type: "cache.config_effective",
+      summary: "cache config effective",
+      data: {
+        storeEnabled: cfg.storeEnabled,
+        forceContextPack: cfg.forceContextPack,
+        strict: cfg.strict,
+        sources: cfg.sources,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
 
     if (superseded) {
-      await writer.event({
+      await seed.event({
         specVersion: "event/1.0",
         ts: new Date().toISOString(),
         sessionId: input.sessionId,
@@ -293,7 +343,7 @@ export const RetrievalRunner = {
       })
     }
 
-    await writer.event({
+    await seed.event({
       specVersion: "event/1.0",
       ts: new Date().toISOString(),
       sessionId: input.sessionId,
@@ -312,7 +362,7 @@ export const RetrievalRunner = {
     const artifactRoot = `.opencode/artifacts/${input.sessionId}`
     const strip = (value: string) => stripArtifactRoot({ artifactRoot, pointerPath: value })
 
-    const specEntry = await writer.artifact({
+    const specEntry = await seed.artifact({
       kind: "retrieval-spec",
       path: `retrieval/${retrievalId}/retrieval.spec.json`,
       data: stableJson({
@@ -328,23 +378,136 @@ export const RetrievalRunner = {
       }),
     })
 
-    const cached = await readCache(cacheKey)
+    const scope = storeScope()
+    const key = storeKey(cacheKey)
+    const store = CacheStore.open({
+      namespace: "retrieval",
+      scope,
+      limits: storeLimits(),
+    })
     const errors: Array<{ stage: string; error: string }> = []
-    const attempts = await (async () => {
-      if (cached) return { hits: cached.hits, dedupe: cached.dedupe, cacheHit: true, code: [], workbench: [] }
-      if (signal.aborted) return { hits: [], dedupe: undefined, cacheHit: false, code: [], workbench: [] }
+    const policy = CachePolicy.policy("retrieval")
+    const cached = await store.getOrCompute({
+      key,
+      ttlMs: storeTtlMs(),
+      policy: { enabled: policy.enabled, force: false },
+      compute: async () => {
+        if (signal.aborted) return { specVersion: "retrieval-code-cache/1.0", sessionId: input.sessionId, hits: [] }
+        const code = await runCodeRetrieval({
+          sessionId: input.sessionId,
+          retrievalId,
+          root: baseDir(),
+          queries: plan.queries,
+          budget,
+          abort: signal,
+        })
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error) => ({ ok: false as const, error: errorText(error) }))
+        if (!code.ok) {
+          errors.push({ stage: "code", error: code.error })
+          return { specVersion: "retrieval-code-cache/1.0", sessionId: input.sessionId, hits: [] }
+        }
+        const normalized = code.value.hits.map((item) => normalizeHit(item, strip))
+        return {
+          specVersion: "retrieval-code-cache/1.0",
+          sessionId: input.sessionId,
+          hits: normalized,
+        }
+      },
+    })
 
-      const code = await runCodeRetrieval({
+    // Re-open writer after code retrieval: runCodeRetrieval writes artifacts with its own EvidenceWriter.
+    // Keeping a stale writer here risks overwriting manifest entries and losing those artifacts.
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionId })
+
+    const artifact = await storeArtifact(key)
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: input.sessionId,
+      severity: "info",
+      actor: "cache:store",
+      type: "cache.read",
+      summary: "cache read",
+      data: {
+        namespace: "retrieval",
+        key,
+        scope,
+        sourceKey: cacheKey,
+        decision: cached.status,
+        tier: cached.tier,
+        artifact,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+
+    if (cached.status === "hit") {
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
         sessionId: input.sessionId,
-        retrievalId,
-        root: baseDir(),
-        queries: plan.queries,
-        budget,
-        abort: signal,
+        severity: "info",
+        actor: "cache:store",
+        type: "cache.hit",
+        summary: "cache hit",
+        data: {
+          namespace: "retrieval",
+          key,
+          scope,
+          sourceKey: cacheKey,
+          tier: cached.tier,
+          artifact,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
       })
-        .then((value) => ({ ok: true as const, value }))
-        .catch((error) => ({ ok: false as const, error: errorText(error) }))
-      if (!code.ok) errors.push({ stage: "code", error: code.error })
+    }
+
+    if (cached.status !== "hit") {
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionId,
+        severity: "info",
+        actor: "cache:store",
+        type: "cache.miss",
+        summary: "cache miss",
+        data: {
+          namespace: "retrieval",
+          key,
+          scope,
+          sourceKey: cacheKey,
+          decision: cached.status,
+          tier: cached.tier,
+          artifact,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
+
+    if (cached.status === "miss" || cached.status === "expired") {
+      const stored = await storeArtifact(key)
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionId,
+        severity: "info",
+        actor: "cache:store",
+        type: "cache.write",
+        summary: "cache write",
+        data: {
+          namespace: "retrieval",
+          key,
+          scope,
+          sourceKey: cacheKey,
+          decision: cached.status,
+          tier: "disk",
+          artifact: stored,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
+    const attempts = await (async () => {
+      if (signal.aborted) return { hits: [], dedupe: undefined, cacheHit: false, code: [], workbench: [] }
 
       const derivedBase = path.join(baseDir(), ".opencode", "artifacts", input.sessionId, "derived")
       const entries = await fs
@@ -375,9 +538,18 @@ export const RetrievalRunner = {
         return item.value
       })
 
-      const codeHits = code.ok ? code.value.hits : []
-      const hits = [...codeHits, ...workbenchHits]
-      return { hits, dedupe: undefined, cacheHit: false, code: codeHits, workbench: workbenchHits }
+      const view = cached.value as Record<string, unknown>
+      const cachedHits = Array.isArray(view.hits) ? view.hits : []
+      const cacheSessionId = typeof view.sessionId === "string" ? view.sessionId : input.sessionId
+      const hits = [...cachedHits, ...workbenchHits]
+      return {
+        hits,
+        dedupe: undefined,
+        cacheHit: cached.status === "hit",
+        cacheSessionId,
+        code: cachedHits,
+        workbench: workbenchHits,
+      }
     })()
 
     const hits = Array.isArray(attempts.hits) ? attempts.hits : []
@@ -401,15 +573,11 @@ export const RetrievalRunner = {
       ? await rehydrateHits({
           hits: normalizedHits,
           writer,
-          artifactRoot,
+          artifactRoot: `.opencode/artifacts/${(attempts as { cacheSessionId?: string }).cacheSessionId ?? input.sessionId}`,
           retrievalId,
           strip,
         })
       : normalizedHits
-
-    if (!attempts.cacheHit) {
-      await writeCache(cacheKey, { specVersion: "retrieval-cache/1.0", hits: normalizedHits, dedupe })
-    }
 
     const hitsEntry = await writer.artifact({
       kind: "retrieval-hits",
