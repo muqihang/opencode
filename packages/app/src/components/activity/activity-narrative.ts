@@ -258,7 +258,7 @@ function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeRe
 
     
 
-            return { titleZh: "安全协议违规", subtitleZh: "检测到敏感信息泄露尝试", severity: "error" }
+            return { titleZh: "安全协议违规", subtitleZh: "输出未符合安全协议（格式解析/校验失败）", severity: "error" }
 
     
 
@@ -358,7 +358,17 @@ function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeRe
 
     
 
-            return { titleZh: "缓存配置生效", subtitleZh: (config.data?.strategy as string) || "Default", isNoise: true }
+            const enabled = typeof config.data?.storeEnabled === "boolean" ? config.data.storeEnabled : null
+            const force = typeof config.data?.forceContextPack === "boolean" ? config.data.forceContextPack : null
+            const strict = typeof config.data?.strict === "boolean" ? config.data.strict : null
+            const flags = [
+              enabled === null ? "" : `SSOT:${enabled ? "开" : "关"}`,
+              force === null ? "" : `强制重建:${force ? "开" : "关"}`,
+              strict === null ? "" : `严格:${strict ? "开" : "关"}`,
+            ].filter((x) => x.length > 0)
+            const subtitle = flags.length > 0 ? flags.join(" · ") : "Default"
+
+            return { titleZh: "缓存配置生效", subtitleZh: subtitle, isNoise: true }
 
     
 
@@ -630,7 +640,7 @@ function isLikelySha(value: string) {
 }
 
 export function extractPointers(events: readonly EventV1[]): NarrativePointer[] {
-  const keys = new Set([
+  const stringKeys = new Set([
     "artifact",
     "manifestPath",
     "manifest",
@@ -640,46 +650,75 @@ export function extractPointers(events: readonly EventV1[]): NarrativePointer[] 
     "sha256",
     "filePath",
     "directory",
-    // New audit keys
-    "segments",
-    "delta",
-    "fingerprint", 
-    "fingerprints",
+    "namespace",
+    "key",
+    "decision",
+    "tier",
     "reason",
-    "strategy"
+    "cachedContentId",
+    "cachedContentKey",
   ])
 
   const out: NarrativePointer[] = []
   const seen = new Set<string>()
 
+  const push = (key: string, value: string) => {
+    const next = value.trim()
+    if (!next) return
+    const sig = `${key}:${next}`
+    if (seen.has(sig)) return
+    seen.add(sig)
+    out.push({ key, value: next })
+  }
+
+  const pushPointerObject = (key: string, value: unknown) => {
+    if (!value || typeof value !== "object") return
+    const obj = value as Record<string, unknown>
+    const path = typeof obj.path === "string" ? obj.path : ""
+    const sha256 = typeof obj.sha256 === "string" ? obj.sha256 : ""
+    const kind = typeof obj.kind === "string" ? obj.kind : ""
+    if (path) push(`${key}.path`, path)
+    if (sha256) push(`${key}.sha256`, sha256)
+    if (kind) push(`${key}.kind`, kind)
+  }
+
   for (const e of events) {
     if (!e.data) continue
     for (const [k, v] of Object.entries(e.data)) {
-      // Handle array/object summaries by JSON stringifying if small, or just showing type
-      let value = ""
       if (typeof v === "string") {
-        value = v.trim()
-      } else if (typeof v === "number" || typeof v === "boolean") {
-        value = String(v)
-      } else if (Array.isArray(v) && v.length < 5) {
-         value = JSON.stringify(v)
-      } else if (typeof v === "object" && v !== null) {
-         // Minimal summary for objects
-         value = Object.keys(v).join(", ")
+        const value = v.trim()
+        const take =
+          stringKeys.has(k) ||
+          value.includes(".opencode/") ||
+          ((k.toLowerCase().includes("sha") || k.toLowerCase().includes("hash")) && isLikelySha(value))
+        if (!take) continue
+        push(k, value)
+        continue
       }
-      
-      if (!value) continue
 
-      const take =
-        keys.has(k) ||
-        value.includes(".opencode/") ||
-        ((k.toLowerCase().includes("sha") || k.toLowerCase().includes("hash")) && isLikelySha(value))
-      if (!take) continue
+      if (typeof v === "number" || typeof v === "boolean") {
+        if (!stringKeys.has(k)) continue
+        push(k, String(v))
+        continue
+      }
 
-      const sig = `${k}:${value}`
-      if (seen.has(sig)) continue
-      seen.add(sig)
-      out.push({ key: k, value })
+      if (k === "artifact") {
+        pushPointerObject(k, v)
+        continue
+      }
+
+      if (k === "cache") {
+        const obj = typeof v === "object" && v ? (v as Record<string, unknown>) : null
+        const namespace = typeof obj?.namespace === "string" ? obj.namespace : ""
+        const key = typeof obj?.key === "string" ? obj.key : ""
+        const decision = typeof obj?.status === "string" ? obj.status : typeof obj?.decision === "string" ? obj.decision : ""
+        const tier = typeof obj?.tier === "string" ? obj.tier : ""
+        if (namespace) push("cache.namespace", namespace)
+        if (key) push("cache.key", key)
+        if (decision) push("cache.decision", decision)
+        if (tier) push("cache.tier", tier)
+        continue
+      }
     }
   }
 
