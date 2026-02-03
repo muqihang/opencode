@@ -448,7 +448,27 @@ function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeRe
 
     
 
-    
+          if (type.startsWith("handoff.")) {
+            const data = events[0]?.data as any
+            const childSessionId = data?.childSessionId
+            const appliedFilesCount = Array.isArray(data?.appliedFiles) ? data.appliedFiles.length : 0
+
+            let subtitleZh: string | undefined
+            if (childSessionId) {
+              subtitleZh = `会话 ID: ${childSessionId}`
+            }
+            if (appliedFilesCount > 0) {
+              const fileStr = `${appliedFilesCount} 个文件`
+              subtitleZh = subtitleZh ? `${subtitleZh} · ${fileStr}` : fileStr
+            }
+
+            return {
+              titleZh: "已生成交接摘要",
+              subtitleZh,
+              severity: "success",
+              isNoise: false
+            }
+          }
 
     
 

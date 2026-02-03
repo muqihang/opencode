@@ -226,6 +226,26 @@ describe("activity-narrative", () => {
       })
   })
 
+  describe("handoff narrative", () => {
+    it("maps handoff generated", () => {
+      const item = mockItem({
+        category: "other",
+        status: "done",
+        events: [
+          mockEvent({
+            type: "handoff.generated",
+            data: { childSessionId: "sess-123", appliedFiles: ["a.ts", "b.ts"] }
+          })
+        ]
+      })
+      const result = mapActivityItem(item)
+      expect(result.titleZh).toBe("已生成交接摘要")
+      expect(result.subtitleZh).toContain("sess-123")
+      expect(result.subtitleZh).toContain("2 个文件")
+      expect(result.severity).toBe("success")
+    })
+  })
+
   describe("verification narrative", () => {
       it("maps verification degraded", () => {
            const item = mockItem({ 
