@@ -4,15 +4,21 @@
 
 **Goal:** 把现有 compaction 从“能压缩”升级为“可审计、可回放、可缓存、可降级”的 **Context Compiler v2**：压缩发生但不制造事实；长内容外置为可追溯 artifacts；运行时上下文保持短、稳定、可解释。
 
-**Architecture:** 在现有 `SessionCompaction`（结构化 artifacts + 事件闭环）基础上，新增 `Capsule`（Warm SSOT）与 `Handoff`（主/子会话协作传递）的协议化产物，并把它们接入 `CacheStore`、`ContextLedger` 与 `historySummary` 注入。默认策略以 **质量/性能/稳定** 为第一原则：**不为“更短”牺牲可信**，不把“每个 worker 都 compaction”做成性能灾难。
+**Architecture:** 在现有 `SessionCompaction`（结构化 artifacts + 事件闭环）基础上，新增 `Capsule`（Warm SSOT）与 `Handoff`（主/子会话协作传递）的协议化产物，并把它们接入 `ContextLedger` 与 `historySummary` 注入。默认策略以 **质量/性能/稳定** 为第一原则：**不为“更短”牺牲可信**，不把“每个 worker 都 compaction”做成性能灾难。`CacheStore` 仅在“LLM-assisted capsule（可选 phase）”打开时用于缓存重调用结果。
 
-**Tech Stack:** TypeScript、Bun（`bun test`）、Zod schema-first、`stableJson`、`sha256Text`、`EvidenceWriter`（artifacts/events/manifest）、`CacheStore`（M3 SSOT cache）、现有 `verification`/`toolbelt`（只用于可核验 claims 的门禁）。
+**Tech Stack:** TypeScript、Bun（`bun test`）、Zod schema-first、`stableJson`、`sha256Text`、`EvidenceWriter`（artifacts/events/manifest）、现有 `verification`/`toolbelt`（只用于可核验 claims 的门禁）；可选：`CacheStore`（用于缓存 LLM-assisted capsule）。
 
 ---
 
 ## 0) 全局决策（Best practice defaults）
 
 > 你要求：质量、性能、稳定第一 —— 我按这个原则把默认决策定死，避免“激进但脆弱”。
+
+### 0.0 术语对齐（避免误改现有 “routing capsule”）
+
+- 当前仓库里已经存在一个 `block:capsule`，它来自 `SessionPrompt` 的 `<routing>...</routing>` 注入（用于 routing evidence 指针）。  
+- 本计划里的 **Capsule v2** 指的是“会话可继续执行所需的 Warm SSOT（历史压缩/编译结果）”。  
+- 为了避免命名冲突与不必要风险：v2 的注入路径 **优先走 `historySummary` / `block:history_summary`**，不去重用/改写 `<routing>` capsule。
 
 ### 0.1 默认策略：**稳上线（保真优先）** + 渐进增强
 
@@ -40,6 +46,19 @@
 
 - 决策记录（2026-02-03）：开发/测试阶段 worker 统一调用 `GLM4.7 Flash`（API）。  
 - 后续自部署评估候选：`Qwen3 4B`、`Ministral 3` 系列（另立专题与 eval 选型，不在本计划实现）。
+
+### 0.5 Rollout / Kill Switch（稳定第一）
+
+本计划里**有两类变更**，风险不同：
+
+- **低风险（默认始终开启）**：产物化与事件化（新增 artifacts/events/ledger 字段）。  
+  - 好处：审计/回放增强；基本不改变模型行为。
+- **高风险（默认受开关保护）**：改变“注入到模型的历史内容”的选择逻辑（例如优先使用编译后的 capsule、追加 handoff hints）。  
+  - 默认不启用，避免行为漂移；只在灰度/调试时打开。
+
+建议开关（实施时对齐现有 `Flag` 风格）：
+- `OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT=1`：启用 “prefer capsule from ledger + handoff hints” 的注入逻辑（默认关闭）。
+- `OPENCODE_DISABLE_HANDOFF_HINTS=1`：禁用 handoff hints 注入（即使上面开启，也不注入）。
 
 ---
 
@@ -171,6 +190,22 @@ Update Zod schema in `packages/opencode/src/session/context-ledger.ts`:
 
 Keep strict parsing but accept the new fields.
 
+**Step 3.1: Make writes merge-safe (critical)**
+
+当前 `ContextLedger.write({ lastContextPackId })` 会覆写整个文件。  
+一旦我们引入 `lastCapsule*` / `handoffs[]`，如果不改写入策略，就会发生：
+- `LLM.stream` 写 `lastContextPackId` → 把 `lastCapsule*` 直接覆盖丢失
+- 或 compaction 写 `lastCapsule*` → 把 `lastContextPackId` 覆盖丢失
+
+因此必须把写入改成 **read → merge → write**（并建议加锁，避免并发覆盖）：
+- 建议新增 `ContextLedger.update({ sessionId, patch })`，内部：
+  1) `read(sessionId)` 得到当前值
+  2) merge patch（只更新传入字段）
+  3) 写回
+- `ContextLedger.write({ sessionId, lastContextPackId })` 可保留，但实现内部应调用 `update(...)`，避免重复逻辑。
+
+在测试里必须覆盖“更新 A 字段不会清空 B 字段”。
+
 **Step 4: Re-run test**
 
 Expected: PASS.
@@ -231,6 +266,9 @@ Expected: FAIL (module not found)
 
 Create `packages/opencode/src/session/capsule.ts`:
 - `buildSession(...)`：只做确定性拼装（sort pointers by path+sha+anchor）
+- pointers 的来源（v0 最小闭环，避免“编造 sha256”）：
+  - 必须包含：本次 compaction 写入的 artifacts（`compaction.input.json` / `facts.json` / `capsule.rendered.md` / `compaction.report.json`）
+  - 可选包含：`ContextLedger.lastContextPackId` 对应的 `context/<id>/context-pack.json`（仅当能在 `EvidenceWriter.manifest()` 中查到对应条目的 `sha256` 时才加入；查不到就不要塞一个假的 sha）
 - `render(...)`：输出固定结构，严格避免“事实句子”（除非来自 known 字段）
   - 示例：`goal: unknown`、`workingSet:` + pointers 列表
   - 不要生成“我们已经修复了 X”这种不可验证断言
@@ -239,11 +277,11 @@ Create `packages/opencode/src/session/capsule.ts`:
 
 In `packages/opencode/src/session/compaction.ts`:
 - 在 `compaction.completed` 前后：
-  - 写入 `capsule.session.json`（结构化）
-  - 写入 `capsule.rendered.md`（注入用短文本）
-  - 更新 `ContextLedger`：写 `lastCapsuleSession/lastCapsuleRendered`
-  - 额外写 `capsule.updated` 事件（events.jsonl 里只放 summary + pointers）
-- 同时：把 summary message 的 text part 替换为 `capsule.rendered.md`（保持现有 historySummary 注入路径不变）
+  - 写入 `compaction/<compactionId>/capsule.session.json`（结构化）
+  - 写入 `compaction/<compactionId>/capsule.rendered.md`（注入用短文本）
+  - 更新 `ContextLedger`：用 `ContextLedger.update(...)` 写 `lastCapsuleSession/lastCapsuleRendered`（不得覆盖丢失 `lastContextPackId` 等字段）
+  - 把 **新 capsule artifacts 的 pointer** 挂到既有 `compaction.completed` 事件的 `data.artifacts` 中（避免新增事件噪声）
+- 同时：把 summary message 的 text part 设置为“渲染后的 capsule 文本内容”（与写入 `capsule.rendered.md` 的内容一致），**不要把文件路径当作文本塞进 message**（保持现有 historySummary 注入路径不变）
 
 **Step 5: Run tests**
 
@@ -262,45 +300,44 @@ git commit -m "feat(compaction): emit capsule artifacts and ledger pointers (det
 
 ---
 
-## 5) Cache 联动（Capsule cacheable）——命中只跳过重活，不跳过证据链
+## 5) Capsule 预算（稳定第一）——压缩必须变短，不能反向膨胀
 
-### Task 5: Capsule 编译接入 `CacheStore`
+### Task 5: Capsule 预算与稳定截断（防止“压缩反而撑爆上下文”）
 
 **Files:**
 - Modify: `packages/opencode/src/session/capsule.ts`
-- Modify: `packages/opencode/src/cache/policy.ts` (if a new policy namespace is needed)
-- Test: `packages/opencode/test/session/capsule-cache.test.ts`
+- Test: `packages/opencode/test/session/capsule.test.ts`
 
-**Step 1: Failing test: hit skips rebuild**
+**Step 1: Write failing tests (budget + stable truncation)**
 
-Create `packages/opencode/test/session/capsule-cache.test.ts`:
-- Build capsule twice with same key
-- Assert second build uses cache (e.g., `CapsuleStats.builds` counter increments only once)
-- Assert events emitted include `cache.hit` with namespace `compaction.capsule`
+Extend `packages/opencode/test/session/capsule.test.ts` with assertions:
+- `Capsule.render()` 输出必须小于某个上限（建议 `MAX_BYTES <= 16_000`，避免 historySummary 过大）
+- 当 pointers 数量过多时必须 **稳定截断**（例如只保留 top N，并写入 `(+M more)` 这类摘要）
+- 截断后仍需保持确定性（同输入 → 同输出）
 
-**Step 2: Run failing**
+**Step 2: Run tests to see failure**
 
 Expected: FAIL
 
-**Step 3: Implement cache path**
+**Step 3: Implement budgeted render**
 
-In `Capsule.buildSessionCached(...)`:
-- Compute `key = CacheStore.key({ namespace, scope, input })`
-  - input must include: policyVersion, workspaceFingerprint, toolsetFingerprint (if available), trigger, pointers fingerprint, versions
-- If cache disabled: return `disabled`
-- If force rebuild: return `forced_rebuild`
-- On hit: return cached capsule + emit cache events
-- On miss: build deterministic capsule, write to cache, emit cache events
+In `Capsule.render(...)`:
+- Add explicit constants (v1):
+  - `MAX_BYTES` (e.g. 16_000)
+  - `MAX_POINTERS` (e.g. 40–80)
+- Sort pointers deterministically, take first `MAX_POINTERS`, render them
+- If truncated: include a final line that reports truncated count
+- If text still exceeds `MAX_BYTES`: degrade to a smaller “pointer-only” capsule (goal + counts + topK pointers)
 
-**Step 4: Run test**
+**Step 4: Run tests**
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add packages/opencode/src/session/capsule.ts packages/opencode/test/session/capsule-cache.test.ts
-git commit -m "feat(compaction): cache capsule build via cache store"
+git add packages/opencode/src/session/capsule.ts packages/opencode/test/session/capsule.test.ts
+git commit -m "feat(compaction): budget capsule render and stable truncation"
 ```
 
 ---
@@ -341,6 +378,7 @@ In `finalizer.ts`:
   - pointers to child evidence pack alias artifact (already exists) + patch/changeset pointers if present
   - `decisions/openQuestions` 留空或 unknown（v0 不做 LLM 摘要）
 - Update `ContextLedger` to append `handoffs[]` entry (bounded, e.g. keep last 10)
+  - 必须用 `ContextLedger.update(...)` 做 merge-safe 写入（不能覆盖丢失其它字段）
 
 **Step 4: Optional: auto-import safe subset**
 
@@ -366,23 +404,40 @@ git commit -m "feat(compaction): emit handoff capsule on child finalization"
 ### Task 7: 把 handoff/capsule 渐进注入到 `historySummary`
 
 **Files:**
+- Modify: `packages/opencode/src/flag/flag.ts`
 - Modify: `packages/opencode/src/session/history-summary.ts`
+- Modify: `packages/opencode/src/session/prompt.ts`
 - Test: `packages/opencode/test/session/history-summary.test.ts`
 
 **Step 1: Failing test**
 
 Add test:
-- If ledger has `lastCapsuleRendered`, prefer it over summary/window
-- If ledger has handoffs, append a short “handoff pointers” block (bounded)
+- 默认（开关关闭）时：保持现有逻辑（summary → window），不改变行为
+- 当 `OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT=1` 时：
+  - If ledger has `lastCapsuleRendered`, prefer it over summary/window
+  - If ledger has handoffs, append a short “handoff pointers” block (bounded)
+- 当 `OPENCODE_DISABLE_HANDOFF_HINTS=1` 时：即使开启 experimental，也不注入 handoff hints
 
 **Step 2: Implement minimal read**
 
+In `prompt.ts`:
+- 优先复用现有 `Flag` 体系（新增 `Flag.OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT` / `Flag.OPENCODE_DISABLE_HANDOFF_HINTS`）
+- 当 `Flag.OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT` 开启时：
+  1) `await ContextLedger.read(sessionId)` 读取 `lastCapsuleRendered` / `handoffs[]`
+  2) 若存在 `lastCapsuleRendered`：
+     - 拼出 `.opencode/artifacts/<sessionId>/<path>`，用 `Bun.file(...).text()` 读取为 `preferredText`
+     - 读取失败 → `preferredText = ""`（降级回原逻辑，不 crash）
+  3) 若允许 handoff hints（未设置 disable）：
+     - 将最近 N 条 handoff 指针渲染为一个短文本块 `handoffText`（必须有上限，避免反向膨胀）
+  4) 调用 `SessionHistorySummary.build({ messages, preferredText, handoffText })`
+
 In `history-summary.ts`:
-- Read `ContextLedger` (inject read dependency via input param or add a helper used by prompt flow)
-- Prefer:
-  1) capsule rendered (if exists)
+- 保持纯函数，不读文件系统
+- 在 build 内实现 prefer 顺序：
+  1) `preferredText`（若提供且非空）
   2) existing summary message
   3) window
+- 若提供 `handoffText`：追加到最终 summary 末尾（并计入 MAX_BYTES 限制）
 
 **Step 3: Run tests**
 
@@ -399,7 +454,7 @@ git commit -m "feat(compaction): prefer compiled capsule + handoff hints in hist
 
 ## 8) UI 对齐（不黑盒解释）——只补充新事件类型
 
-### Task 8: App narrative 支持 `handoff.*` / `capsule.updated`
+### Task 8: App narrative 支持 `handoff.*`
 
 **Files:**
 - Modify: `packages/app/src/components/activity/activity-narrative.ts`
@@ -409,7 +464,6 @@ git commit -m "feat(compaction): prefer compiled capsule + handoff hints in hist
 
 Add tests that:
 - `handoff.generated` maps to a neutral, actionable narrative (no blame)
-- `capsule.updated` shows as low-noise info
 
 **Step 2: Implement narrative mapping**
 
@@ -497,4 +551,4 @@ Use `superpowers:finishing-a-development-branch` and pick one:
 - Add feature flag: `OPENCODE_EXPERIMENTAL_CAPSULE_LLM=1`
 - Use worker model `GLM4.7 Flash` to propose `decisions/openQuestions` candidates
 - Run verifier on any fact-like claims; failure -> unknown + degraded event
-
+- Cache (optional, recommended): 仅对 LLM-assisted 结果接入 `CacheStore`（避免重复调用/重复花 token），命中只跳过“重调用”，不跳过 artifacts/events
