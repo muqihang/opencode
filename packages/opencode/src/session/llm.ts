@@ -22,6 +22,7 @@ import { clone, mergeDeep, pipe } from "remeda"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
 import { Instance } from "@/project/instance"
+import { iife } from "@/util/iife"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
@@ -35,6 +36,7 @@ import { DecisionBoundary } from "./decision-boundary"
 import { SecureOutputContract } from "./secure-output-contract"
 import { runRetrieval } from "@/retrieval/runner"
 import { ulid } from "ulid"
+import { GeminiCachedContent } from "@/provider/gemini-cached-content"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -338,6 +340,134 @@ export namespace LLM {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
+    const geminiCached = await iife(async () => {
+      if (input.model.api.npm !== "@ai-sdk/google") return null
+      if (Flag.OPENCODE_DISABLE_GEMINI_CACHED_CONTENT) return null
+
+      const cfg = provider.options?.["geminiCachedContent"]
+      if (cfg && typeof cfg === "object") {
+        const enabled = (cfg as Record<string, unknown>)["enabled"]
+        if (enabled === false) return null
+      }
+
+      const ttlMs = iife(() => {
+        if (!cfg || typeof cfg !== "object") return 60 * 60 * 1000
+        const ttl = (cfg as Record<string, unknown>)["ttlMs"]
+        if (typeof ttl === "number" && ttl > 0) return ttl
+        return 60 * 60 * 1000
+      })
+
+      const timeoutMs = iife(() => {
+        if (!cfg || typeof cfg !== "object") return 10_000
+        const timeout = (cfg as Record<string, unknown>)["timeoutMs"]
+        if (typeof timeout === "number" && timeout > 0) return timeout
+        return 10_000
+      })
+
+      const baseURL = iife(() => {
+        const configured = provider.options?.["baseURL"]
+        if (typeof configured === "string" && configured.length > 0) return configured
+        return input.model.api.url
+      })
+
+      const apiKey = iife(() => {
+        const configured = provider.options?.["apiKey"]
+        if (typeof configured === "string" && configured.length > 0) return configured
+        if (typeof provider.key === "string" && provider.key.length > 0) return provider.key
+        return undefined
+      })
+
+      const root = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+      const scope = { projectId: Instance.project.id, worktreeRoot: root }
+
+      const res = await GeminiCachedContent.resolve({
+        sessionId: input.sessionID,
+        messageId: input.user.id,
+        model: {
+          providerID: input.model.providerID,
+          id: input.model.id,
+          api: { npm: input.model.api.npm, id: input.model.api.id },
+        },
+        provider: { baseURL, apiKey },
+        blocks,
+        scope,
+        ttlMs,
+        policy: { enabled: true },
+        abort: input.abort,
+        timeoutMs,
+      })
+
+      const artifact = await writer.artifact({
+        kind: "gemini-cached-content",
+        path: ["cache", "gemini", "cached-content", input.user.id, `${res.cachedContentKey}.json`].join("/"),
+        data: stableJson({
+          specVersion: "gemini-cached-content-summary/1.0",
+          sessionId: input.sessionID,
+          messageId: input.user.id,
+          decision: res.decision,
+          cachedContentKey: res.cachedContentKey,
+          cachedContentId: res.cachedContentId,
+          previousCachedContentId: res.previousCachedContentId ?? null,
+          expiresAtUtc: res.expiresAtUtc,
+          ttlMs: res.ttlMs,
+          cache: res.cache,
+          reason: res.reason ?? null,
+          meta: res.meta,
+        }),
+      })
+
+      const emit = async (type: string, summary: string, extra?: Record<string, unknown>) => {
+        await writer.event({
+          specVersion: "event/1.0",
+          ts: new Date().toISOString(),
+          sessionId: input.sessionID,
+          severity: "info",
+          actor: "provider:gemini",
+          type,
+          summary,
+          data: {
+            cachedContentKey: res.cachedContentKey,
+            cachedContentId: res.cachedContentId,
+            ttlMs: res.ttlMs,
+            expiresAtUtc: res.expiresAtUtc,
+            artifact,
+            cache: res.cache,
+            ...(extra ?? {}),
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        })
+      }
+
+      if (res.decision === "created") {
+        if (res.cache?.status === "expired") {
+          await emit("gemini.cached_content.expired", "Gemini Cached Content 已过期")
+        }
+        await emit("gemini.cached_content.created", "Gemini Cached Content 已创建")
+      }
+
+      if (res.decision === "reused") {
+        await emit("gemini.cached_content.reused", "Gemini Cached Content 已复用")
+      }
+
+      if (res.decision === "invalidated") {
+        await emit("gemini.cached_content.invalidated", "Gemini Cached Content 已失效，已重建", {
+          previousCachedContentId: res.previousCachedContentId ?? null,
+        })
+      }
+
+      if (res.decision === "degraded") {
+        await emit("gemini.cached_content.degraded", "Gemini Cached Content 已降级", {
+          reason: res.reason ?? "未知原因",
+        })
+      }
+
+      if (res.decision === "disabled") {
+        return null
+      }
+
+      return res
+    })
+
     const packResult = await ContextPackCache.build({
       sessionId: input.sessionID,
       messageId: input.user.id,
@@ -484,6 +614,8 @@ export namespace LLM {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
+    const paramsOptions = geminiCached?.cachedContentId ? { ...params.options, cachedContent: geminiCached.cachedContentId } : params.options
+
     return streamText({
       onError(error) {
         l.error("stream error", {
@@ -514,7 +646,7 @@ export namespace LLM {
       temperature: params.temperature,
       topP: params.topP,
       topK: params.topK,
-      providerOptions: ProviderTransform.providerOptions(input.model, params.options),
+      providerOptions: ProviderTransform.providerOptions(input.model, paramsOptions),
       activeTools: Object.keys(tools).filter((x) => x !== "invalid"),
       tools,
       maxOutputTokens,
