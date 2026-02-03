@@ -12,5 +12,6 @@ describe("eval.offline", () => {
     expect(result.checks.retrievalDeterminism.ok).toBe(true)
     expect(result.checks.compactionPointers.ok).toBe(true)
     expect(result.checks.evidenceChain.ok).toBe(true)
+    expect(result.checks.exportEvidenceChain.ok).toBe(true)
   })
 })

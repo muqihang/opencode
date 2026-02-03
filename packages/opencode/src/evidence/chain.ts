@@ -9,7 +9,7 @@ export type EvidenceChainResult =
 
 const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/+/g, "/")
 
-export const verifyEvidenceChain = (input: { entries: Entry[]; existing: string[] }): EvidenceChainResult => {
+export const verifyEvidenceChain = (input: { entries: Entry[]; existing: string[]; headerZh?: string }): EvidenceChainResult => {
   const have = new Set(input.existing.map((p) => norm(p)))
   const miss = input.entries
     .map((e) => norm(e.path))
@@ -19,11 +19,13 @@ export const verifyEvidenceChain = (input: { entries: Entry[]; existing: string[
 
   if (miss.length === 0) return { ok: true }
 
+  const lead = input.headerZh
+    ? `${input.headerZh}（缺失 ${miss.length} 个文件）`
+    : `证据断链：manifest 声明了 ${miss.length} 个条目，但本地缺失以下 artifact（请先补齐或重新生成 Evidence Pack）`
   const lines = [
-    `证据断链：manifest 声明了 ${miss.length} 个条目，但本地缺失以下 artifact（请先补齐或重新生成 Evidence Pack）`,
+    lead,
     ...miss.map((p) => `- ${p}`),
   ]
   const errorZh = lines.join("\n")
   return { ok: false, missing: miss, errorZh }
 }
-
