@@ -429,3 +429,40 @@ Compaction v2 的推荐开关（示例命名；实施时对齐现有 Flag/Config
 - score 的来源优先使用确定性信号（路径/符号匹配、最近修改、引用次数），而不是模型自由评分
 
 收益：工作集稳定、复用更稳；弱模型也能更准。
+
+---
+
+## 11) 外部参考（用于校准“世界级”实践，不绑定实现）
+
+> 目的：这份设计稿的核心落点是“工程可控（SSOT/可核验/可回放/可缓存）”，不是追逐某个模型的内部技巧。  
+> 下面列出一些外部高质量材料，用于校准方向与术语，并帮助后续实施阶段做更谨慎的取舍（例如：何时需要更激进的压缩，何时应转为外置检索/回填）。
+
+### 11.1 为什么“长上下文 ≠ 质量线性提升”
+
+- Lost in the Middle（长上下文中间信息易被忽略）：https://arxiv.org/abs/2307.03172
+
+### 11.2 内存分层（Hot/Warm/Cold）的系统化类比
+
+- MemGPT（把 LLM 当作“有限内存 CPU”，通过多层 memory 实现“看起来更大”的上下文）：https://arxiv.org/abs/2310.08560
+
+### 11.3 厂商缓存：稳定前缀/差分注入的现实依据
+
+- Anthropic Prompt Caching（cache_read/cache_creation/input_tokens 的口径与行为）：https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+- Gemini / Vertex AI Context Caching（implicit/explicit caching、cachedContentTokenCount、最小 token 门槛）：  
+  - https://ai.google.dev/gemini-api/docs/caching/  
+  - https://docs.cloud.google.com/vertex-ai/generative-ai/docs/context-cache/context-cache-overview
+
+### 11.4 轻量小模型（Worker/子会话）生态（用于选型与自部署评估）
+
+> 注：这里只列“代表性入口”，具体选型要结合 license、语言、JSON/tool-call 可靠性与运行硬件。
+
+- Qwen2.5 Model Card（0.5B–72B，含 license 差异）：https://qwen2.org/qwen2-5/
+- Qwen2.5-Coder family（0.5B–32B 的 coder variants）：https://qwenlm.github.io/blog/qwen2.5-coder-family/
+- Meta Llama model cards（含 Llama 3.2）：https://github.com/meta-llama/llama-models
+- Microsoft Phi-3 mini 128K instruct（3.8B）：https://ai.azure.com/catalog/models/Phi-3-mini-128k-instruct
+- Mistral 7B（Apache 2.0）：https://mistral.ai/news/announcing-mistral-7b/
+
+### 11.5 未来方向（模型级压缩研究：仅做参考，不作为 v2 主路线）
+
+- KV-Distill（近似无损上下文压缩，偏模型侧）：https://arxiv.org/abs/2503.10337
+- Dynamic Memory Compression（推理加速/缓存压缩，偏模型侧）：https://arxiv.org/abs/2403.09636
