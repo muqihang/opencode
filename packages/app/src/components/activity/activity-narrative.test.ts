@@ -246,6 +246,70 @@ describe("activity-narrative", () => {
     })
   })
 
+  describe("capsule assisted narrative", () => {
+    it("maps capsule.assisted.completed", () => {
+      const item = mockItem({
+        category: "other",
+        status: "done",
+        events: [
+          mockEvent({
+            type: "capsule.assisted.completed",
+            data: {
+              capsule: {
+                status: "success",
+                items: [
+                  { type: "decision", status: "known", text: "D1", evidenceIndices: [0] },
+                  { type: "question", status: "known", text: "Q1", evidenceIndices: [0] },
+                ],
+                anchors: [{ path: ".opencode/artifacts/sid/compaction/C0/capsule.assisted.json", sha256: "0".repeat(64), kind: "file" }],
+              },
+            },
+          }),
+        ],
+      })
+      const result = mapActivityItem(item)
+      expect(result.titleZh).toBe("AI 建议要点（可核验）")
+      expect(result.subtitleZh).toContain("1 条决策")
+      expect(result.subtitleZh).toContain("1 个待定项")
+      expect(result.severity).toBe("success")
+    })
+
+    it("maps capsule.assisted.degraded with reason", () => {
+      const item = mockItem({
+        category: "other",
+        status: "done",
+        events: [
+          mockEvent({
+            type: "capsule.assisted.degraded",
+            data: {
+              capsule: {
+                status: "degraded",
+                degradedReasonZh: "部分引用无法溯源",
+                items: [{ type: "decision", status: "unknown", text: "D1", unknownReasonZh: "缺少证据", evidenceIndices: [] }],
+                anchors: [],
+              },
+            },
+          }),
+        ],
+      })
+      const result = mapActivityItem(item)
+      expect(result.titleZh).toBe("AI 建议（已降级）")
+      expect(result.subtitleZh).toContain("部分引用无法溯源")
+      expect(result.severity).toBe("warning")
+    })
+
+    it("marks capsule.assisted.requested as noise", () => {
+      const item = mockItem({
+        category: "other",
+        status: "done",
+        events: [mockEvent({ type: "capsule.assisted.requested", data: {} })],
+      })
+      const result = mapActivityItem(item)
+      expect(result.titleZh).toBe("正在生成 AI 建议…")
+      expect(result.isNoise).toBe(true)
+    })
+  })
+
   describe("verification narrative", () => {
       it("maps verification degraded", () => {
            const item = mockItem({ 

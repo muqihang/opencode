@@ -2,6 +2,7 @@ import type { ActivityItem } from "@/lib/chronology/types"
 import { ActivityStream } from "./activity-stream"
 import { createSignal } from "solid-js"
 import { Switch } from "@opencode-ai/ui/switch"
+import { useLocal } from "@/context/local"
 
 export function ActivityPanel(props: {
   items: () => ActivityItem[]
@@ -10,6 +11,7 @@ export function ActivityPanel(props: {
   onJumpToMessageId?: (id: string) => void
 }) {
   const [showAudit, setShowAudit] = createSignal(false)
+  const local = useLocal()
 
   return (
     <div class="flex flex-col h-full overflow-hidden max-h-[80vh]">
@@ -25,10 +27,10 @@ export function ActivityPanel(props: {
           highlightMessageId={props.highlightMessageId}
           onHighlightMessageId={props.onHighlightMessageId}
           onJumpToMessageId={props.onJumpToMessageId}
+          onOpenFile={(p) => local.file.open(p)}
           showAudit={showAudit}
         />
       </div>
     </div>
   )
 }
-

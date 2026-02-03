@@ -8,6 +8,7 @@ export function ActivityStream(props: {
   highlightMessageId?: () => string | undefined
   onHighlightMessageId?: (id: string | undefined) => void
   onJumpToMessageId?: (id: string) => void
+  onOpenFile?: (path: string) => void | Promise<void>
   showAudit?: () => boolean
 }) {
   const visible = createMemo(() => {
@@ -35,6 +36,7 @@ export function ActivityStream(props: {
                 highlightMessageId={props.highlightMessageId}
                 onHighlightMessageId={props.onHighlightMessageId}
                 onJumpToMessageId={props.onJumpToMessageId}
+                onOpenFile={props.onOpenFile}
               />
             )}
           </For>
@@ -53,6 +55,7 @@ export function ActivityStream(props: {
                 highlightMessageId={props.highlightMessageId}
                 onHighlightMessageId={props.onHighlightMessageId}
                 onJumpToMessageId={props.onJumpToMessageId}
+                onOpenFile={props.onOpenFile}
               />
             )}
           </For>

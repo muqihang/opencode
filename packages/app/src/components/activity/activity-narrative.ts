@@ -448,6 +448,58 @@ function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeRe
 
     
 
+          if (type.startsWith("capsule.assisted.")) {
+            if (type === "capsule.assisted.requested") {
+              return { titleZh: "正在生成 AI 建议…", subtitleZh: "生成中（可核验）", severity: "info", isNoise: true }
+            }
+
+            const data = events[0]?.data
+            const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : undefined
+            const capsuleRaw = obj?.capsule
+            const capsule = capsuleRaw && typeof capsuleRaw === "object" ? (capsuleRaw as Record<string, unknown>) : undefined
+
+            const status =
+              typeof capsule?.status === "string"
+                ? capsule.status
+                : type.endsWith(".completed")
+                  ? "success"
+                  : type.endsWith(".failed")
+                    ? "failed"
+                    : "degraded"
+
+            const list = Array.isArray(capsule?.items) ? capsule.items : []
+            let decisions = 0
+            let questions = 0
+            let unknown = 0
+            for (const raw of list) {
+              if (!raw || typeof raw !== "object") continue
+              const rec = raw as Record<string, unknown>
+              if (rec.type === "decision") decisions += 1
+              if (rec.type === "question") questions += 1
+              if (rec.status === "unknown") unknown += 1
+            }
+
+            const parts = [
+              decisions > 0 ? `共 ${decisions} 条决策` : "",
+              questions > 0 ? `${questions} 个待定项` : "",
+              unknown > 0 ? `${unknown} 条未知` : "",
+            ].filter((s) => s.length > 0)
+            const baseSubtitle = parts.length > 0 ? parts.join(" · ") : undefined
+
+            const degradedReasonZh =
+              typeof capsule?.degradedReasonZh === "string"
+                ? capsule.degradedReasonZh
+                : typeof obj?.degradedReasonZh === "string"
+                  ? obj.degradedReasonZh
+                  : undefined
+
+            if (status === "success")
+              return { titleZh: "AI 建议要点（可核验）", subtitleZh: baseSubtitle, severity: "success" }
+            if (status === "failed")
+              return { titleZh: "推演中断", subtitleZh: degradedReasonZh ?? "建议生成失败，请检查日志", severity: "error" }
+            return { titleZh: "AI 建议（已降级）", subtitleZh: degradedReasonZh ?? baseSubtitle ?? "部分引用无法溯源，请谨慎采纳", severity: "warning" }
+          }
+
           if (type.startsWith("handoff.")) {
             const data = events[0]?.data
             const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : undefined
