@@ -23,17 +23,32 @@ const textFromMessage = (msg: MessageV2.WithParts) => {
 export const SessionHistorySummary = {
   MAX_BYTES: 120_000,
 
-  build(messages: MessageV2.WithParts[]) {
-    const summary = messages.findLast((m) => m.info.role === "assistant" && m.info.summary === true)
+  build(
+    input:
+      | MessageV2.WithParts[]
+      | { messages: MessageV2.WithParts[]; preferredText?: string | undefined; handoffText?: string | undefined },
+  ) {
+    const messages = Array.isArray(input) ? input : input.messages
+    const preferredText = Array.isArray(input) ? "" : input.preferredText ?? ""
+    const handoffText = Array.isArray(input) ? "" : input.handoffText ?? ""
+
+    const preferred = trim(preferredText)
+    const handoff = trim(handoffText)
+
+    const summary = (() => {
+      for (const msg of [...messages].reverse()) {
+        if (msg.info.role !== "assistant") continue
+        if (msg.info.summary !== true) continue
+        return msg
+      }
+      return undefined
+    })()
     const summaryText = summary ? textFromMessage(summary) : ""
-    if (summaryText) {
-      return { kind: "summary" as const, text: summaryText, tokenEstimate: Token.estimate(summaryText) }
-    }
 
     const used = { value: 0 }
     const chunks: string[] = []
 
-    for (const msg of messages.toReversed()) {
+    for (const msg of [...messages].reverse()) {
       if (msg.info.role !== "user" && msg.info.role !== "assistant") continue
       if (msg.info.role === "assistant" && msg.info.summary === true) continue
       const text = textFromMessage(msg)
@@ -48,8 +63,31 @@ export const SessionHistorySummary = {
 
     chunks.reverse()
     const window = chunks.join("\n")
-    if (!window.trim()) return { kind: "none" as const, text: undefined, tokenEstimate: 0 }
-    return { kind: "window" as const, text: window, tokenEstimate: Token.estimate(window) }
+    const base = preferred || summaryText || trim(window)
+    const kind = preferred
+      ? ("preferred" as const)
+      : summaryText
+        ? ("summary" as const)
+        : window.trim()
+          ? ("window" as const)
+          : handoff
+            ? ("handoff" as const)
+            : ("none" as const)
+
+    const combined = base
+      ? handoff
+        ? [base.trimEnd(), "", handoff].join("\n")
+        : base
+      : handoff
+
+    if (!combined) return { kind: "none" as const, text: undefined, tokenEstimate: 0 }
+
+    const capped = (() => {
+      const bytes = Buffer.byteLength(combined, "utf-8")
+      if (bytes <= SessionHistorySummary.MAX_BYTES) return combined
+      return Buffer.from(combined, "utf-8").subarray(0, SessionHistorySummary.MAX_BYTES).toString("utf-8")
+    })()
+
+    return { kind, text: capped, tokenEstimate: Token.estimate(capped) }
   },
 }
-

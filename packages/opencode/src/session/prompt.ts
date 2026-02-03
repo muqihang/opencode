@@ -47,6 +47,7 @@ import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 import { finalizeChildSession } from "@/session/finalizer"
+import { ContextLedger } from "@/session/context-ledger"
 import { maybeRunRoutingInjection } from "@/session/routing-injection"
 import { Workbench } from "@/file/workbench"
 import { TurnTraceContext, traceIdForMessageId } from "@/util/turn-trace"
@@ -644,7 +645,76 @@ export namespace SessionPrompt {
           systemPrompts.push(routingInjection.systemPrompt)
         }
 
-        const historySummary = SessionHistorySummary.build(sessionMessages).text
+        const capsuleContext = await iife(async () => {
+          if (!Flag.OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT) {
+            return { preferredText: undefined as string | undefined, handoffText: undefined as string | undefined }
+          }
+
+          const baseDir = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+          const ledger = await ContextLedger.read(sessionID)
+
+          const preferredText = await iife(async () => {
+            const stored = ledger.lastCapsuleRendered?.path
+            if (!stored) return undefined
+            const abs = path.join(baseDir, stored)
+            const text = await Bun.file(abs).text().catch(() => "")
+            const trimmed = text.trim()
+            return trimmed ? trimmed : undefined
+          })
+
+          const handoffText = await iife(async () => {
+            if (Flag.OPENCODE_DISABLE_HANDOFF_HINTS) return undefined
+            const handoffs = ledger.handoffs ?? []
+            if (handoffs.length === 0) return undefined
+
+            const CapsuleHints = z
+              .object({
+                childSessionId: z.string().min(1).optional(),
+                workingSet: z
+                  .object({
+                    pointers: z
+                      .array(
+                        z
+                          .object({
+                            kind: z.string().min(1),
+                            path: z.string().min(1),
+                          })
+                          .passthrough(),
+                      )
+                      .optional(),
+                  })
+                  .passthrough()
+                  .optional(),
+              })
+              .passthrough()
+
+            const recent = handoffs.slice(-5)
+            const blocks = await Promise.all(
+              recent.map(async (handoff) => {
+                const abs = path.join(baseDir, handoff.capsulePath)
+                const data = await Bun.file(abs).json().catch(() => undefined)
+                const parsed = CapsuleHints.safeParse(data)
+                const pointers = parsed.success ? parsed.data.workingSet?.pointers ?? [] : []
+                const items = pointers.slice(0, 6).map((p) => `  - ${p.kind}: ${p.path}`)
+                const header = `- ${handoff.childSessionId}: ${handoff.capsulePath}`
+                return [header, ...items].join("\n")
+              }),
+            )
+
+            const text = ["<handoff_hints>", ...blocks.filter(Boolean), "</handoff_hints>"].join("\n")
+            const bytes = Buffer.byteLength(text, "utf-8")
+            if (bytes <= 8_000) return text
+            return Buffer.from(text, "utf-8").subarray(0, 8_000).toString("utf-8")
+          })
+
+          return { preferredText, handoffText }
+        })
+
+        const historySummary = SessionHistorySummary.build({
+          messages: sessionMessages,
+          preferredText: capsuleContext.preferredText,
+          handoffText: capsuleContext.handoffText,
+        }).text
         const messagesForModel = sessionMessages.filter(
           (msg) => !(msg.info.role === "assistant" && msg.info.summary === true),
         )

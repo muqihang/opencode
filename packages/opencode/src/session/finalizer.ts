@@ -9,6 +9,7 @@ import { WorktreeMerge } from "@/worktree/merge"
 import { WorktreeChangeSet } from "@/worktree/changeset"
 import { resolveWorkdirMode, resolveWorkdirPath } from "@/workdir/resolve"
 import { stableJson } from "@/util/stable-json"
+import { ContextLedger } from "@/session/context-ledger"
 
 const FinalizeInput = z
   .object({
@@ -63,6 +64,96 @@ async function readChangeSetFiles(changeSetPath: string) {
     ...changeSet.files.modified,
     ...changeSet.files.deleted,
   ].map((entry) => entry.path)
+}
+
+function sha256Bytes(bytes: Uint8Array) {
+  const hash = new Bun.CryptoHasher("sha256")
+  hash.update(Buffer.from(bytes))
+  return hash.digest("hex")
+}
+
+async function pointerFromFile(input: { kind: string; base: string; file: string }) {
+  const rel = path.relative(input.base, input.file).replace(/\\/g, "/")
+  const bytes = await Bun.file(input.file).bytes()
+  return { kind: input.kind, path: rel, sha256: sha256Bytes(bytes) }
+}
+
+async function pointerFromRel(input: { kind: string; base: string; rel: string }) {
+  const file = path.join(input.base, input.rel)
+  return pointerFromFile({ kind: input.kind, base: input.base, file })
+}
+
+async function emitHandoffCapsule(input: {
+  parentSessionId: string
+  childSessionId: string
+  writer: EvidenceWriter
+  base: string
+  status: "ok" | "conflict" | "no_changes"
+  appliedFiles: string[]
+  conflictArtifacts: string[]
+  aliasArtifactPath?: string
+  patchPath?: string
+  changeSetPath?: string
+}) {
+  const now = new Date().toISOString()
+  const pointers = await Promise.all(
+    [
+      input.aliasArtifactPath
+        ? pointerFromRel({ kind: "evidence.macro_merge_alias", base: input.base, rel: input.aliasArtifactPath })
+        : undefined,
+      input.patchPath ? pointerFromFile({ kind: "worktree.patch", base: input.base, file: input.patchPath }) : undefined,
+      input.changeSetPath
+        ? pointerFromFile({ kind: "worktree.changeset", base: input.base, file: input.changeSetPath })
+        : undefined,
+    ].filter(Boolean),
+  )
+
+  const ordered = [...pointers].sort((a, b) => {
+    const kind = a.kind.localeCompare(b.kind)
+    if (kind !== 0) return kind
+    return a.path.localeCompare(b.path)
+  })
+
+  const capsule = await input.writer.artifact({
+    kind: "capsule-handoff",
+    path: path.posix.join("handoff", input.childSessionId, "capsule.handoff.json"),
+    data: stableJson({
+      specVersion: "capsule-handoff/1.0",
+      childSessionId: input.childSessionId,
+      generatedAtUtc: now,
+      appliedFiles: input.status === "ok" ? input.appliedFiles : undefined,
+      conflictArtifacts: input.status === "conflict" ? input.conflictArtifacts : undefined,
+      goal: { status: "unknown" },
+      decisions: [],
+      openQuestions: [],
+      workingSet: { pointers: ordered },
+      notes: [],
+    }),
+  })
+
+  await input.writer.event({
+    specVersion: "event/1.0",
+    ts: now,
+    sessionId: input.parentSessionId,
+    severity: "info",
+    actor: "worktree:finalizer",
+    type: "handoff.generated",
+    summary: "handoff capsule generated",
+    data: {
+      childSessionId: input.childSessionId,
+      capsulePath: capsule.path,
+      capsuleSha256: capsule.sha256,
+      appliedFiles: input.status === "ok" ? input.appliedFiles : undefined,
+      conflictArtifacts: input.status === "conflict" ? input.conflictArtifacts : undefined,
+      pointers: ordered.map((p) => ({ kind: p.kind, path: p.path, sha256: p.sha256 })),
+    },
+    redaction: { applied: true, policyVersion: "v1" },
+  })
+
+  const prev = await ContextLedger.read(input.parentSessionId)
+  const handoffs = prev.handoffs ?? []
+  const next = [...handoffs, { childSessionId: input.childSessionId, capsulePath: capsule.path, capsuleSha256: capsule.sha256, importedAtUtc: now }].slice(-10)
+  await ContextLedger.update({ sessionId: input.parentSessionId, patch: { handoffs: next } })
 }
 
 export async function finalizeChildSession(
@@ -163,6 +254,18 @@ export async function finalizeChildSession(
         path: markerRel,
         data: stableJson({ ...markerPayload, status: "no_changes" }),
       })
+      await emitHandoffCapsule({
+        parentSessionId: data.parentSessionId,
+        childSessionId: data.childSessionId,
+        writer,
+        base,
+        status: "no_changes",
+        appliedFiles: [],
+        conflictArtifacts: [],
+        aliasArtifactPath: merged.aliasArtifactPath,
+        patchPath: hasPatch ? patchPath : undefined,
+        changeSetPath: hasChangeSet ? changeSetPath : undefined,
+      })
       return { status: "no_changes", markerPath: marker.path }
     }
 
@@ -258,6 +361,19 @@ export async function finalizeChildSession(
         appliedFiles: result.status === "ok" ? result.appliedFiles : undefined,
         conflictArtifacts: result.status === "ok" ? undefined : result.conflictArtifacts,
       }),
+    })
+
+    await emitHandoffCapsule({
+      parentSessionId: data.parentSessionId,
+      childSessionId: data.childSessionId,
+      writer,
+      base,
+      status: result.status === "ok" ? "ok" : "conflict",
+      appliedFiles: result.status === "ok" ? result.appliedFiles : [],
+      conflictArtifacts: result.status === "ok" ? [] : result.conflictArtifacts,
+      aliasArtifactPath: merged.aliasArtifactPath,
+      patchPath,
+      changeSetPath,
     })
 
     if (result.status === "ok") {
