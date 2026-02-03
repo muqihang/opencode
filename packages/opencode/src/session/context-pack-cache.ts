@@ -47,6 +47,8 @@ export const ContextPackCache = {
     blocks: ContextBlocks.Result
     maxOutputTokens?: number
     contextPackId?: string
+    previousContextPackId?: string
+    ledgerNotes?: string
     createdAtUtc?: string
     evidencePointers?: EvidencePointers
     policy: Policy
@@ -102,6 +104,8 @@ export const ContextPackCache = {
         model: input.model,
         maxOutputTokens: input.maxOutputTokens,
         contextPackId: input.contextPackId,
+        previousContextPackId: input.previousContextPackId,
+        ledgerNotes: input.ledgerNotes,
         createdAtUtc: input.createdAtUtc,
         segments,
       }),

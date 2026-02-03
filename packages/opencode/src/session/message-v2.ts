@@ -12,6 +12,7 @@ import { STATUS_CODES } from "http"
 import { iife } from "@/util/iife"
 import { type SystemError } from "bun"
 import type { Provider } from "@/provider/provider"
+import { CompactionTrigger } from "./compaction-protocol"
 
 export namespace MessageV2 {
   export const OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
@@ -163,6 +164,7 @@ export namespace MessageV2 {
   export const CompactionPart = PartBase.extend({
     type: z.literal("compaction"),
     auto: z.boolean(),
+    trigger: CompactionTrigger.optional(),
   }).meta({
     ref: "CompactionPart",
   })

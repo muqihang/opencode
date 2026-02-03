@@ -42,6 +42,33 @@ describe("session.context-pack", () => {
     expect(parsed.totals.tokenEstimate).toBe(total)
   })
 
+  test("ledger records previousContextPackId and switches mode to delta", () => {
+    const first = ContextPack.parse(
+      ContextPackBuilder.build({
+        sessionId: "session_test",
+        messageId: "message_test",
+        model,
+        blocks,
+        maxOutputTokens: 1024,
+      }),
+    )
+    expect(first.ledger.previousContextPackId).toBeUndefined()
+    expect(first.ledger.mode).toBe("full")
+
+    const second = ContextPack.parse(
+      ContextPackBuilder.build({
+        sessionId: "session_test",
+        messageId: "message_test_2",
+        model,
+        blocks,
+        maxOutputTokens: 1024,
+        previousContextPackId: first.contextPackId,
+      }),
+    )
+    expect(second.ledger.previousContextPackId).toBe(first.contextPackId)
+    expect(second.ledger.mode).toBe("delta")
+  })
+
   test("schema rejects totals mismatch", () => {
     const pack = ContextPackBuilder.build({
       sessionId: "session_test",

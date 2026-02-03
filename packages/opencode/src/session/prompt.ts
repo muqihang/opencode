@@ -50,6 +50,7 @@ import { finalizeChildSession } from "@/session/finalizer"
 import { maybeRunRoutingInjection } from "@/session/routing-injection"
 import { Workbench } from "@/file/workbench"
 import { TurnTraceContext, traceIdForMessageId } from "@/util/turn-trace"
+import { SessionHistorySummary } from "./history-summary"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -532,18 +533,18 @@ export namespace SessionPrompt {
         }
 
         // context overflow, needs compaction
-        if (
-          lastFinished &&
-          lastFinished.summary !== true &&
-          (await SessionCompaction.isOverflow({ tokens: lastFinished.tokens, model }))
-        ) {
-          await SessionCompaction.create({
-            sessionID,
-            agent: lastUser.agent,
-            model: lastUser.model,
-            auto: true,
-          })
-          return "continue"
+        if (lastFinished && lastFinished.summary !== true) {
+          const trig = await SessionCompaction.trigger({ tokens: lastFinished.tokens, model })
+          if (trig) {
+            await SessionCompaction.create({
+              sessionID,
+              agent: lastUser.agent,
+              model: lastUser.model,
+              auto: true,
+              trigger: trig,
+            })
+            return "continue"
+          }
         }
 
         // normal processing
@@ -643,19 +644,7 @@ export namespace SessionPrompt {
           systemPrompts.push(routingInjection.systemPrompt)
         }
 
-        const historySummary = (() => {
-          const summaryMessage = sessionMessages.findLast(
-            (msg) => msg.info.role === "assistant" && msg.info.summary === true,
-          )
-          if (!summaryMessage) return undefined
-          const text = summaryMessage.parts
-            .filter((part): part is MessageV2.TextPart => part.type === "text")
-            .map((part) => part.text.trim())
-            .filter((part) => part.length > 0)
-            .join("\n\n")
-          if (text.length === 0) return undefined
-          return text
-        })()
+        const historySummary = SessionHistorySummary.build(sessionMessages).text
         const messagesForModel = sessionMessages.filter(
           (msg) => !(msg.info.role === "assistant" && msg.info.summary === true),
         )
@@ -685,11 +674,13 @@ export namespace SessionPrompt {
         })
         if (result === "stop") return "break"
         if (result === "compact") {
+          const trig = await SessionCompaction.trigger({ tokens: processor.message.tokens, model })
           await SessionCompaction.create({
             sessionID,
             agent: lastUser.agent,
             model: lastUser.model,
             auto: true,
+            trigger: trig,
           })
         }
         return "continue"

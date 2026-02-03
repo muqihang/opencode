@@ -302,9 +302,8 @@ export namespace SessionProcessor {
                     sessionID: input.sessionID,
                     messageID: input.assistantMessage.parentID,
                   })
-                  if (await SessionCompaction.isOverflow({ tokens: usage.tokens, model: input.model })) {
-                    needsCompaction = true
-                  }
+                  const trig = await SessionCompaction.trigger({ tokens: usage.tokens, model: input.model })
+                  if (trig) needsCompaction = true
                   break
 
                 case "text-start":

@@ -35,6 +35,7 @@ import { DecisionBoundary } from "./decision-boundary"
 import { SecureOutputContract } from "./secure-output-contract"
 import { runRetrieval } from "@/retrieval/runner"
 import { ulid } from "ulid"
+import { ContextLedger } from "./context-ledger"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -319,6 +320,7 @@ export namespace LLM {
         })
       : undefined
     const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
+    const ledger = await ContextLedger.read(input.sessionID)
 
     const cfgCache = CachePolicy.effective()
     await writer.event({
@@ -345,6 +347,8 @@ export namespace LLM {
       blocks,
       maxOutputTokens,
       contextPackId,
+      previousContextPackId: ledger.lastContextPackId,
+      ledgerNotes: ledger.lastContextPackId ? "previousContextPackId recorded" : undefined,
       createdAtUtc,
       evidencePointers: retrieval?.evidencePointers,
       policy: CachePolicy.policy("context-pack"),
@@ -469,6 +473,7 @@ export namespace LLM {
       summary: "context pack built",
       data: {
         contextPackId: pack.contextPackId,
+        previousContextPackId: pack.ledger.previousContextPackId,
         messageId: input.user.id,
         artifact: entry.path,
         window: pack.window,
@@ -483,6 +488,7 @@ export namespace LLM {
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
+    await ContextLedger.write({ sessionId: input.sessionID, lastContextPackId: pack.contextPackId })
 
     return streamText({
       onError(error) {

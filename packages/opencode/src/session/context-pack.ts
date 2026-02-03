@@ -92,6 +92,8 @@ export const ContextPackBuilder = {
     segments: ContextPackType["segments"]
     maxOutputTokens?: number
     contextPackId?: string
+    previousContextPackId?: string
+    ledgerNotes?: string
     createdAtUtc?: string
   }): ContextPackType {
     const now = input.createdAtUtc ?? new Date().toISOString()
@@ -113,7 +115,11 @@ export const ContextPackBuilder = {
       window: { maxTokens, budgetTokens },
       tokenEstimate: { method: "approx", version: "v1" },
       versions: { systemTemplate: "v1", toolsTemplate: "v1", capsuleSchema: "v1", stableJson: "v1" },
-      ledger: { mode: "full" },
+      ledger: {
+        previousContextPackId: input.previousContextPackId,
+        mode: input.previousContextPackId ? ("delta" as const) : ("full" as const),
+        notes: input.ledgerNotes,
+      },
       segments: input.segments,
       totals: { segments: input.segments.length, tokenEstimate: total },
     })
@@ -126,6 +132,8 @@ export const ContextPackBuilder = {
     blocks: ContextBlocks.Result
     maxOutputTokens?: number
     contextPackId?: string
+    previousContextPackId?: string
+    ledgerNotes?: string
     createdAtUtc?: string
     evidencePointers?: {
       retrievalId: string
@@ -154,7 +162,11 @@ export const ContextPackBuilder = {
       window: { maxTokens, budgetTokens },
       tokenEstimate: { method: "approx", version: "v1" },
       versions: { systemTemplate: "v1", toolsTemplate: "v1", capsuleSchema: "v1", stableJson: "v1" },
-      ledger: { mode: "full" },
+      ledger: {
+        previousContextPackId: input.previousContextPackId,
+        mode: input.previousContextPackId ? ("delta" as const) : ("full" as const),
+        notes: input.ledgerNotes,
+      },
       segments,
       totals: { segments: segments.length, tokenEstimate: total },
     })
