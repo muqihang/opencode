@@ -30,11 +30,12 @@ LLM-assisted capsule 的定位就是补齐这层“可继续推进的清单”�
 
 ### 2.1 目标（Goals）
 
-- **可行动结构**：生成结构化 `decisions[]` 与 `openQuestions[]`（MVP）供用户和模型继续执行。
+- **可行动结构**：生成结构化 `decisions[]` 与 `openQuestions[]` 供用户和模型继续执行。
 - **可核验**：`known` 条目必须带证据引用（evidence pointers）；引用必须能解析到当前会话的 pointers 集合。
 - **稳定优先**：每 turn 最多生成一次；失败不阻塞主流程，必须可降级。
 - **可审计可回放**：落盘 artifacts + events + ledger 指针，支持复现实验与排障。
 - **可缓存**：只缓存“LLM 调用结果”，不缓存 artifacts/events（审计一致性不打折）。
+- **不做“简陋实现”**：范围聚焦（先只做 decisions/openQuestions）不等于护栏缺失；v1 必须包含 `ref` 规范、sha 完整性校验、内容安全门禁、可复现 input pack、离线导出不断链与可观测性字段。
 
 ### 2.2 非目标（Non-goals）
 
@@ -116,7 +117,7 @@ LLM-assisted capsule 的定位就是补齐这层“可继续推进的清单”�
 Item 结构（decisions 与 openQuestions 共用）：
 - `text`: string（必须短；建议上限 160–240 chars）
 - `status`: `"known" | "unknown"`
-- `evidence`: `{ ref: string }[]`
+- `evidence`: EvidenceRef[]
 - `unknownReasonZh?`: string
 
 ### 5.2 `known/unknown` 硬规则（定案）
@@ -127,6 +128,32 @@ Item 结构（decisions 与 openQuestions 共用）：
 - 否则一律降级为 `status="unknown"`，并要求写 `unknownReasonZh`
 
 > 备注：这条规则的目的不是“更聪明”，而是“更可靠”。它把幻觉的进入路径从机制上封死。
+
+### 5.3 EvidenceRef（`ref` 规范，定案）
+
+为避免“同一个 pointer 被不同方式引用”造成断链、UI 显示混乱、cache key 不稳定，assisted 必须使用统一的 EvidenceRef 规范。
+
+#### EvidenceRef 结构（建议）
+
+EvidenceRef 最少包含：
+- `ref`: string（稳定标识符）
+- `kind`: string
+- `path`: string
+- `sha256`: string
+- `anchor?`: string
+
+> 注：`kind/path/sha256/anchor` 用于 UI 展示与排障；真正用于关联与校验的是 `ref`。
+
+#### `ref` 计算方式（推荐）
+
+`ref = sha256Text(stableJson({ kind, path: norm(path), anchor, sha256 }))`
+
+约束：
+- `path` 必须先做规范化（Windows `\\` → `/`，多重 `/` 收敛）
+- `anchor` 缺省视为 `""`（或直接 omit，但 stableJson 必须一致）
+- 任何 ref 的计算规则变更都必须 bump `specVersion` 或 `refVersion`
+
+> 说明：这种 `ref` 具备“短、稳定、可校验”的性质，同时不要求改动现有 `Pointer` 协议（实现时只需在 verifier/渲染阶段临时计算）。
 
 ---
 
@@ -143,8 +170,28 @@ Item 结构（decisions 与 openQuestions 共用）：
 ### 6.2 Events（最小集）
 
 - `capsule.assisted.requested`
-- `capsule.assisted.completed`（data: ok + artifacts pointers + model + cacheHit?）
-- `capsule.assisted.degraded`（data: reasonZh + fallbackUsed）
+- `capsule.assisted.completed`（data: ok + artifacts pointers + model + cacheHit + latencyMs + coverage）
+- `capsule.assisted.degraded`（data: reasonCode + reasonZh + fallbackUsed + coverage）
+
+建议事件 data 至少包含：
+- `model`：provider/name（与现有记录方式对齐）
+- `cacheHit`: boolean
+- `latencyMs`: number
+- `coverage`：
+  - `knownDecisions`: number
+  - `unknownDecisions`: number
+  - `knownOpenQuestions`: number
+  - `unknownOpenQuestions`: number
+  - `evidenceRefs`: number（总引用数）
+
+建议 `reasonCode` 枚举（便于统计）：
+- `schema_invalid`
+- `ref_unresolvable`
+- `sha_mismatch`
+- `budget_exceeded`
+- `content_unsafe`
+- `timeout`
+- `provider_error`
 
 ### 6.3 ContextLedger（建议字段）
 
@@ -157,11 +204,25 @@ Item 结构（decisions 与 openQuestions 共用）：
 
 ## 7. Verifier（MVP：轻量、确定性门禁）
 
-MVP verifier 只做三类检查：
-1) schema 通过（结构正确）
-2) 引用不断链：
-   - 所有 `known` 条目的 `evidence.ref` 必须存在于 pointers 集合（或可解析到具体 pointer）
-3) budget 通过（items/bytes 上限）
+这里的 verifier 不追求“语义级事实核查”，但必须做到**世界级最低配置**：让不可靠的内容在进入上下文前被拦下，且所有失败可解释、可回放。
+
+v1 verifier 必须包含以下门禁：
+1) **Schema 门禁**：JSON schema 通过（结构正确，字段类型正确）
+2) **引用不断链门禁**：
+   - 所有 `known` 条目的 `evidence.ref` 必须能解析到 pointers 集合（或能反向映射到 `{kind,path,anchor,sha256}`）
+3) **sha 完整性门禁（强烈建议：v1 必做）**：
+   - 对所有被引用的 evidence files：
+     - 文件存在
+     - 重新计算 sha256 与 pointer.sha256 一致
+   - 目的：避免“路径存在但内容已变”的隐性断链
+4) **预算门禁**：
+   - `items` 上限（decisions/openQuestions 总数）
+   - `bytes` 上限（渲染文本与 JSON）
+5) **内容安全门禁（v1 必做）**：
+   - 禁止代码块（例如三反引号 ```）
+   - 禁止长段落（限制每条行数/字符数）
+   - 禁止输出“像执行指令”的段落（例如强制命令、注入片段），不满足则降级
+   - 可选：对渲染文本跑一次快速 redaction/scan（命中即降级）
 
 失败策略：
 - 不阻塞主流程
@@ -175,8 +236,25 @@ MVP verifier 只做三类检查：
 ## 8. Cache（建议做：只缓存调用结果）
 
 - 使用 `CacheStore` 缓存 assisted 的生成结果
-- cache key = hash(`capsule.assisted.input.json` + `model` + `promptVersion`)
+- cache key = hash(`capsule.assisted.input.json` + `model` + `promptVersion` + `refVersion`)
 - cache hit：跳过 LLM 重调用，但仍写 artifacts/events（审计一致性）
+
+### 8.1 Input pack（必须做：输入质量决定输出质量）
+
+为避免 LLM 直接阅读长聊天、避免不可复现，v1 必须产出并使用 `capsule.assisted.input.json`，其内容应当是**短、结构化、带证据目录**的输入包（Role Pack 形式）。
+
+建议包含：
+- `specVersion`: `"capsule-assisted-input/1.0"`
+- `sessionId`
+- `generatedAtUtc`
+- `promptVersion`（string）
+- `refVersion`（string）
+- `capsule`：deterministic capsule 的摘要字段（goal/notes/关键 counts）
+- `handoff?`：最近一条 handoff 的摘要（若存在）
+- `pointers`：候选证据清单（建议只给 top-N + 排序稳定）
+  - 每条 pointer 至少含 `{ ref, kind, path, sha256, anchor? }`
+
+> 说明：让 LLM 只在“证据目录 + 少量结构化字段”上工作，是质量稳定的核心手段；这比写更长 prompt 更可靠。
 
 ---
 
@@ -194,6 +272,8 @@ Gemini 负责美感与布局，但需要确保 UI 语义满足以下约束：
 
 - assisted 生成成功率（`ok=true` 占比）
 - degraded 率与原因分布（缺引用/超预算/超时/解析失败）
+- cache hit 率（节省 token/延迟的直接指标）
+- `known` 覆盖率（known 条目占比；不要用“置信度百分比”）
 - 用户重复解释/模型重复追问的 proxy 指标下降
 - handoff 后首轮继续推进的成功率提升（主观反馈 + 简单日志指标）
 
@@ -205,6 +285,8 @@ Gemini 负责美感与布局，但需要确保 UI 语义满足以下约束：
 - 性能风险：限定触发点（compaction 完成后一次）+ CacheStore
 - 行为漂移：默认关闭开关 + 注入优先级回退
 - 误用风险：UI 必须明确“建议”语义 + 引用可点击
+- 内容泄漏/提示注入风险：内容安全门禁（禁代码块/禁长段落/可选 scan）+ 渲染预算
+- 证据被篡改风险：sha 完整性门禁（路径存在≠内容可信）
 
 ---
 
@@ -213,13 +295,13 @@ Gemini 负责美感与布局，但需要确保 UI 语义满足以下约束：
 已定案：
 - `known` 必须 evidence
 - 只在 compaction 后触发一次
-- MVP 只做 `decisions/openQuestions`
+- 范围聚焦：先只做 `decisions/openQuestions`，但护栏完整（ref/sha/content safety/input pack/观测/导出）
 - 模型暂按计划记录（开发/测试统一模型）
 
 待细化（不会影响是否开工，但会影响实现拆分）：
 - assisted 渲染文本的具体格式（含引用呈现格式）
 - budget 上限（items/bytes）初始值
-- 是否把 assisted 也纳入 offline export evidence chain 校验（建议后续加；MVP 可不强制）
+- 是否把 assisted 也纳入 offline export evidence chain 校验（建议 v1 直接纳入，避免“线上可用、导出断链”）
 
 ---
 
@@ -238,8 +320,9 @@ Gemini 负责美感与布局，但需要确保 UI 语义满足以下约束：
 ### 13.3 质量风险点（需要实现阶段强约束）
 - ⚠️ 渲染文本如果不限制长度，容易把长内容重新注入上下文；必须预算化（bytes/items）。
 - ⚠️ “unknown 的展示策略”必须一致：不能在后端降级但 UI 静默隐藏。
+- ⚠️ 证据链“存在”不等于“可信”：必须补齐 sha 完整性校验，否则排障成本会非常高。
+- ⚠️ 如果没有统一 `ref` 规范，UI/导出/cache 都会出现“同物不同名”的不稳定问题。
 
 ### 13.4 MVP 缺口（刻意未做）
 - ⏭️ next steps（可行动建议）未纳入 MVP，避免范围膨胀。
-- ⏭️ offline export 对 assisted 的断链校验建议后续补齐（MVP 可先不强制）。
-
+- ⏭️ 语义级事实核查（超出 v1 目标，后续如需再扩展验证脚本）。
