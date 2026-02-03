@@ -61,6 +61,7 @@ LLM 有最大上下文窗口（例如 128K / 200K）。但我们想要的产品�
 ### 2.1 非目标（避免范围失控）
 
 - 不引入跨会话长期记忆（memory）机制（你已明确后置专题）。
+  - 但**支持主会话与子会话的“可审计一次性协作传递”**：子会话产出 micro-pack / handoff capsule（结构化 + pointers），主会话按指针导入与对账。这是“协作协议”，不是“长期记忆”。
 - 不强制 UI 向用户展示 token 数、上下文窗口等工程术语（但允许审计视图懒加载）。
 - 不把“压缩”变成单一大模型能力依赖：压缩必须能被我们的工程机制（检索/核验/脚本/缓存）兜底。
 
@@ -139,6 +140,60 @@ Capsule 的好处：
 - 禁止“写得像真的”的结论。
 
 这与 P3 里的 `Tool Belt v1` + `Verifier Worker` 完全互补：弱模型也能被工程机制提升可信度。
+
+### 4.4 同会话多代理（沙盒内主 LLM + 小 LLM 协作）：需要“命中”和“压缩”，但方式不同
+
+你提到的“一个会话界面里的沙盒执行环境：主 LLM + 若干小 LLM 协作”，本质上是 **同一个会话内发生多次 LLM 调用**：
+
+- 主 LLM：负责对用户输出、决策与调度；
+- 小 LLM/worker：负责局部子任务（检索重写、摘要、结构化抽取、对账、生成补丁等）。
+
+结论：**需要上下文命中（cache）与上下文压缩（compaction）**，但我们要避免把它做成“给每个小模型塞一整坨历史对话”。
+
+推荐的“世界级可控”做法（与本设计稿完全兼容，只需把范围写清楚）：
+
+1) **共享 Warm：Capsule 作为会话 SSOT**  
+   - 同一 session 内所有 LLM 调用共享同一份 `capsule.session.json`（Warm 区 SSOT）。  
+   - 每次调用仍生成 call-scoped 的 `context-pack.json`（便于审计/回放），但其 Warm 部分来自 Capsule（稳定、可缓存）。
+
+2) **Role Packs：按角色/任务分配最小上下文（避免“全量广播”）**  
+   - 为每个 worker 定义“最小输入协议”（role）：
+     - 必需：`goal`、`constraints`、`openQuestions`、`workingSet.pointers`
+     - 可选：lane-specific 的 `capsule.turn` 或 `capsule.lane`
+     - 禁止：把长工具输出/长文档原文直接塞给 worker（应使用 pointers + 锚点）
+   - 这样“压缩”不是把事实写短，而是把输入变成“结构化+指针化”，让 worker 能 **按需回填**（retrieval/quote-anchor），并保持可核验。
+
+3) **同会话的 cache 命中：靠“稳定前缀 + 差分注入”**  
+   - provider 的 prompt caching / cached content 往往要求“前缀完全一致/高度一致”才会命中，因此：
+     - Stable prefix：system/role blocks 顺序与版本固定；
+     - Differential injection：把变化放在短小的 delta 段（见 10.2），让大部分 tokens 可复用。
+
+4) **沙盒执行输出属于 Cold：不压缩“真相”，只外置与索引**  
+   - 沙盒的 stdout/stderr、文件 diff、构建日志、检索 hits 等，默认落 artifacts（Cold）。  
+   - compaction 的职责是：把“可继续任务所需的最小状态”编译进 Warm/Hot，并通过 pointers 指向 Cold。  
+   - 这能保证：沙盒内跑再多命令，也不会把 LLM 上下文撑爆，同时仍然“可回放”。
+
+### 4.5 主会话 ↔ 子会话窗口：需要“协作传递压缩”，但它不是记忆，而是 Handoff
+
+你说的第二类情况（主会话窗口与子会话窗口之间的协作传递）应该被明确建模为：
+
+> **Handoff = 子会话把过程收敛成可审计资产，主会话导入这些资产继续推进。**
+
+关键点：主/子会话之间传递的不是“聊天原文”，而是 **结构化 Capsule + Evidence pointers**。
+
+推荐最小闭环（与现有 micro-pack/merge 体系对齐）：
+
+1) 子会话在完成时产出 `capsule.session.json`（或 `capsule.handoff.json`）  
+   - 包含：goal/constraints/decisions/openQuestions/workingSet.pointers  
+   - 若包含 claims：严格走 4.3（能核验才写，不能核验就 unknown）
+
+2) 子会话同时产出 micro-pack（或等价 evidence pack）  
+   - 让主会话能“一键打开证据链”：events.jsonl / manifest / artifacts。
+
+3) 主会话导入规则（避免污染与漂移）  
+   - 主会话导入时只把**结构化字段**写进自己的 Capsule（合并 decisions/openQuestions/workingSet.pointers）；  
+   - 不直接把子会话长输出粘进 prompt；  
+   - 导入行为事件化（例如 `handoff.imported`），确保审计可追溯。
 
 ---
 
