@@ -304,6 +304,7 @@
 
 **后续/Deferred（不打断当前 P3 执行）**：
 - **Context Compaction v2（压缩不失真：不制造事实）**：把 compaction 从“自由摘要”升级为 **Context Compiler + 结构化 Capsule（SSOT）+ claims 可核验（缺证据即 unknown）+ cacheable + GUI 渐进披露** 的专项工程。设计稿：`docs/plans/2026-02-02-context-compaction-v2-design.md`；实施计划：`docs/plans/2026-02-03-context-compaction-v2-implementation-plan.md`。
+- **Single‑Session Orchestration（主 LLM + 只读 Workers + Tool Broker）**：把“同一个会话窗口内的内部协作”做成可解释、可回归、默认轻量的控制平面（按需启用，不拖慢闲聊；复杂任务最多并发 2 个只读 worker）。设计稿：`docs/plans/2026-02-03-single-session-orchestration-design.md`。
 - **Memory / Training Data Governance（默认关闭、可解释、可撤回）**：把“本地资产”安全转化为长期价值：1) 训练/微调数据捐赠（opt-in、redaction-scan 强制、可预览可取消）；2) 结构化记忆（候选优先、用户确认、可管理/可删除、敏感默认拒绝）；3) Retention（30 天或 2GB、置顶不删、清理可对账）。设计稿：`docs/plans/2026-02-03-memory-training-data-governance-design.md`。
 
 **说明（避免重复造轮子）**：
