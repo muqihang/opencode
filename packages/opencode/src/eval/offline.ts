@@ -11,6 +11,8 @@ import { stableJson } from "@/util/stable-json"
 import { Instance } from "@/project/instance"
 import { exportEvidence } from "@/evidence/export"
 import { defer } from "@/util/defer"
+import { EvidenceManifest } from "@/protocol/evidence-manifest"
+import { EvidencePack } from "@/protocol/evidence-pack"
 
 type Status = "pass" | "fail" | "skip"
 
@@ -34,6 +36,7 @@ export type OfflineEvalResult = {
     retrievalDeterminism: Check
     compactionPointers: Check
     evidenceChain: Check
+    exportEvidenceChain: Check
   }
 }
 
@@ -51,6 +54,53 @@ const pointerPath = (value: unknown) => {
   if (!value || typeof value !== "object") return ""
   const ref = (value as { ref?: unknown }).ref
   return asPath(ref)
+}
+
+const normRel = (value: string) => value.replace(/\\/g, "/").replace(/\/+/g, "/")
+
+const isCapsuleRef = (ref: string) => ref.endsWith("capsule.session.json") || ref.endsWith("capsule.handoff.json")
+
+const exportArtifactPath = (input: { sessionId: string; ref: string }) => {
+  const normalized = normRel(input.ref)
+  const prefix = `.opencode/artifacts/${input.sessionId}/`
+  if (normalized.startsWith(prefix)) return `artifacts/${normalized.slice(prefix.length)}`
+  if (normalized.startsWith("artifacts/")) return normalized
+  if (normalized.startsWith(".opencode/")) return ""
+  return `artifacts/${normalized}`
+}
+
+export const verifyOfflineExportEvidenceChain = async (input: {
+  exportDir: string
+  sessionId: string
+}): Promise<ReturnType<typeof verifyEvidenceChain>> => {
+  const manifestAbs = path.join(input.exportDir, "manifest.json")
+  const manifestRaw = (await Bun.file(manifestAbs).json().catch(() => null)) as unknown
+  const manifest = manifestRaw ? EvidenceManifest.safeParse(manifestRaw) : { success: false as const }
+
+  const packAbs = path.join(input.exportDir, "pack.json")
+  const packRaw = (await Bun.file(packAbs).json().catch(() => null)) as unknown
+  const pack = packRaw ? EvidencePack.safeParse(packRaw) : { success: false as const }
+
+  const manifestRefs = manifest.success ? manifest.data.entries.map((e) => e.path) : []
+  const packRefs = pack.success ? pack.data.capsule.pointers.map((p) => pointerPath(p)).filter((p) => p) : []
+
+  const refs = [...manifestRefs, ...packRefs].map((p) => normRel(p)).filter((p) => p)
+  const required = [...new Set(refs.filter((p) => isCapsuleRef(p)).map((p) => exportArtifactPath({ sessionId: input.sessionId, ref: p })))].filter((p) => p).toSorted()
+
+  const existing = (
+    await Promise.all(
+      required.map(async (p) => {
+        const ok = await Bun.file(path.join(input.exportDir, p)).exists()
+        return ok ? p : ""
+      }),
+    )
+  ).filter((p) => p)
+
+  return verifyEvidenceChain({
+    entries: required.map((p) => ({ path: p, kind: "export:required" })),
+    existing,
+    headerZh: "证据断链：导出目录缺失被引用的 capsule/handoff 产物（引用了就不断链）",
+  })
 }
 
 const fingerprintRetrievalHits = async (input: { sessionId: string; rel: string }) => {
@@ -303,6 +353,20 @@ export const runOfflineEval = async (input: {
 
       await exportEvidence({ sessionId, outDir: exportDir })
 
+      const exportChain = await verifyOfflineExportEvidenceChain({ exportDir, sessionId })
+      const exportChainEntry = await writer.artifact({
+        kind: "eval-export-evidence-chain",
+        path: "eval/evidence.export.chain.json",
+        data: stableJson({ specVersion: "eval-evidence-export-chain/1.0", ...exportChain }),
+      })
+
+      await writer.check({
+        id: "eval:evidence.chain.export",
+        command: "export dir must include referenced capsule/handoff artifacts",
+        status: check(exportChain.ok).status,
+        artifact: exportChainEntry.path,
+      })
+
       const copyTree = async (src: string, dst: string) => {
         await fs.mkdir(path.dirname(dst), { recursive: true })
         await fs.cp(src, dst, { recursive: true })
@@ -335,6 +399,7 @@ export const runOfflineEval = async (input: {
             retrievalDeterminism: retrievalOk,
             compactionPointers: compactionOk,
             evidenceChain: chain.ok,
+            exportEvidenceChain: exportChain.ok,
           },
         },
         redaction: { applied: true, policyVersion: "v1" },
@@ -370,6 +435,12 @@ export const runOfflineEval = async (input: {
             artifact: chainEntry.path,
             detail: { missing: chain.ok ? [] : chain.missing },
             ...(!chain.ok ? { errorZh: chain.errorZh } : {}),
+          },
+          exportEvidenceChain: {
+            ...check(exportChain.ok),
+            artifact: exportChainEntry.path,
+            detail: { missing: exportChain.ok ? [] : exportChain.missing },
+            ...(!exportChain.ok ? { errorZh: exportChain.errorZh } : {}),
           },
         },
       } satisfies OfflineEvalResult
