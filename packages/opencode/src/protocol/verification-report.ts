@@ -1,7 +1,7 @@
 import z from "zod"
 import { Sha256 } from "./shared"
 
-export const VerificationMode = z.enum(["strict", "balanced"])
+export const VerificationMode = z.enum(["strict", "balanced", "loose"])
 export type VerificationMode = z.infer<typeof VerificationMode>
 
 const Pointer = z

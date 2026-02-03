@@ -8,7 +8,7 @@ import { runVerification } from "@/verification"
 import { VerificationReport } from "@/protocol/verification-report"
 import type { Tool } from "@/tool/tool"
 
-const Mode = z.enum(["strict", "balanced"])
+const Mode = z.enum(["strict", "balanced", "loose"])
 
 const Budget = z
   .object({
