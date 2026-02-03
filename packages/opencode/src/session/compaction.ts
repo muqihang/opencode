@@ -19,6 +19,7 @@ import fs from "fs/promises"
 import path from "path"
 import { ContextLedger } from "./context-ledger"
 import { withTimeout } from "@/util/timeout"
+import { Capsule } from "./capsule"
 
 export namespace SessionCompaction {
   const log = Log.create({ service: "session.compaction" })
@@ -330,28 +331,40 @@ export namespace SessionCompaction {
           data: stableJson(facts),
         })
 
-        const capsuleText = [
-          "# Compaction Capsule",
-          "",
-          `sessionId: ${input.sessionID}`,
-          `compactionId: ${compactionId}`,
-          `generatedAtUtc: ${now}`,
-          "",
-          "## Trigger",
-          triggerInfo ? stableJson(triggerInfo) : "unknown",
-          "",
-          "## Last user message (preview)",
-          preview(lastUserText, 800) || "unknown",
-          "",
-          "## Notes",
-          "plugin_prompt: disabled (structured backend compaction)",
-          "",
-        ].join("\n")
+        const capsule = Capsule.buildSession({
+          sessionId: input.sessionID,
+          generatedAtUtc: now,
+          pointers: [
+            { path: inputEntry.path, sha256: inputEntry.sha256, kind: inputEntry.kind },
+            { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },
+          ],
+          notes: [
+            { status: "known", value: `compactionId: ${compactionId}` },
+            { status: "known", value: `trigger: ${triggerInfo ? stableJson(triggerInfo) : "unknown"}` },
+            { status: "known", value: `last_user_message_preview: ${preview(lastUserText, 800) || "unknown"}` },
+            { status: "known", value: "plugin_prompt: disabled (structured backend compaction)" },
+          ],
+        })
+        const capsuleRendered = Capsule.render(capsule)
+
+        const capsuleSessionEntry = await writer.artifact({
+          kind: "compaction-capsule-session",
+          path: `${base}/capsule.session.json`,
+          data: stableJson(capsule),
+        })
 
         const capsuleEntry = await writer.artifact({
           kind: "compaction-capsule",
           path: `${base}/capsule.md`,
-          data: capsuleText,
+          data: capsuleRendered,
+        })
+
+        await ContextLedger.update({
+          sessionId: input.sessionID,
+          patch: {
+            lastCapsuleSession: { path: capsuleSessionEntry.path, sha256: capsuleSessionEntry.sha256 },
+            lastCapsuleRendered: { path: capsuleEntry.path, sha256: capsuleEntry.sha256 },
+          },
         })
 
         const baseDir = Instance.worktree === "/" ? Instance.directory : Instance.worktree
@@ -447,6 +460,11 @@ export namespace SessionCompaction {
             compactionId,
             artifacts: {
               capsule: { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
+              capsuleSession: {
+                path: capsuleSessionEntry.path,
+                sha256: capsuleSessionEntry.sha256,
+                kind: capsuleSessionEntry.kind,
+              },
               facts: { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },
               input: { path: inputEntry.path, sha256: inputEntry.sha256, kind: inputEntry.kind },
               report: { path: reportEntry.path, sha256: reportEntry.sha256, kind: reportEntry.kind },
@@ -461,7 +479,7 @@ export namespace SessionCompaction {
           messageID: msg.id,
           sessionID: input.sessionID,
           type: "text",
-          text: capsuleText,
+          text: capsuleRendered,
           time: { start: Date.now(), end: Date.now() },
         })
         msg.finish = "end_turn"
