@@ -173,6 +173,11 @@ Capsule 的好处：
    - compaction 的职责是：把“可继续任务所需的最小状态”编译进 Warm/Hot，并通过 pointers 指向 Cold。  
    - 这能保证：沙盒内跑再多命令，也不会把 LLM 上下文撑爆，同时仍然“可回放”。
 
+> 关键工程纪律：**Compile once, consume many**  
+> - Compaction/Capsule 的编译应以“每轮（turn）最多一次”为上限；  
+> - 小 LLM/worker 不应各自触发 compaction，而是消费主会话已经编译好的 Role Pack（最小上下文）；  
+> - 这能避免“多代理越多越慢”的反效果，让上下文工程成为净收益（省 token、省调用、质量更稳）。
+
 ### 4.5 主会话 ↔ 子会话窗口：需要“协作传递压缩”，但它不是记忆，而是 Handoff
 
 你说的第二类情况（主会话窗口与子会话窗口之间的协作传递）应该被明确建模为：
@@ -194,6 +199,20 @@ Capsule 的好处：
    - 主会话导入时只把**结构化字段**写进自己的 Capsule（合并 decisions/openQuestions/workingSet.pointers）；  
    - 不直接把子会话长输出粘进 prompt；  
    - 导入行为事件化（例如 `handoff.imported`），确保审计可追溯。
+
+#### 默认策略（Best practice：GUI 低摩擦，但不“偷偷污染”）
+
+推荐默认：**自动生成 + 自动导入（受门禁约束）**，理由是：GUI 通用用户往往不会“手动导入/整理”，如果需要用户每次点按钮，系统最关键的协作价值会被体验摩擦吞掉。
+
+但“自动导入”必须满足安全约束，避免把错误信息悄悄写进主会话状态：
+
+- 子会话结束时 **总是** 生成：
+  - `capsule.handoff.json`（结构化 SSOT，短、稳定）
+  - micro-pack / evidence pack（可回放证据链）
+- 主会话默认自动导入的范围（安全子集）：
+  - `decisions[]` / `openQuestions[]` / `workingSet.pointers[]`
+  - 任何 `claims[]` 只有在能通过 verifier/toolbelt（或已标注 unknown/unsupported）时才允许导入
+- 任何无法核验、或含糊的自然语言结论：**不自动导入**，只作为“候选项（candidates）”留在审计视图里供用户/主 LLM 按需拉取再核验。
 
 ---
 
