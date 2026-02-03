@@ -5,6 +5,8 @@ import { EvidenceWriter } from "@/evidence/writer"
 import { Instance } from "@/project/instance"
 import { stableJson } from "@/util/stable-json"
 import { TaskFrame } from "@/protocol/task-frame"
+import { CacheStore } from "@/cache/store"
+import { sha256Text } from "@/routing/cache"
 import {
   VerificationReport,
   VerificationMode,
@@ -15,6 +17,11 @@ import {
 } from "@/protocol/verification-report"
 import { PythonTool } from "@/tool/python"
 import type { Tool } from "@/tool/tool"
+import { ScriptRegistry } from "@/python/registry"
+
+export const VerificationStats = {
+  scripts: 0,
+}
 
 const Pointer = z
   .object({
@@ -87,6 +94,23 @@ const baseDir = () => {
 }
 
 const nowIso = () => new Date().toISOString()
+
+const storeScope = () => ({
+  projectId: Instance.project.id,
+  worktreeRoot: baseDir(),
+})
+
+const storeLimits = () => ({ memoryMaxEntries: 300, diskMaxEntries: 1000 })
+
+const storeTtlMs = () => 24 * 60 * 60 * 1000
+
+const storeArtifact = async (key: string) => {
+  const rel = [".opencode", "cache", "store", "verification", "entries", `${key}.json`].join("/")
+  const file = path.join(baseDir(), ...rel.split("/"))
+  const text = await Bun.file(file).text().catch(() => "")
+  if (!text) return
+  return { path: rel, sha256: sha256Text(text), kind: "cache-entry" }
+}
 
 const makeKey = (pointer: VerificationPointer) => {
   return stableJson(pointer)
@@ -275,6 +299,7 @@ export const runVerification = async (input: VerificationInput) => {
       return { ok: false as const, error: "timeout" }
     }
     count.scripts += 1
+    VerificationStats.scripts += 1
     const executed = await tool
       .execute(
         {

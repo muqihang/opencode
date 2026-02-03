@@ -29,6 +29,10 @@ type CodeResult = {
   hits: CodeHit[]
 }
 
+export const CodeRetrievalStats = {
+  runs: 0,
+}
+
 const lineCount = (text: string) => {
   const parts = text.split(/\r?\n/)
   const last = parts.at(-1) ?? ""
@@ -72,6 +76,7 @@ export const runCodeRetrieval = async (input: {
   budget: { maxHits: number; topK: number; maxWallClockMs: number }
   abort: AbortSignal
 }): Promise<CodeResult> => {
+  CodeRetrievalStats.runs += 1
   const timer = setTimeout(() => {
     // noop
   }, input.budget.maxWallClockMs)

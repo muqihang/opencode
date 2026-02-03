@@ -1,10 +1,12 @@
 import os from "os"
+import path from "path"
 import { Installation } from "@/installation"
 import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
 import { EvidenceWriter } from "@/evidence/writer"
 import { stableJson } from "@/util/stable-json"
 import { sha256Text } from "@/routing/cache"
+import { CachePolicy } from "@/cache/policy"
 import {
   streamText,
   wrapLanguageModel,
@@ -27,8 +29,8 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
-import { ContextPackBuilder } from "./context-pack"
-import { ContextBlocks } from "./context-blocks"
+import { ContextBlocksCache } from "./context-blocks-cache"
+import { ContextPackCache } from "./context-pack-cache"
 import { DecisionBoundary } from "./decision-boundary"
 import { runRetrieval } from "@/retrieval/runner"
 import { ulid } from "ulid"
@@ -263,7 +265,7 @@ export namespace LLM {
     const contextPackId = ulid()
     const createdAtUtc = new Date().toISOString()
     const artifactRoot = ["context", contextPackId, "blocks"].join("/")
-    const blocks = ContextBlocks.build({
+    const blocksResult = await ContextBlocksCache.build({
       permissions: permissionText,
       developer: developerText,
       user: userText,
@@ -277,7 +279,9 @@ export namespace LLM {
       historySummary: input.historySummary,
       workspaceFingerprint,
       artifactRoot,
+      policy: CachePolicy.policy("context-blocks"),
     })
+    const blocks = blocksResult.blocks
     const extractText = (message: ModelMessage) => {
       if (typeof message.content === "string") return message.content
       if (Array.isArray(message.content)) {
@@ -313,7 +317,27 @@ export namespace LLM {
           abort: input.abort,
         })
       : undefined
-    const pack = ContextPackBuilder.build({
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
+
+    const cfgCache = CachePolicy.effective()
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: input.sessionID,
+      severity: "info",
+      actor: "cache:policy",
+      type: "cache.config_effective",
+      summary: "cache config effective",
+      data: {
+        storeEnabled: cfgCache.storeEnabled,
+        forceContextPack: cfgCache.forceContextPack,
+        strict: cfgCache.strict,
+        sources: cfgCache.sources,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+
+    const packResult = await ContextPackCache.build({
       sessionId: input.sessionID,
       messageId: input.user.id,
       model: input.model,
@@ -322,8 +346,104 @@ export namespace LLM {
       contextPackId,
       createdAtUtc,
       evidencePointers: retrieval?.evidencePointers,
+      policy: CachePolicy.policy("context-pack"),
     })
-    const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
+    const pack = packResult.pack
+
+    const root = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+    const cacheEntryPointer = async (namespace: string, key: string) => {
+      const rel = [".opencode", "cache", "store", namespace, "entries", `${key}.json`].join("/")
+      const file = path.join(root, ...rel.split("/"))
+      const text = await Bun.file(file).text().catch(() => "")
+      if (!text) return
+      return { path: rel, sha256: sha256Text(text), kind: "cache-entry" }
+    }
+
+    const emitCacheEvents = async (input2: {
+      namespace: string
+      key: string
+      scope: { projectId: string; worktreeRoot: string }
+      status: string
+      tier: string
+    }) => {
+      const artifact = await cacheEntryPointer(input2.namespace, input2.key)
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionID,
+        severity: "info",
+        actor: "cache:store",
+        type: "cache.read",
+        summary: "cache read",
+        data: {
+          namespace: input2.namespace,
+          key: input2.key,
+          scope: input2.scope,
+          decision: input2.status,
+          tier: input2.tier,
+          artifact,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionID,
+        severity: "info",
+        actor: "cache:store",
+        type: input2.status === "hit" ? "cache.hit" : "cache.miss",
+        summary: input2.status === "hit" ? "cache hit" : "cache miss",
+        data: {
+          namespace: input2.namespace,
+          key: input2.key,
+          scope: input2.scope,
+          decision: input2.status,
+          tier: input2.tier,
+          artifact,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+
+      const wrote = input2.status === "miss" || input2.status === "expired" || input2.status === "forced_rebuild"
+      if (!wrote) return
+
+      const stored = await cacheEntryPointer(input2.namespace, input2.key)
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionID,
+        severity: "info",
+        actor: "cache:store",
+        type: "cache.write",
+        summary: "cache write",
+        data: {
+          namespace: input2.namespace,
+          key: input2.key,
+          scope: input2.scope,
+          decision: input2.status,
+          tier: "disk",
+          artifact: stored,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
+
+    await emitCacheEvents({
+      namespace: blocksResult.cache.namespace,
+      key: blocksResult.cache.key,
+      scope: blocksResult.cache.scope,
+      status: blocksResult.cache.status,
+      tier: blocksResult.cache.tier,
+    })
+    await emitCacheEvents({
+      namespace: packResult.cache.namespace,
+      key: packResult.cache.key,
+      scope: packResult.cache.scope,
+      status: packResult.cache.status,
+      tier: packResult.cache.tier,
+    })
+
     await Promise.all(
       blocks.blocks.map((block) =>
         writer.artifact({
@@ -355,6 +475,10 @@ export namespace LLM {
         toolsetFingerprint: blocks.toolsetFingerprint,
         blockFingerprints: blocks.blockFingerprints,
         cacheKey: blocks.cacheKey,
+        cache: {
+          blocks: blocksResult.cache,
+          pack: packResult.cache,
+        },
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
