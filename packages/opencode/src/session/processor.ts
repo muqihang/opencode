@@ -6,6 +6,7 @@ import { Agent } from "@/agent/agent"
 import { Snapshot } from "@/snapshot"
 import { EvidenceWriter } from "@/evidence/writer"
 import { SessionSummary } from "./summary"
+import { runSecureOutput } from "@/secure-output"
 import { Bus } from "@/bus"
 import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
@@ -345,6 +346,36 @@ export namespace SessionProcessor {
                       { text: currentText.text },
                     )
                     currentText.text = textOutput.text
+
+                    const gated = await (async () => {
+                      if (input.assistantMessage.summary) return { ok: false as const }
+                      if (currentText.synthetic) return { ok: false as const }
+                      if (input.assistantMessage.agent !== "build") return { ok: false as const }
+
+                      return runSecureOutput({
+                        sessionId: input.sessionID,
+                        messageId: input.assistantMessage.id,
+                        mode: "balanced",
+                        budget: { timeMs: 8000, maxScripts: 4 },
+                        text: currentText.text,
+                        ctx: {
+                          sessionID: input.sessionID,
+                          messageID: input.assistantMessage.id,
+                          callID: "",
+                          agent: input.assistantMessage.agent,
+                          abort: input.abort,
+                          metadata: () => {},
+                          ask: async () => {},
+                        },
+                      })
+                        .then((value) => ({ ok: true as const, value }))
+                        .catch(() => ({ ok: false as const }))
+                    })()
+
+                    if (gated.ok) {
+                      currentText.text = gated.value.text
+                    }
+
                     currentText.time = {
                       start: Date.now(),
                       end: Date.now(),
