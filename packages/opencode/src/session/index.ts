@@ -22,6 +22,7 @@ import { Snapshot } from "@/snapshot"
 import type { Provider } from "@/provider/provider"
 import { PermissionNext } from "@/permission/next"
 import { Global } from "@/global"
+import { extractCacheReadTokens, extractCacheWriteTokens } from "@/usage/normalized"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -424,17 +425,24 @@ export namespace Session {
       model: z.custom<Provider.Model>(),
       usage: z.custom<LanguageModelUsage>(),
       metadata: z.custom<ProviderMetadata>().optional(),
+      flags: z
+        .object({
+          openaiChatCachedTokens: z.boolean().optional(),
+        })
+        .optional(),
     }),
     (input) => {
       const safe = (value: number) => {
         if (!Number.isFinite(value)) return 0
         return value
       }
-      const deepseekCacheHit =
-        input.model.providerID === "deepseek"
-          ? Number((input.usage as Record<string, unknown>)["prompt_cache_hit_tokens"] ?? 0)
-          : 0
-      const cachedInputTokens = safe(input.usage.cachedInputTokens ?? deepseekCacheHit ?? 0)
+      const read = extractCacheReadTokens({
+        model: input.model,
+        usage: input.usage as unknown as Record<string, unknown>,
+        metadata: input.metadata,
+        flags: input.flags,
+      })
+      const cachedInputTokens = safe(read.state === "known" ? read.value : 0)
       const excludesCachedTokens = !!(input.metadata?.["anthropic"] || input.metadata?.["bedrock"])
       const rawInputTokens = safe(input.usage.inputTokens ?? 0)
       const adjustedInputTokens = excludesCachedTokens
@@ -447,10 +455,10 @@ export namespace Session {
         reasoning: safe(input.usage?.reasoningTokens ?? 0),
         cache: {
           write: safe(
-            (input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
-              // @ts-expect-error
-              input.metadata?.["bedrock"]?.["usage"]?.["cacheWriteInputTokens"] ??
-              0) as number,
+            (() => {
+              const write = extractCacheWriteTokens({ model: input.model, metadata: input.metadata })
+              return write.state === "known" ? write.value : 0
+            })(),
           ),
           read: safe(cachedInputTokens),
         },
