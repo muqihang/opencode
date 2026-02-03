@@ -2,7 +2,24 @@ import fs from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Instance } from "@/project/instance"
+import { Sha256 } from "@/protocol/shared"
 import { stableJson } from "@/util/stable-json"
+
+const CapsulePtr = z
+  .object({
+    path: z.string().min(1),
+    sha256: Sha256,
+  })
+  .strict()
+
+const Handoff = z
+  .object({
+    childSessionId: z.string().min(1),
+    capsulePath: z.string().min(1),
+    capsuleSha256: Sha256,
+    importedAtUtc: z.string().min(1),
+  })
+  .strict()
 
 const Ledger = z
   .object({
@@ -10,10 +27,14 @@ const Ledger = z
     sessionId: z.string().min(1),
     updatedAtUtc: z.string().min(1),
     lastContextPackId: z.string().min(1).optional(),
+    lastCapsuleSession: CapsulePtr.optional(),
+    lastCapsuleRendered: CapsulePtr.optional(),
+    handoffs: z.array(Handoff).optional(),
   })
   .strict()
 
 type Ledger = z.infer<typeof Ledger>
+type Patch = Partial<Pick<Ledger, "lastContextPackId" | "lastCapsuleSession" | "lastCapsuleRendered" | "handoffs">>
 
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
 
@@ -44,15 +65,29 @@ export const ContextLedger = {
     return parsed.data
   },
 
-  async write(input: { sessionId: string; lastContextPackId: string }) {
+  async update(input: { sessionId: string; patch: Patch }) {
     const file = ledgerPath(input.sessionId)
     await fs.mkdir(path.dirname(file), { recursive: true })
+
+    const prev = await ContextLedger.read(input.sessionId)
     const next = Ledger.parse({
+      ...prev,
+      ...(input.patch.lastContextPackId === undefined ? {} : { lastContextPackId: input.patch.lastContextPackId }),
+      ...(input.patch.lastCapsuleSession === undefined ? {} : { lastCapsuleSession: input.patch.lastCapsuleSession }),
+      ...(input.patch.lastCapsuleRendered === undefined ? {} : { lastCapsuleRendered: input.patch.lastCapsuleRendered }),
+      ...(input.patch.handoffs === undefined ? {} : { handoffs: input.patch.handoffs }),
       specVersion: "context-ledger/1.0",
       sessionId: input.sessionId,
       updatedAtUtc: new Date().toISOString(),
-      lastContextPackId: input.lastContextPackId,
     })
     await Bun.write(file, stableJson(next))
+    return next
+  },
+
+  async write(input: { sessionId: string; lastContextPackId: string }) {
+    await ContextLedger.update({
+      sessionId: input.sessionId,
+      patch: { lastContextPackId: input.lastContextPackId },
+    })
   },
 }
