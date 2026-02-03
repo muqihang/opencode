@@ -303,7 +303,7 @@
 - **Memory / 记忆系统（跨会话偏好/洞见沉淀）**：延期到专题研究（单独写 design + threat model + UI/治理；避免 P3 引入黑盒风险）。
 
 **后续/Deferred（不打断当前 P3 执行）**：
-- **Context Compaction v2（压缩但不失精度）**：把 compaction 从“自由摘要”升级为 **Context Compiler + 结构化 Capsule（SSOT）+ claims 可核验（缺证据即 unknown）+ cacheable + GUI 渐进披露** 的专项工程。设计稿已固化，实施等 P3 当前并行任务（2.6/3/4）收敛并集成后再启动：`docs/plans/2026-02-02-context-compaction-v2-design.md`。
+- **Context Compaction v2（压缩不失真：不制造事实）**：把 compaction 从“自由摘要”升级为 **Context Compiler + 结构化 Capsule（SSOT）+ claims 可核验（缺证据即 unknown）+ cacheable + GUI 渐进披露** 的专项工程。设计稿已固化，实施等 P3 当前并行任务（2.6/3/4）收敛并集成后再启动：`docs/plans/2026-02-02-context-compaction-v2-design.md`。
 
 **说明（避免重复造轮子）**：
 - **Undo / Snapshot**：仓库已具备（`packages/opencode/src/snapshot/*`），P3 不再重复“发明撤销机制”，只需要在 Context Pack/Timeline 的叙事里能正确引用其 evidence/events（如果相关）。
