@@ -133,27 +133,27 @@ Item 结构（decisions 与 openQuestions 共用）：
 
 为避免“同一个 pointer 被不同方式引用”造成断链、UI 显示混乱、cache key 不稳定，assisted 必须使用统一的 EvidenceRef 规范。
 
-#### EvidenceRef 结构（建议）
+#### EvidenceRef 结构（定案）
 
-EvidenceRef 最少包含：
-- `ref`: string（稳定标识符）
+EvidenceRef 最少包含（建议与现有 evidence pack 的 `ref` 语义保持一致）：
+- `ref`: string（canonical manifest entry path，规范化后的相对路径）
 - `kind`: string
-- `path`: string
 - `sha256`: string
-- `anchor?`: string
+- `anchor?`: string（可选：用于定位文档内部片段；不参与文件存在性判断）
 
-> 注：`kind/path/sha256/anchor` 用于 UI 展示与排障；真正用于关联与校验的是 `ref`。
+> 注：这里的 `ref` 语义应与仓库现有的 evidence 指针保持一致：**ref 就是 `.opencode/...` 的相对路径**（manifest entry path）。
 
-#### `ref` 计算方式（推荐）
+#### `ref` 规范化方式（定案）
 
-`ref = sha256Text(stableJson({ kind, path: norm(path), anchor, sha256 }))`
+`ref = normRel(path)`（即：manifest entry path 的 canonical 形式）
 
 约束：
-- `path` 必须先做规范化（Windows `\\` → `/`，多重 `/` 收敛）
-- `anchor` 缺省视为 `""`（或直接 omit，但 stableJson 必须一致）
-- 任何 ref 的计算规则变更都必须 bump `specVersion` 或 `refVersion`
+- `ref` 必须先做规范化（Windows `\\` → `/`，多重 `/` 收敛）
+- `ref` 不允许 `..` 与绝对路径（防 path traversal）
+- `ref` 允许包含 `sessionId` 与目录结构（这是 `EvidenceWriter` 当前 manifest 路径体系的现实约束）
+- 任何 ref 规范化规则变更都必须 bump `refVersion`
 
-> 说明：这种 `ref` 具备“短、稳定、可校验”的性质，同时不要求改动现有 `Pointer` 协议（实现时只需在 verifier/渲染阶段临时计算）。
+> 说明：选择“ref=canonical path”的好处是：与现有 `.opencode` artifact 体系、manifest、导出映射与 prompt 注入路径完全兼容，verifier 最确定性、实现最简单。
 
 ---
 
@@ -252,7 +252,7 @@ v1 verifier 必须包含以下门禁：
 - `capsule`：deterministic capsule 的摘要字段（goal/notes/关键 counts）
 - `handoff?`：最近一条 handoff 的摘要（若存在）
 - `pointers`：候选证据清单（建议只给 top-N + 排序稳定）
-  - 每条 pointer 至少含 `{ ref, kind, path, sha256, anchor? }`
+  - 每条 pointer 至少含 `{ ref, kind, sha256, anchor? }`（其中 `ref` 为 canonical manifest entry path）
 
 > 说明：让 LLM 只在“证据目录 + 少量结构化字段”上工作，是质量稳定的核心手段；这比写更长 prompt 更可靠。
 
