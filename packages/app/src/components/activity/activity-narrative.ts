@@ -613,11 +613,11 @@ export function getFailureSuggestions(item: ActivityItem): string[] {
   const events = item.events
 
   if (events.some(e => e.type.startsWith("cache."))) {
-    suggestions.push("尝试禁用缓存重试 (--no-cache)")
+    suggestions.push("尝试禁用缓存重试")
   }
 
   if (events.some(e => e.type.startsWith("compaction."))) {
-    suggestions.push("尝试强制重建上下文 (Force Rebuild)")
+    suggestions.push("尝试强制重建上下文")
   }
 
   if (events.some(e => e.type.startsWith("secure_output.") || e.type === "protocol.violation")) {
@@ -625,7 +625,7 @@ export function getFailureSuggestions(item: ActivityItem): string[] {
   }
   
   if (events.some(e => e.type.startsWith("verification."))) {
-    suggestions.push("尝试切换至严格模式 (Strict Mode)")
+    suggestions.push("尝试切换至严格模式")
   }
 
   if (suggestions.length === 0) {

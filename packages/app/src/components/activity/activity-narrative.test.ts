@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { extractPointers, mapActivityItem } from "./activity-narrative"
+import { extractPointers, getFailureSuggestions, mapActivityItem } from "./activity-narrative"
 import type { ActivityItem, EventV1 } from "@/lib/chronology/types"
 
 const mockEvent = (overrides: Partial<EventV1> = {}): EventV1 => ({
@@ -265,25 +265,61 @@ describe("activity-narrative", () => {
       })
   })
 
-  describe("pointers", () => {
-    it("extracts whitelisted pointers from event data", () => {
-      const events = [
-        mockEvent({
-          data: { manifestPath: "/tmp/.opencode/evidence/sid/events.jsonl" },
-        }),
-      ]
-      const pointers = extractPointers(events)
-      expect(pointers).toEqual([{ key: "manifestPath", value: "/tmp/.opencode/evidence/sid/events.jsonl" }])
+	  describe("pointers", () => {
+	    it("extracts whitelisted pointers from event data", () => {
+	      const events = [
+	        mockEvent({
+	          data: { manifestPath: "/tmp/.opencode/evidence/sid/events.jsonl" },
+	        }),
+	      ]
+	      const pointers = extractPointers(events)
+	      expect(pointers).toEqual([{ key: "manifestPath", value: "/tmp/.opencode/evidence/sid/events.jsonl" }])
+	    })
+	
+	    it("extracts sha-like values from event data", () => {
+	      const events = [
+	        mockEvent({
+	          data: { sha256: "deadbeef" },
+	        }),
+	      ]
+	      const pointers = extractPointers(events)
+	      expect(pointers.some((p) => p.value === "deadbeef")).toBe(true)
+	    })
+	  })
+	
+	  describe("failure suggestions", () => {
+	    it("returns GUI-friendly suggestions (no CLI flags or English hints)", () => {
+	      const item = mockItem({
+	        status: "failed",
+	        events: [
+	          mockEvent({ type: "cache.hit" }),
+          mockEvent({ type: "compaction.degraded" }),
+          mockEvent({ type: "verification.timeout" }),
+        ],
+      })
+      const suggestions = getFailureSuggestions(item)
+      expect(suggestions).toContain("尝试禁用缓存重试")
+      expect(suggestions).toContain("尝试强制重建上下文")
+      expect(suggestions).toContain("尝试切换至严格模式")
+      expect(suggestions.some(s => s.includes("--"))).toBe(false)
+      expect(suggestions.some(s => s.includes("("))).toBe(false)
     })
 
-    it("extracts sha-like values from event data", () => {
-      const events = [
-        mockEvent({
-          data: { sha256: "deadbeef" },
-        }),
-      ]
-      const pointers = extractPointers(events)
-      expect(pointers.some((p) => p.value === "deadbeef")).toBe(true)
+    it("suggests checking policy settings when secure output fails", () => {
+      const item = mockItem({
+        status: "failed",
+        events: [mockEvent({ type: "protocol.violation" })],
+      })
+      const suggestions = getFailureSuggestions(item)
+      expect(suggestions).toContain("检查敏感信息策略设置")
     })
-  })
+
+    it("falls back to log suggestion when no known events exist", () => {
+      const item = mockItem({
+        status: "failed",
+        events: [mockEvent({ type: "other.unknown_failure" })],
+      })
+	      expect(getFailureSuggestions(item)).toEqual(["查看详细日志以排查问题"])
+	    })
+	  })
 })
