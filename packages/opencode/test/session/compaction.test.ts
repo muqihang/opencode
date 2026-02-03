@@ -148,6 +148,81 @@ describe("session.compaction.isOverflow", () => {
   })
 })
 
+describe("session.compaction.trigger", () => {
+  test("returns undefined when under soft threshold", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const tokens = { input: 40_000, output: 1_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        expect(await SessionCompaction.trigger({ tokens, model })).toBeUndefined()
+      },
+    })
+  })
+
+  test("classifies soft/hard/emergency based on ratio", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const usable = 68_000
+
+        const soft = await SessionCompaction.trigger({
+          model,
+          tokens: { input: Math.floor(usable * 0.85), output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        })
+        expect(soft?.level).toBe("soft")
+
+        const hard = await SessionCompaction.trigger({
+          model,
+          tokens: { input: Math.floor(usable * 0.95), output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        })
+        expect(hard?.level).toBe("hard")
+
+        const emergency = await SessionCompaction.trigger({
+          model,
+          tokens: { input: usable, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        })
+        expect(emergency?.level).toBe("emergency")
+      },
+    })
+  })
+
+  test("respects input caps when present", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = createModel({ context: 400_000, input: 272_000, output: 128_000 })
+        const usable = 272_000
+        const hit = await SessionCompaction.trigger({
+          model,
+          tokens: { input: usable, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        })
+        expect(hit?.level).toBe("emergency")
+      },
+    })
+  })
+
+  test("returns undefined when compaction.auto is disabled", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ compaction: { auto: false } }))
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const tokens = { input: 90_000, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+        expect(await SessionCompaction.trigger({ tokens, model })).toBeUndefined()
+      },
+    })
+  })
+})
+
 describe("util.token.estimate", () => {
   test("estimates tokens from text (4 chars per token)", () => {
     const text = "x".repeat(4000)
