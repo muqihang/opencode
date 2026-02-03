@@ -206,10 +206,62 @@ describe("activity-narrative", () => {
            const item = mockItem({ 
                category: "cache", 
                status: "done",
-               events: [mockEvent({ type: "file.cache_hit" })]
+               events: [mockEvent({ type: "cache.hit" })]
            })
            const result = mapActivityItem(item)
            expect(result.titleZh).toBe("命中缓存")
+      })
+  })
+
+  describe("compaction narrative", () => {
+      it("maps compaction completed", () => {
+           const item = mockItem({ 
+               category: "other", 
+               status: "done",
+               events: [mockEvent({ type: "compaction.completed" })]
+           })
+           const result = mapActivityItem(item)
+           expect(result.titleZh).toBe("上下文压缩完成")
+           expect(result.severity).toBe("success")
+      })
+  })
+
+  describe("verification narrative", () => {
+      it("maps verification degraded", () => {
+           const item = mockItem({ 
+               category: "other", 
+               status: "done",
+               events: [mockEvent({ type: "verification.degraded" })]
+           })
+           const result = mapActivityItem(item)
+           expect(result.titleZh).toContain("验证已降级")
+           expect(result.severity).toBe("warning")
+      })
+  })
+
+  describe("secure output narrative", () => {
+      it("maps protocol violation", () => {
+           const item = mockItem({ 
+               category: "other", 
+               status: "failed",
+               events: [mockEvent({ type: "protocol.violation" })]
+           })
+           const result = mapActivityItem(item)
+           expect(result.titleZh).toBe("安全协议违规")
+           expect(result.severity).toBe("error")
+      })
+  })
+
+  describe("usage narrative", () => {
+      it("maps usage normalized", () => {
+           const item = mockItem({ 
+               category: "other", 
+               status: "done",
+               events: [mockEvent({ type: "usage.normalized" })]
+           })
+           const result = mapActivityItem(item)
+           expect(result.titleZh).toBe("用量已归一化")
+           expect(result.isNoise).toBe(true)
       })
   })
 

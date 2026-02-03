@@ -2,7 +2,7 @@ import type { ActivityItem } from "@/lib/chronology/types"
 import { Icon } from "@opencode-ai/ui/icon"
 import { createMemo, createSignal, Show, For, createEffect } from "solid-js"
 import { getPulseMode, useNowMs } from "./pulse"
-import { extractPointers, mapActivityItem } from "./activity-narrative"
+import { extractPointers, mapActivityItem, getFailureSuggestions } from "./activity-narrative"
 
 function icon(category: ActivityItem["category"]) {
   if (category === "tool") return "console"
@@ -48,6 +48,7 @@ export function ActivityCard(props: {
   })
 
   const narrative = createMemo(() => mapActivityItem(props.item))
+  const suggestions = createMemo(() => getFailureSuggestions(props.item))
   const time = createMemo(() => duration(props.item.tsStart, props.item.tsEnd))
 
   const mode = createMemo(() => getPulseMode([props.item], useNowMs()))
@@ -198,6 +199,17 @@ export function ActivityCard(props: {
       
       <Show when={expanded()}>
         <div class="px-3 pb-3 pt-0 flex flex-col gap-2 border-t border-border-weak-base/50 mt-1">
+          <Show when={suggestions().length > 0}>
+            <div class="mt-2 p-2 rounded bg-surface-raised-base border border-border-warning-base/30">
+              <div class="text-11-medium text-text-strong mb-1">建议操作</div>
+              <ul class="list-disc list-inside text-11-regular text-text-weak flex flex-col gap-0.5">
+                <For each={suggestions()}>
+                  {(s) => <li>{s}</li>}
+                </For>
+              </ul>
+            </div>
+          </Show>
+
           <div class="flex items-center justify-between pt-2">
             <div class="text-11-medium text-text-subtle">审计明细</div>
             <Show when={canJump()}>

@@ -12,6 +12,7 @@ import { SettingsModels } from "./settings-models"
 import { SettingsAgents } from "./settings-agents"
 import { SettingsCommands } from "./settings-commands"
 import { SettingsMcp } from "./settings-mcp"
+import { SettingsMemory } from "./settings-memory"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -45,6 +46,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="server" />
                       {language.t("settings.providers.title")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="memory">
+                      <Icon name="brain" />
+                      记忆与数据
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
@@ -63,6 +68,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="providers" class="no-scrollbar">
           <SettingsProviders />
+        </Tabs.Content>
+        <Tabs.Content value="memory" class="no-scrollbar">
+          <SettingsMemory />
         </Tabs.Content>
         {/* <Tabs.Content value="models" class="no-scrollbar"> */}
         {/*   <SettingsModels /> */}
