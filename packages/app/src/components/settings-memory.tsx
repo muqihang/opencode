@@ -2,8 +2,10 @@ import { Component, createSignal, For, type JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Select } from "@opencode-ai/ui/select"
+import { useLanguage } from "@/context/language"
 
 export const SettingsMemory: Component = () => {
+    const language = useLanguage()
     const [donationEnabled, setDonationEnabled] = createSignal(false)
     const [memoryAutoSave, setMemoryAutoSave] = createSignal(false)
     const [retentionDays, setRetentionDays] = createSignal(30)
@@ -15,10 +17,10 @@ export const SettingsMemory: Component = () => {
     ]
 
     const retentionOptions = [
-        { value: 7, label: "7 天" },
-        { value: 30, label: "30 天" },
-        { value: 90, label: "90 天" },
-        { value: 365, label: "1 年" },
+        { value: 7, label: "settings.memory.retention.option.7days" },
+        { value: 30, label: "settings.memory.retention.option.30days" },
+        { value: 90, label: "settings.memory.retention.option.90days" },
+        { value: 365, label: "settings.memory.retention.option.1year" },
     ]
 
     return (
@@ -31,19 +33,19 @@ export const SettingsMemory: Component = () => {
                 }}
             >
                 <div class="flex flex-col gap-1 pt-6 pb-8">
-                    <h2 class="text-16-medium text-text-strong">记忆与数据治理</h2>
-                    <p class="text-14-regular text-text-weak">管理您的数据隐私、记忆偏好与捐赠设置</p>
+                    <h2 class="text-16-medium text-text-strong">{language.t("settings.memory.title")}</h2>
+                    <p class="text-14-regular text-text-weak">{language.t("settings.memory.description")}</p>
                 </div>
             </div>
 
              <div class="flex flex-col gap-8 w-full">
                 {/* Donation Section */}
                 <div class="flex flex-col gap-1">
-                    <h3 class="text-14-medium text-text-strong pb-2">数据捐赠 (Donation)</h3>
+                    <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.memory.section.donation")}</h3>
                     <div class="bg-surface-raised-base px-4 rounded-lg">
                         <SettingsRow 
-                            title="帮助改进模型" 
-                            description="允许将脱敏后的非敏感数据用于模型训练与评测（默认关闭）"
+                            title={language.t("settings.memory.donation.title")} 
+                            description={language.t("settings.memory.donation.description")}
                         >
                             <Switch checked={donationEnabled()} onChange={setDonationEnabled} />
                         </SettingsRow>
@@ -52,11 +54,11 @@ export const SettingsMemory: Component = () => {
 
                 {/* Memory Section */}
                 <div class="flex flex-col gap-1">
-                    <h3 class="text-14-medium text-text-strong pb-2">长期记忆 (Memory)</h3>
+                    <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.memory.section.memory")}</h3>
                     <div class="bg-surface-raised-base px-4 rounded-lg">
                         <SettingsRow 
-                            title="自动保存记忆" 
-                            description="允许系统自动提取并保存偏好（建议保持关闭，仅使用候选模式）"
+                            title={language.t("settings.memory.autoSave.title")} 
+                            description={language.t("settings.memory.autoSave.description")}
                         >
                             <Switch checked={memoryAutoSave()} onChange={setMemoryAutoSave} />
                         </SettingsRow>
@@ -65,8 +67,8 @@ export const SettingsMemory: Component = () => {
                     {/* Candidates Preview */}
                     <div class="mt-4 p-3 border border-border-weak-base rounded-lg bg-surface-raised-base">
                         <div class="flex justify-between items-center mb-2">
-                            <span class="text-12-medium text-text-subtle">待确认记忆 ({candidates.length})</span>
-                            <button type="button" class="text-12-regular text-text-interactive-base hover:underline">全部忽略</button>
+                            <span class="text-12-medium text-text-subtle">{language.t("settings.memory.candidates.title", { count: candidates.length })}</span>
+                            <button type="button" class="text-12-regular text-text-interactive-base hover:underline">{language.t("settings.memory.candidates.ignoreAll")}</button>
                         </div>
                         <div class="flex flex-col gap-2">
                             <For each={candidates}>{ c => (
@@ -87,17 +89,17 @@ export const SettingsMemory: Component = () => {
                 
                 {/* Retention Section */}
                 <div class="flex flex-col gap-1">
-                    <h3 class="text-14-medium text-text-strong pb-2">数据保留 (Retention)</h3>
+                    <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.memory.section.retention")}</h3>
                     <div class="bg-surface-raised-base px-4 rounded-lg">
                         <SettingsRow 
-                            title="本地数据保留期" 
-                            description="超过该期限的会话证据将被清理（Pinned 会话除外）"
+                            title={language.t("settings.memory.retention.title")} 
+                            description={language.t("settings.memory.retention.description")}
                         >
                              <Select
                                 options={retentionOptions}
                                 current={retentionOptions.find((o) => o.value === retentionDays())}
                                 value={(o) => String(o.value)}
-                                label={(o) => o.label}
+                                label={(o) => language.t(o.label as any)}
                                 onSelect={(option) => option && setRetentionDays(option.value)}
                                 variant="secondary"
                                 size="small"
@@ -106,7 +108,7 @@ export const SettingsMemory: Component = () => {
                         </SettingsRow>
                          <div class="py-3 border-t border-border-weak-base">
                             <button type="button" class="px-3 py-1.5 text-12-medium text-text-on-critical-base bg-surface-critical-base rounded hover:bg-surface-critical-hover transition-colors">
-                                立即清理过期数据 (预览)
+                                {language.t("settings.memory.retention.cleanup.button")}
                             </button>
                          </div>
                     </div>

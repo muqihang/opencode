@@ -48,7 +48,7 @@ export const DialogSettings: Component = () => {
                     </Tabs.Trigger>
                     <Tabs.Trigger value="memory">
                       <Icon name="brain" />
-                      记忆与数据
+                      {language.t("settings.memory.title")}
                     </Tabs.Trigger>
                   </div>
                 </div>

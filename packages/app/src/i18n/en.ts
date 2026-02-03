@@ -663,6 +663,29 @@ export const dict = {
   "settings.permissions.tool.doom_loop.title": "Doom Loop",
   "settings.permissions.tool.doom_loop.description": "Detect repeated tool calls with identical input",
 
+  "settings.memory.title": "Memory & Data",
+  "settings.memory.description": "Manage your data privacy, memory preferences, and donation settings",
+  "settings.memory.section.donation": "Data Donation",
+  "settings.memory.section.memory": "Long-term Memory",
+  "settings.memory.section.retention": "Data Retention",
+  
+  "settings.memory.donation.title": "Help improve models",
+  "settings.memory.donation.description": "Allow non-sensitive data (after redaction) to be used for model training and evaluation (Default: Off)",
+  
+  "settings.memory.autoSave.title": "Auto-save Memory",
+  "settings.memory.autoSave.description": "Allow system to automatically extract and save preferences (Recommended: Keep off, use candidate mode)",
+  
+  "settings.memory.candidates.title": "Pending Memories ({{count}})",
+  "settings.memory.candidates.ignoreAll": "Ignore All",
+  
+  "settings.memory.retention.title": "Local Data Retention",
+  "settings.memory.retention.description": "Session evidence older than this period will be pruned (Pinned sessions excluded)",
+  "settings.memory.retention.cleanup.button": "Clean up expired data now (Preview)",
+  "settings.memory.retention.option.7days": "7 Days",
+  "settings.memory.retention.option.30days": "30 Days",
+  "settings.memory.retention.option.90days": "90 Days",
+  "settings.memory.retention.option.1year": "1 Year",
+
   "session.delete.failed.title": "Failed to delete session",
   "session.delete.title": "Delete session",
   "session.delete.confirm": 'Delete session "{{name}}"?',
