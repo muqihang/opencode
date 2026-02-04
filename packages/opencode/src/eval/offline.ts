@@ -13,6 +13,11 @@ import { exportEvidence } from "@/evidence/export"
 import { defer } from "@/util/defer"
 import { EvidenceManifest } from "@/protocol/evidence-manifest"
 import { EvidencePack } from "@/protocol/evidence-pack"
+import { extractFeatures } from "@/session/orchestrator/features"
+import { buildPlan } from "@/session/orchestrator/plan"
+import { runToolBroker } from "@/session/orchestrator/tool-broker"
+import { ToolRequest } from "@/protocol/llm-worker-result"
+import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 
 type Status = "pass" | "fail" | "skip"
 
@@ -34,6 +39,8 @@ export type OfflineEvalResult = {
   checks: {
     routingContract: Check
     retrievalDeterminism: Check
+    orchestratorPlanDeterminism: Check
+    toolBrokerNonInteractive: Check
     compactionPointers: Check
     evidenceChain: Check
     exportEvidenceChain: Check
@@ -45,6 +52,10 @@ const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance
 const baseline = {
   routingContractHash: "e7c7e8214a952671261330a04c5965aec5f4beb43aff9ced0a4ea2762b7b2638",
   retrievalDeterminismHash: "0adc7f7de965d2bb52ff5264e82ae0aca97d0f24b2e91f1ad7ece13cfcbc492c",
+  orchestratorPlanChatHash: "0844c28fe130faf00de6ce8e9e6e2d69474e9bc6483ecb9e4232378feb57083f",
+  orchestratorPlanAssistHash: "f6ebe80005ca9815a3da9cc648e372da7872270e857d7df717694a238d4a498c",
+  orchestratorPlanForkHash: "86282fe6b138c7b857ec002521ffe3f37c9a234aaf867ca17cb7f596816951bd",
+  toolBrokerContractHash: "d44938c8bedf21ad339e3aea36ec1750d722413baa8a9b7369b7124ebede0ae2",
 } as const
 
 const asPath = (value: unknown) => (typeof value === "string" ? value : "")
@@ -133,6 +144,36 @@ const fingerprintRetrievalHits = async (input: { sessionId: string; rel: string 
 }
 
 const check = (ok: boolean) => ({ ok, status: ok ? ("pass" as const) : ("fail" as const) })
+
+const planShape = (plan: OrchestratorPlan) => {
+  const evidencePolicy = plan.evidencePolicy
+    ? { enabled: plan.evidencePolicy.enabled, mode: plan.evidencePolicy.mode }
+    : null
+
+  return {
+    orchestratorMode: plan.orchestratorMode,
+    uxMode: plan.uxMode,
+    workers: plan.workers.map((item) => ({
+      id: item.id,
+      model: item.model,
+      budget: { timeoutMs: item.budget.timeoutMs },
+    })),
+    budgets: plan.budgets,
+    toolPolicy: plan.toolPolicy,
+    evidencePolicy,
+    reasons: plan.reasons.map((item) => item.code),
+  }
+}
+
+const planHash = (shape: ReturnType<typeof planShape>) =>
+  sha256Text(stableJson({ specVersion: "eval-orchestrator-plan/1.0", shape }))
+
+const pointerPrefix = (input: { prefix: string; pointers?: { artifacts: { path: string }[]; topK: { path: string }[] } }) => {
+  const artifacts = input.pointers ? input.pointers.artifacts.map((item) => item.path.startsWith(input.prefix)) : []
+  const topK = input.pointers ? input.pointers.topK.map((item) => item.path.startsWith(input.prefix)) : []
+  const ok = input.pointers ? artifacts.every(Boolean) && topK.every(Boolean) : false
+  return { ok, artifacts, topK }
+}
 
 const fixtureFiles = () => [
   { rel: "README.md", text: "# Offline Eval Fixture\n\nThis is an eval-only fixture repo.\n" },
@@ -297,9 +338,107 @@ export const runOfflineEval = async (input: {
         artifact: retrievalEntry.path,
       })
 
+      const toolsetFingerprint = sha256Text("eval-toolset")
+      const planCases = [
+        { name: "chat", intentText: "alpha", expected: baseline.orchestratorPlanChatHash },
+        { name: "assist", intentText: "please provide evidence", expected: baseline.orchestratorPlanAssistHash },
+        { name: "fork", intentText: "帮我改一下 foo.ts 并运行测试", expected: baseline.orchestratorPlanForkHash },
+      ]
+
+      const planResults = await Promise.all(
+        planCases.map(async (item) => {
+          const features = extractFeatures({
+            uxMode: "auto",
+            intentText: item.intentText,
+            hasFileParts: false,
+          })
+          const built = await buildPlan({
+            sessionId,
+            messageId: `eval_plan_${item.name}`,
+            features,
+            toolsetFingerprint,
+          })
+          const shape = planShape(built.plan)
+          const hash = planHash(shape)
+          return { name: item.name, hash, expected: item.expected, shape }
+        }),
+      )
+
+      const planOk = planResults.every((item) => item.hash === item.expected)
+      const planEntry = await writer.artifact({
+        kind: "eval-orchestrator-plan",
+        path: "eval/orchestrator.plan.json",
+        data: stableJson({
+          specVersion: "eval-orchestrator-plan/1.0",
+          cases: planResults,
+        }),
+      })
+
+      await writer.check({
+        id: "eval:orchestrator.plan",
+        command: "extractFeatures + buildPlan -> planShape hash",
+        status: check(planOk).status,
+        artifact: planEntry.path,
+      })
+
+      const toolRequests: ToolRequest[] = [
+        { kind: "verification", input: "please provide evidence" },
+        { kind: "retrieval", input: "alpha" },
+      ]
+      const broker = await runToolBroker({
+        sessionId,
+        messageId: "eval_tool_broker",
+        toolRequests,
+        abort,
+      })
+      const toolPrefix = `.opencode/artifacts/${sessionId}/retrieval/`
+
+      const brokerResults = broker.results.map((item) => {
+        const summaryTotal = typeof item.summary?.total === "number" ? item.summary.total : null
+        const prefix = pointerPrefix({ prefix: toolPrefix, pointers: item.pointers })
+        return {
+          kind: item.kind,
+          status: item.status,
+          reason: item.reason ?? null,
+          summary: { total: summaryTotal },
+          pointers: { artifacts: prefix.artifacts, topK: prefix.topK },
+          pointerOk: prefix.ok,
+        }
+      })
+
+      const toolHash = sha256Text(stableJson({ specVersion: "eval-tool-broker/1.0", results: brokerResults }))
+      const toolEntry = await writer.artifact({
+        kind: "eval-tool-broker",
+        path: "eval/tool.broker.json",
+        data: stableJson({
+          specVersion: "eval-tool-broker/1.0",
+          hash: toolHash,
+          expected: baseline.toolBrokerContractHash,
+          results: brokerResults,
+        }),
+      })
+
+      const rejected = broker.results.find((item) => item.kind === "verification")
+      const rejectedOk = rejected?.status === "rejected" && rejected.reason === "unsupported_kind_v0"
+      const retrieval = broker.results.find((item) => item.kind === "retrieval")
+      const retrievalPrefix = pointerPrefix({ prefix: toolPrefix, pointers: retrieval?.pointers })
+      const brokerSummaryOk = typeof retrieval?.summary?.total === "number"
+      const brokerRetrievalOk =
+        retrieval?.status === "ok" && brokerSummaryOk && retrievalPrefix.ok && Boolean(retrieval?.pointers)
+
+      const toolOk = rejectedOk && brokerRetrievalOk && toolHash === baseline.toolBrokerContractHash
+      await writer.check({
+        id: "eval:tool-broker.contract",
+        command: "runToolBroker (offline) -> canonicalized contract",
+        status: check(toolOk).status,
+        artifact: toolEntry.path,
+      })
+
       const capsulePointers = [
         { kind: "artifact", ref: routingEntry.path, label: "routing contract" },
         { kind: "artifact", ref: retrievalEntry.path, label: "retrieval determinism" },
+        { kind: "artifact", ref: planEntry.path, label: "orchestrator plan determinism" },
+        { kind: "artifact", ref: toolEntry.path, label: "tool broker contract" },
       ]
 
       writer.capsule({ pointers: capsulePointers, openQuestions: [] })
@@ -402,6 +541,8 @@ export const runOfflineEval = async (input: {
           checks: {
             routingContract: routingOk,
             retrievalDeterminism: retrievalOk,
+            orchestratorPlanDeterminism: planOk,
+            toolBrokerNonInteractive: toolOk,
             compactionPointers: compactionOk,
             evidenceChain: chain.ok,
             exportEvidenceChain: exportChain.ok,
@@ -428,6 +569,16 @@ export const runOfflineEval = async (input: {
             ...check(retrievalOk),
             artifact: retrievalEntry.path,
             detail: { hash: fpA.hash, again: fpB.hash },
+          },
+          orchestratorPlanDeterminism: {
+            ...check(planOk),
+            artifact: planEntry.path,
+            detail: { cases: planResults.map((item) => ({ name: item.name, hash: item.hash, expected: item.expected })) },
+          },
+          toolBrokerNonInteractive: {
+            ...check(toolOk),
+            artifact: toolEntry.path,
+            detail: { hash: toolHash, expected: baseline.toolBrokerContractHash },
           },
           compactionPointers: {
             ...check(compactionOk),
