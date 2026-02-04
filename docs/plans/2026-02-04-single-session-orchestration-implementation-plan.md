@@ -49,11 +49,11 @@
 
 ### 1.1 创建隔离 worktree（建议）
 
-> 默认分支是 `dev`（repo 约定）。
+> Upstream 默认分支是 `dev`（repo 约定），但本项目研发主线以 `feature/opencode-custom` 为基线（以仓库当前协作约定为准）。
 
 ```bash
 git fetch origin
-git worktree add .worktrees/p4-single-session-orchestrator dev
+git worktree add .worktrees/p4-single-session-orchestrator feature/opencode-custom
 cd .worktrees/p4-single-session-orchestrator
 git checkout -b p4-single-session-orchestrator
 ```
