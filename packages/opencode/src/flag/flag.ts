@@ -55,12 +55,22 @@ export namespace Flag {
   export const OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT = truthy("OPENCODE_EXPERIMENTAL_CAPSULE_CONTEXT")
   export const OPENCODE_EXPERIMENTAL_CAPSULE_LLM = truthy("OPENCODE_EXPERIMENTAL_CAPSULE_LLM")
   export const OPENCODE_DISABLE_HANDOFF_HINTS = truthy("OPENCODE_DISABLE_HANDOFF_HINTS")
+  export const OPENCODE_EXPERIMENTAL_ORCHESTRATOR = truthy("OPENCODE_EXPERIMENTAL_ORCHESTRATOR")
+  export const OPENCODE_ORCHESTRATOR_UX_MODE = uxMode()
 
   function number(key: string) {
     const value = process.env[key]
     if (!value) return undefined
     const parsed = Number(value)
     return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+  }
+
+  function uxMode() {
+    const value = process.env["OPENCODE_ORCHESTRATOR_UX_MODE"]
+    if (!value) return undefined
+    const normalized = value.toLowerCase()
+    if (normalized === "fast" || normalized === "auto" || normalized === "deep") return normalized
+    return undefined
   }
 }
 
