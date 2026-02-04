@@ -21,6 +21,7 @@ import { Flag } from "@/flag/flag"
 import { writeUsageEvents } from "@/usage/events"
 import { prepareOrchestratorPlan } from "./orchestrator/prepare"
 import { runOrchestratorTurn } from "./orchestrator"
+import { runForkTask } from "./orchestrator/fork"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -101,6 +102,7 @@ export namespace SessionProcessor {
             features: prepared.features,
             toolsetFingerprint: prepared.toolsetFingerprint,
             intentText: prepared.intentText,
+            session,
           }
         })().catch(async (error) => {
           await writeOrchestratorDegraded({
@@ -133,15 +135,53 @@ export namespace SessionProcessor {
           })
           return { system: streamInput.system, tools: streamInput.tools, degraded: true }
         })
+        const forkResult = await (async () => {
+          if (!orchestrator.enabled) return
+          if (orchestrator.degraded) return
+          if (orchestrator.plan.orchestratorMode !== "fork") return
+          const session = orchestrator.session ?? (await Session.get(input.sessionID).catch(() => undefined))
+          if (!session) return
+          const agent = await Agent.get(input.assistantMessage.agent)
+          const prompt = orchestrator.intentText
+            ? `请在子会话完成以下任务：${orchestrator.intentText}`
+            : "请在子会话完成写入或执行任务。"
+          return runForkTask({
+            sessionId: input.sessionID,
+            assistantMessageId: input.assistantMessage.id,
+            agent,
+            session,
+            model: {
+              providerID: input.model.providerID,
+              id: input.model.id,
+              api: input.model.api,
+            },
+            abort: input.abort,
+            task: {
+              description: "orchestrator task",
+              subagentType: "general",
+              prompt,
+            },
+          })
+        })().catch(async (error) => {
+          await writeOrchestratorDegraded({
+            sessionId: input.sessionID,
+            messageId: input.assistantMessage.id,
+            stage: "fork_task",
+            reason: errorText(error),
+          })
+          return undefined
+        })
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            const stream = await LLM.stream({
+            const forkNotice = forkResult?.status === "degraded" ? forkResult.notice : undefined
+            const orchestratedInput = {
               ...streamInput,
-              system: orchestratorTurn.system,
+              system: forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system,
               tools: orchestratorTurn.tools,
-            })
+            }
+            const stream = await LLM.stream(orchestratedInput)
 
             for await (const value of stream.fullStream) {
               input.abort.throwIfAborted()
