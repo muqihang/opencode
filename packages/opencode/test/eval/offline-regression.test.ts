@@ -10,6 +10,8 @@ describe("eval.offline", () => {
     expect(result.kind).toBe("eval")
     expect(result.checks.routingContract.ok).toBe(true)
     expect(result.checks.retrievalDeterminism.ok).toBe(true)
+    expect(result.checks.orchestratorPlanDeterminism.ok).toBe(true)
+    expect(result.checks.toolBrokerNonInteractive.ok).toBe(true)
     expect(result.checks.compactionPointers.ok).toBe(true)
     expect(result.checks.evidenceChain.ok).toBe(true)
     expect(result.checks.exportEvidenceChain.ok).toBe(true)
