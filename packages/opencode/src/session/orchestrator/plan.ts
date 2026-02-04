@@ -1,0 +1,199 @@
+import { ulid } from "ulid"
+import { CachePolicy } from "@/cache/policy"
+import { CacheStore } from "@/cache/store"
+import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
+import { OrchestratorPlan, OrchestratorUxMode, OrchestratorMode } from "@/protocol/orchestrator-plan"
+import { Instance } from "@/project/instance"
+import { sha256Text } from "@/routing/cache"
+import { stableJson } from "@/util/stable-json"
+
+type BuildInput = {
+  sessionId: string
+  messageId: string
+  features: OrchestratorFeatures
+  toolsetFingerprint: string
+}
+
+type CacheStatus = "hit" | "miss" | "expired" | "disabled" | "forced_rebuild"
+
+type CacheTier = "memory" | "disk" | "none"
+
+type CacheScope = {
+  projectId: string
+  worktreeRoot: string
+}
+
+type PlanCache = {
+  status: CacheStatus
+  tier: CacheTier
+  key: string
+  scope: CacheScope
+  namespace: "orchestrator-plan"
+}
+
+type BuildResult = {
+  plan: OrchestratorPlan
+  cache: PlanCache
+}
+
+const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
+
+const LargeIntentTokens = 256
+
+const resolveMode = (input: {
+  uxMode: OrchestratorUxMode
+  hasWriteIntent: boolean
+  hasExecIntent: boolean
+  hasVerificationIntent: boolean
+  intentTokensEstimate: number
+}): OrchestratorMode => {
+  if (input.hasWriteIntent || input.hasExecIntent) return "fork"
+  if (input.hasVerificationIntent) return "assist"
+  if (input.uxMode === "deep" && input.intentTokensEstimate >= LargeIntentTokens) return "assist"
+  return "chat"
+}
+
+const resolveEvidencePolicy = (input: { uxMode: OrchestratorUxMode; hasVerificationIntent: boolean }) => {
+  if (input.hasVerificationIntent) return { enabled: true, mode: "balanced" as const }
+  if (input.uxMode === "deep") return { enabled: true, mode: "balanced" as const }
+  return undefined
+}
+
+const resolveReasons = (input: {
+  uxMode: OrchestratorUxMode
+  hasWriteIntent: boolean
+  hasExecIntent: boolean
+  hasVerificationIntent: boolean
+  intentTokensEstimate: number
+}) => {
+  const primary =
+    input.hasWriteIntent || input.hasExecIntent
+      ? { code: "intent.write_exec", message: "write/exec intent detected" }
+      : undefined
+  const verification = input.hasVerificationIntent
+    ? { code: "intent.verification", message: "verification intent detected" }
+    : undefined
+  const deep =
+    input.uxMode === "deep" && input.intentTokensEstimate >= LargeIntentTokens
+      ? { code: "ux.deep.large", message: "deep mode with large intent" }
+      : undefined
+
+  const reasons = [primary, verification, deep].filter((item): item is { code: string; message: string } => !!item)
+  return reasons.length > 0
+    ? reasons
+    : [{ code: "intent.chat", message: "default chat intent" }]
+}
+
+const workspaceFingerprint = () =>
+  sha256Text(
+    stableJson({
+      specVersion: "workspace-fingerprint/1.0",
+      projectId: Instance.project.id,
+      worktree: Instance.worktree,
+      directory: Instance.directory,
+      vcs: Instance.project.vcs ?? "none",
+    }),
+  )
+
+export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
+  const feat = input.features.features
+  const wsFingerprint = workspaceFingerprint()
+  const evidencePolicy = resolveEvidencePolicy({ uxMode: feat.uxMode, hasVerificationIntent: feat.hasVerificationIntent })
+  const inputsFingerprint = sha256Text(
+    stableJson({
+      specVersion: "orchestrator-plan-inputs/1.0",
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      workspaceFingerprint: wsFingerprint,
+      toolsetFingerprint: input.toolsetFingerprint,
+      uxMode: feat.uxMode,
+      evidencePolicy: evidencePolicy ?? null,
+      versions: { stableJson: "v1" },
+    }),
+  )
+
+  const scope = { projectId: Instance.project.id, worktreeRoot: baseDir() }
+  const cacheKey = CacheStore.key({
+    namespace: "orchestrator-plan",
+    scope,
+    input: {
+      specVersion: "orchestrator-plan-cache-key/1.0",
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      workspaceFingerprint: wsFingerprint,
+      toolsetFingerprint: input.toolsetFingerprint,
+      uxMode: feat.uxMode,
+      evidencePolicy: evidencePolicy ?? null,
+    },
+  })
+
+  const store = CacheStore.open({ namespace: "orchestrator-plan", scope, limits: CachePolicy.limits() })
+  const policy = CachePolicy.policy("orchestrator-plan")
+  const cached = await store.getOrCompute({
+    key: cacheKey,
+    ttlMs: CachePolicy.ttlMs("orchestrator-plan"),
+    policy: { enabled: policy.enabled, force: policy.force },
+    compute: async () => {
+      const orchestratorMode = resolveMode({
+        uxMode: feat.uxMode,
+        hasWriteIntent: feat.hasWriteIntent,
+        hasExecIntent: feat.hasExecIntent,
+        hasVerificationIntent: feat.hasVerificationIntent,
+        intentTokensEstimate: feat.intentTokensEstimate,
+      })
+
+      const hasWorkers = orchestratorMode === "assist" || orchestratorMode === "heavy"
+      const workers = hasWorkers
+        ? [
+            {
+              id: "evidence_critic",
+              model: "small" as const,
+              budget: { timeoutMs: 1500 },
+            },
+          ]
+        : []
+
+      const budgets = {
+        maxWallClockMs: 8000,
+        workerTimeoutMs: 1500,
+        maxOutputTokens: 32000,
+        maxToolCalls: 4,
+      }
+
+      const toolPolicy = { allowed: ["retrieval"], bounceMax: 1 as const }
+      const reasons = resolveReasons({
+        uxMode: feat.uxMode,
+        hasWriteIntent: feat.hasWriteIntent,
+        hasExecIntent: feat.hasExecIntent,
+        hasVerificationIntent: feat.hasVerificationIntent,
+        intentTokensEstimate: feat.intentTokensEstimate,
+      })
+
+      return OrchestratorPlan.parse({
+        specVersion: "orchestrator-plan/1.0",
+        orchestratorPlanId: ulid(),
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        orchestratorMode,
+        uxMode: feat.uxMode,
+        workers,
+        budgets,
+        evidencePolicy,
+        toolPolicy,
+        reasons,
+        inputsFingerprint: { sha256: inputsFingerprint },
+      })
+    },
+  })
+
+  return {
+    plan: cached.value,
+    cache: {
+      status: cached.status,
+      tier: cached.tier,
+      key: cacheKey,
+      scope,
+      namespace: "orchestrator-plan",
+    },
+  }
+}

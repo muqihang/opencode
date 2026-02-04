@@ -3,7 +3,14 @@ type Limits = {
   diskMaxEntries: number
 }
 
-type Namespace = "retrieval" | "verification" | "context-pack" | "context-blocks" | "capsule-assisted"
+type Namespace =
+  | "retrieval"
+  | "verification"
+  | "context-pack"
+  | "context-blocks"
+  | "capsule-assisted"
+  | "orchestrator-plan"
+  | "orchestrator-worker"
 
 type Effective = {
   storeEnabled: boolean
@@ -47,6 +54,8 @@ export const CachePolicy = {
     if (namespace === "verification") return 24 * 60 * 60 * 1000
     if (namespace === "context-pack" || namespace === "context-blocks") return 2 * 60 * 60 * 1000
     if (namespace === "capsule-assisted") return 6 * 60 * 60 * 1000
+    if (namespace === "orchestrator-plan") return 15 * 60 * 1000
+    if (namespace === "orchestrator-worker") return 15 * 60 * 1000
     return 0
   },
 
