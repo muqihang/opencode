@@ -20,6 +20,7 @@ import { Question } from "@/question"
 import { Flag } from "@/flag/flag"
 import { writeUsageEvents } from "@/usage/events"
 import { prepareOrchestratorPlan } from "./orchestrator/prepare"
+import { runOrchestratorTurn } from "./orchestrator"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -99,6 +100,7 @@ export namespace SessionProcessor {
             plan: prepared.plan,
             features: prepared.features,
             toolsetFingerprint: prepared.toolsetFingerprint,
+            intentText: prepared.intentText,
           }
         })().catch(async (error) => {
           await writeOrchestratorDegraded({
@@ -109,11 +111,37 @@ export namespace SessionProcessor {
           })
           return { enabled: true as const, degraded: true as const }
         })
+        const orchestratorTurn = await (async () => {
+          if (!orchestrator.enabled) return { system: streamInput.system, tools: streamInput.tools, degraded: false }
+          if (orchestrator.degraded) return { system: streamInput.system, tools: streamInput.tools, degraded: true }
+          return runOrchestratorTurn({
+            sessionId: input.sessionID,
+            messageId: streamInput.user.id,
+            abort: input.abort,
+            plan: orchestrator.plan,
+            features: orchestrator.features,
+            intentText: orchestrator.intentText,
+            system: streamInput.system,
+            tools: streamInput.tools,
+          })
+        })().catch(async (error) => {
+          await writeOrchestratorDegraded({
+            sessionId: input.sessionID,
+            messageId: streamInput.user.id,
+            stage: "turn",
+            reason: errorText(error),
+          })
+          return { system: streamInput.system, tools: streamInput.tools, degraded: true }
+        })
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            const stream = await LLM.stream(streamInput)
+            const stream = await LLM.stream({
+              ...streamInput,
+              system: orchestratorTurn.system,
+              tools: orchestratorTurn.tools,
+            })
 
             for await (const value of stream.fullStream) {
               input.abort.throwIfAborted()

@@ -19,6 +19,7 @@ type PrepareResult = {
   plan: Awaited<ReturnType<typeof buildPlan>>["plan"]
   features: ReturnType<typeof extractFeatures>
   toolsetFingerprint: string
+  intentText: string
 }
 
 const extractText = (message: ModelMessage) => {
@@ -98,5 +99,5 @@ export const prepareOrchestratorPlan = async (input: PrepareInput): Promise<Prep
     plan: result.plan,
     features,
   })
-  return { plan: result.plan, features, toolsetFingerprint: fingerprint }
+  return { plan: result.plan, features, toolsetFingerprint: fingerprint, intentText }
 }
