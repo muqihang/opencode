@@ -13,7 +13,6 @@ describe("usage.normalized", () => {
         },
         usage: {
           // LanguageModelUsage allows extra provider fields at runtime.
-          // @ts-expect-error
           prompt_cache_hit_tokens: 123,
         },
         flags: {},
@@ -54,7 +53,6 @@ describe("usage.normalized", () => {
           id: "glm-4.7",
         },
         usage: {
-          // @ts-expect-error
           prompt_tokens_details: { cached_tokens: 42 },
         },
       }
@@ -85,7 +83,6 @@ describe("usage.normalized", () => {
         },
         usage: {},
         metadata: {
-          // @ts-expect-error
           google: { usageMetadata: { cachedContentTokenCount: 7 } },
         },
         flags: {},
@@ -124,7 +121,6 @@ describe("usage.normalized", () => {
         },
         metadata: {
           // ProviderMetadata is loose at runtime; we only care about a narrow slice.
-          // @ts-expect-error
           anthropic: { cacheCreationInputTokens: 9 },
         },
       })
@@ -216,4 +212,3 @@ describe("usage.normalized", () => {
     })
   })
 })
-

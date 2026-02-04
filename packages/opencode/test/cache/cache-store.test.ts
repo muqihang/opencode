@@ -57,10 +57,10 @@ describe("cache store (ssot)", () => {
           policy: { enabled: true, force: false },
           compute: async () => {
             count.value += 1
-            return { ok: true }
+            return { ok: true, again: false }
           },
         })
-        expect(a.value).toEqual({ ok: true })
+        expect(a.value).toEqual({ ok: true, again: false })
         expect(count.value).toBe(1)
 
         const b = await storeA.getOrCompute({
@@ -72,7 +72,7 @@ describe("cache store (ssot)", () => {
             return { ok: true, again: true }
           },
         })
-        expect(b.value).toEqual({ ok: true })
+        expect(b.value).toEqual({ ok: true, again: false })
         expect(b.status).toBe("hit")
         expect(count.value).toBe(1)
 
@@ -90,10 +90,10 @@ describe("cache store (ssot)", () => {
           policy: { enabled: true, force: false },
           compute: async () => {
             count.value += 1
-            return { ok: true, disk: false }
+            return { ok: true, again: true }
           },
         })
-        expect(c.value).toEqual({ ok: true })
+        expect(c.value).toEqual({ ok: true, again: false })
         expect(c.tier).toBe("disk")
         expect(count.value).toBe(1)
 

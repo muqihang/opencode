@@ -32,7 +32,6 @@ describe("usage events", () => {
           },
           usage: { cachedInputTokens: 2 },
           metadata: {
-            // @ts-expect-error
             anthropic: { cacheCreationInputTokens: 1 },
           },
           tokens: {

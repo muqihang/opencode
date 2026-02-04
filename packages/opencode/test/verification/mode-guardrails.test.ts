@@ -43,7 +43,7 @@ describe("verification.mode guardrails", () => {
           claims: [{ id: "c1", text: "hello", pointers: [{ path: "derived/note.txt" }] }],
           ctx: buildCtx("v"),
           retrieval,
-        } as const
+        } satisfies Omit<Parameters<typeof runVerification>[0], "mode">
 
         const strict = await runVerification({ ...base, mode: "strict" })
         expect(strict.ok).toBe(true)

@@ -5,6 +5,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { resolveWorkspaceFingerprint } from "../../src/retrieval/workspace"
 import { retrievalCacheKey } from "../../src/retrieval/cache"
+import type { RetrievalPlanForKey } from "../../src/retrieval/spec"
 
 test("retrieval cache key excludes session/message but includes workspace fingerprint", async () => {
   await using tmp = await tmpdir({
@@ -18,7 +19,7 @@ test("retrieval cache key excludes session/message but includes workspace finger
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const plan = {
+      const plan: RetrievalPlanForKey = {
         specVersion: "retrieval-plan/1.0",
         intent: { normalized: "alpha test" },
         queries: [{ role: "precision", q: "alpha test", lang: "auto", kind: "code" }],

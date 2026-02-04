@@ -18,7 +18,7 @@ test("code retrieval produces stable hits with anchors", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const input = {
+      const input: Parameters<typeof runCodeRetrieval>[0] = {
         sessionId: "session_code",
         retrievalId: "retrieval-test",
         root: Instance.worktree,
