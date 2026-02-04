@@ -5,6 +5,9 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { SandboxRunner } from "../../src/sandbox/runner"
 import { exportEvidence } from "../../src/evidence/export"
+import { OrchestratorFeatures } from "../../src/protocol/orchestrator-features"
+import { OrchestratorPlan } from "../../src/protocol/orchestrator-plan"
+import { writeOrchestratorArtifacts } from "../../src/session/orchestrator/writer"
 
 describe("evidence export", () => {
   test("exports allowlisted evidence + safe artifacts and verifies sha256", async () => {
@@ -30,6 +33,46 @@ describe("evidence export", () => {
           limits: { timeoutMs: 5000 },
         })
 
+        const plan = OrchestratorPlan.parse({
+          specVersion: "orchestrator-plan/1.0",
+          orchestratorPlanId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          sessionId: "exp",
+          messageId: "message_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          orchestratorMode: "assist",
+          uxMode: "auto",
+          mainTools: ["read", "grep"],
+          workers: [{ id: "worker_retrieval", model: "small", budget: { timeoutMs: 8000 } }],
+          budgets: {
+            maxWallClockMs: 20_000,
+            workerTimeoutMs: 10_000,
+            maxOutputTokens: 900,
+            maxToolCalls: 6,
+          },
+          evidencePolicy: { enabled: true, mode: "balanced" },
+          toolPolicy: { allowed: ["retrieval", "verification"], bounceMax: 1 },
+          reasons: [{ code: "needs_retrieval", message: "Requires citations for claims." }],
+          inputsFingerprint: { sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        })
+        const features = OrchestratorFeatures.parse({
+          specVersion: "orchestrator-features/1.0",
+          features: {
+            uxMode: "auto",
+            intentBytes: 256,
+            intentTokensEstimate: 64,
+            hasFileParts: false,
+            hasWriteIntent: true,
+            hasExecIntent: false,
+            hasVerificationIntent: true,
+            parentSessionId: "session_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          },
+        })
+
+        await writeOrchestratorArtifacts({
+          sessionId: "exp",
+          plan,
+          features,
+        })
+
         const outDir = path.join(tmp.path, "exported", "exp")
         await exportEvidence({
           sessionId: "exp",
@@ -46,6 +89,28 @@ describe("evidence export", () => {
         ).toBe(true)
         expect(
           await Bun.file(path.join(outDir, "artifacts", "worktree", "changes.patch")).exists(),
+        ).toBe(true)
+        expect(
+          await Bun.file(
+            path.join(
+              outDir,
+              "artifacts",
+              "orchestrator",
+              plan.orchestratorPlanId,
+              "orchestrator.plan.json",
+            ),
+          ).exists(),
+        ).toBe(true)
+        expect(
+          await Bun.file(
+            path.join(
+              outDir,
+              "artifacts",
+              "orchestrator",
+              plan.orchestratorPlanId,
+              "orchestrator.features.json",
+            ),
+          ).exists(),
         ).toBe(true)
 
         // Safety: ensure no symlinks were created in output.

@@ -23,6 +23,8 @@ const ALLOWLIST_KINDS = new Set([
   "compaction-capsule-assisted",
   "compaction-capsule-assisted-view",
   "compaction-capsule-assisted-verify",
+  "orchestrator-features",
+  "orchestrator-plan",
 ])
 
 const EVIDENCE_FILES = new Set(["pack.json", "pack.md", "manifest.json", "events.jsonl", "micro-pack.json"])
@@ -127,6 +129,9 @@ function classifyEntry(entry: { path: string; sessionId: string }) {
   if (parts[0] === ".opencode" && parts[1] === "artifacts" && parts[2] === entry.sessionId) {
     const rel = parts.slice(3).join("/")
     if (rel.startsWith("policy/") || rel.startsWith("worktree/")) {
+      return { kind: "artifact", rel }
+    }
+    if (rel.startsWith("orchestrator/")) {
       return { kind: "artifact", rel }
     }
     if (
