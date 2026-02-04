@@ -6,8 +6,11 @@ import DESCRIPTION from "./grep.txt"
 import { Instance } from "../project/instance"
 import path from "path"
 import { assertExternalDirectory } from "./external-directory"
+import { EvidenceWriter } from "../evidence/writer"
+import { stableJson } from "../util/stable-json"
 
 const MAX_LINE_LENGTH = 2000
+const sanitizeId = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "")
 
 export const GrepTool = Tool.define("grep", {
   description: DESCRIPTION,
@@ -15,6 +18,10 @@ export const GrepTool = Tool.define("grep", {
     pattern: z.string().describe("The regex pattern to search for in file contents"),
     path: z.string().optional().describe("The directory to search in. Defaults to the current working directory."),
     include: z.string().optional().describe('File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")'),
+    outputFormat: z
+      .enum(["text", "pointers"])
+      .optional()
+      .describe('Output format: "text" (default) or "pointers" for artifact-backed results'),
   }),
   async execute(params, ctx) {
     if (!params.pattern) {
@@ -63,19 +70,12 @@ export const GrepTool = Tool.define("grep", {
     // Exit codes: 0 = matches found, 1 = no matches, 2 = errors (but may still have matches)
     // With --no-messages, we suppress error output but still get exit code 2 for broken symlinks etc.
     // Only fail if exit code is 2 AND no output was produced
-    if (exitCode === 1 || (exitCode === 2 && !output.trim())) {
-      return {
-        title: params.pattern,
-        metadata: { matches: 0, truncated: false },
-        output: "No files found",
-      }
-    }
-
-    if (exitCode !== 0 && exitCode !== 2) {
+    if (exitCode !== 0 && exitCode !== 1 && exitCode !== 2) {
       throw new Error(`ripgrep failed: ${errorOutput}`)
     }
 
     const hasErrors = exitCode === 2
+    const outputFormat = params.outputFormat ?? "text"
 
     // Handle both Unix (\n) and Windows (\r\n) line endings
     const lines = output.trim().split(/\r?\n/)
@@ -108,11 +108,45 @@ export const GrepTool = Tool.define("grep", {
     const truncated = matches.length > limit
     const finalMatches = truncated ? matches.slice(0, limit) : matches
 
-    if (finalMatches.length === 0) {
+    if (finalMatches.length === 0 && outputFormat === "text") {
       return {
         title: params.pattern,
         metadata: { matches: 0, truncated: false },
         output: "No files found",
+      }
+    }
+
+    if (outputFormat === "pointers") {
+      const safeId = sanitizeId(ctx.callID) || sanitizeId(ctx.messageID) || "call"
+      const writer = await EvidenceWriter.open({ sessionId: ctx.sessionID })
+      const items = finalMatches.map((match) => {
+        const lineText =
+          match.lineText.length > MAX_LINE_LENGTH ? match.lineText.substring(0, MAX_LINE_LENGTH) + "..." : match.lineText
+        return { path: match.path, lineNum: match.lineNum, lineText }
+      })
+      const artifact = await writer.artifact({
+        kind: "grep-hits",
+        path: `grep/${safeId}/hits.json`,
+        data: stableJson({
+          specVersion: "grep-hits/1.0",
+          pattern: params.pattern,
+          include: params.include ?? null,
+          searchPath,
+          matches: finalMatches.length,
+          truncated,
+          hasErrors,
+          items,
+        }),
+      })
+      const outputJson = stableJson({
+        specVersion: "tool-grep/2.0",
+        summary: { matches: finalMatches.length, truncated, hasErrors },
+        pointers: [{ path: artifact.path, sha256: artifact.sha256, kind: artifact.kind }],
+      })
+      return {
+        title: params.pattern,
+        metadata: { matches: finalMatches.length, truncated },
+        output: outputJson,
       }
     }
 
