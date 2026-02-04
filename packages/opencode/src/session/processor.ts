@@ -19,10 +19,43 @@ import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
 import { Flag } from "@/flag/flag"
 import { writeUsageEvents } from "@/usage/events"
+import { prepareOrchestratorPlan } from "./orchestrator/prepare"
+import { runOrchestratorTurn } from "./orchestrator"
+import { runForkTask } from "./orchestrator/fork"
+import { resolveSecureOutputMode } from "./orchestrator/policy"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
   const log = Log.create({ service: "session.processor" })
+
+  const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+  const writeOrchestratorDegraded = async (input: {
+    sessionId: string
+    messageId: string
+    stage: string
+    reason: string
+  }) => {
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
+    if (!writer) return
+    await writer
+      .event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionId,
+        severity: "warn",
+        actor: "orchestrator:processor",
+        type: "orchestrator.degraded",
+        summary: "orchestrator degraded",
+        data: {
+          messageId: input.messageId,
+          stage: input.stage,
+          reason: input.reason,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+      .catch(() => {})
+  }
 
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
@@ -50,11 +83,106 @@ export namespace SessionProcessor {
         log.info("process")
         needsCompaction = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
+        const orchestrator = await (async () => {
+          if (Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR !== true) return { enabled: false as const }
+          if (input.assistantMessage.agent !== "build") return { enabled: false as const }
+          if (streamInput.agent.mode !== "primary") return { enabled: false as const }
+          const session = await Session.get(input.sessionID).catch(() => undefined)
+          const uxMode = Flag.OPENCODE_ORCHESTRATOR_UX_MODE ?? "auto"
+          const prepared = await prepareOrchestratorPlan({
+            sessionId: input.sessionID,
+            messageId: streamInput.user.id,
+            uxMode,
+            messages: streamInput.messages,
+            tools: streamInput.tools,
+            parentSessionId: session?.parentID,
+          })
+          return {
+            enabled: true as const,
+            plan: prepared.plan,
+            features: prepared.features,
+            toolsetFingerprint: prepared.toolsetFingerprint,
+            intentText: prepared.intentText,
+            session,
+          }
+        })().catch(async (error) => {
+          await writeOrchestratorDegraded({
+            sessionId: input.sessionID,
+            messageId: streamInput.user.id,
+            stage: "plan",
+            reason: errorText(error),
+          })
+          return { enabled: true as const, degraded: true as const }
+        })
+        const orchestratorTurn = await (async () => {
+          if (!orchestrator.enabled) return { system: streamInput.system, tools: streamInput.tools, degraded: false }
+          if (orchestrator.degraded) return { system: streamInput.system, tools: streamInput.tools, degraded: true }
+          return runOrchestratorTurn({
+            sessionId: input.sessionID,
+            messageId: streamInput.user.id,
+            abort: input.abort,
+            plan: orchestrator.plan,
+            features: orchestrator.features,
+            intentText: orchestrator.intentText,
+            system: streamInput.system,
+            tools: streamInput.tools,
+          })
+        })().catch(async (error) => {
+          await writeOrchestratorDegraded({
+            sessionId: input.sessionID,
+            messageId: streamInput.user.id,
+            stage: "turn",
+            reason: errorText(error),
+          })
+          return { system: streamInput.system, tools: streamInput.tools, degraded: true }
+        })
+        const forkResult = await (async () => {
+          if (!orchestrator.enabled) return
+          if (orchestrator.degraded) return
+          if (orchestrator.plan.orchestratorMode !== "fork") return
+          const session = orchestrator.session ?? (await Session.get(input.sessionID).catch(() => undefined))
+          if (!session) return
+          const agent = await Agent.get(input.assistantMessage.agent)
+          const prompt = orchestrator.intentText
+            ? `请在子会话完成以下任务：${orchestrator.intentText}`
+            : "请在子会话完成写入或执行任务。"
+          return runForkTask({
+            sessionId: input.sessionID,
+            assistantMessageId: input.assistantMessage.id,
+            agent,
+            session,
+            model: {
+              providerID: input.model.providerID,
+              id: input.model.id,
+              api: input.model.api,
+            },
+            abort: input.abort,
+            task: {
+              description: "orchestrator task",
+              subagentType: "general",
+              prompt,
+            },
+          })
+        })().catch(async (error) => {
+          await writeOrchestratorDegraded({
+            sessionId: input.sessionID,
+            messageId: input.assistantMessage.id,
+            stage: "fork_task",
+            reason: errorText(error),
+          })
+          return undefined
+        })
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            const stream = await LLM.stream(streamInput)
+            const forkNotice = forkResult?.status === "degraded" ? forkResult.notice : undefined
+            const orchestratedInput = {
+              ...streamInput,
+              system: forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system,
+              tools: orchestratorTurn.tools,
+            }
+            const stream = await LLM.stream(orchestratedInput)
 
             for await (const value of stream.fullStream) {
               input.abort.throwIfAborted()
@@ -350,11 +478,17 @@ export namespace SessionProcessor {
                       if (input.assistantMessage.summary) return { ok: false as const }
                       if (currentText.synthetic) return { ok: false as const }
                       if (input.assistantMessage.agent !== "build") return { ok: false as const }
+                      const orchestratorEnabled = orchestrator.enabled && !orchestrator.degraded
+                      const secureMode = resolveSecureOutputMode({
+                        enabled: orchestratorEnabled,
+                        plan: orchestratorEnabled ? orchestrator.plan : undefined,
+                      })
+                      if (!secureMode) return { ok: false as const }
 
                       return runSecureOutput({
                         sessionId: input.sessionID,
                         messageId: input.assistantMessage.id,
-                        mode: "balanced",
+                        mode: secureMode,
                         budget: { timeMs: 8000, maxScripts: 4 },
                         text: currentText.text,
                         ctx: {
