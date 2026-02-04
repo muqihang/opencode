@@ -117,7 +117,7 @@ export const GrepTool = Tool.define("grep", {
     }
 
     if (outputFormat === "pointers") {
-      const safeId = sanitizeId(ctx.callID) || sanitizeId(ctx.messageID) || "call"
+      const safeId = sanitizeId(ctx.callID ?? "") || sanitizeId(ctx.messageID) || "call"
       const writer = await EvidenceWriter.open({ sessionId: ctx.sessionID })
       const items = finalMatches.map((match) => {
         const lineText =
