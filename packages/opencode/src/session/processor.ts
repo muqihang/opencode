@@ -19,10 +19,40 @@ import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
 import { Flag } from "@/flag/flag"
 import { writeUsageEvents } from "@/usage/events"
+import { prepareOrchestratorPlan } from "./orchestrator/prepare"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
   const log = Log.create({ service: "session.processor" })
+
+  const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+  const writeOrchestratorDegraded = async (input: {
+    sessionId: string
+    messageId: string
+    stage: string
+    reason: string
+  }) => {
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
+    if (!writer) return
+    await writer
+      .event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionId,
+        severity: "warn",
+        actor: "orchestrator:processor",
+        type: "orchestrator.degraded",
+        summary: "orchestrator degraded",
+        data: {
+          messageId: input.messageId,
+          stage: input.stage,
+          reason: input.reason,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+      .catch(() => {})
+  }
 
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
@@ -50,6 +80,35 @@ export namespace SessionProcessor {
         log.info("process")
         needsCompaction = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
+        const orchestrator = await (async () => {
+          if (Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR !== true) return { enabled: false as const }
+          if (input.assistantMessage.agent !== "build") return { enabled: false as const }
+          if (streamInput.agent.mode !== "primary") return { enabled: false as const }
+          const session = await Session.get(input.sessionID).catch(() => undefined)
+          const uxMode = Flag.OPENCODE_ORCHESTRATOR_UX_MODE ?? "auto"
+          const prepared = await prepareOrchestratorPlan({
+            sessionId: input.sessionID,
+            messageId: streamInput.user.id,
+            uxMode,
+            messages: streamInput.messages,
+            tools: streamInput.tools,
+            parentSessionId: session?.parentID,
+          })
+          return {
+            enabled: true as const,
+            plan: prepared.plan,
+            features: prepared.features,
+            toolsetFingerprint: prepared.toolsetFingerprint,
+          }
+        })().catch(async (error) => {
+          await writeOrchestratorDegraded({
+            sessionId: input.sessionID,
+            messageId: streamInput.user.id,
+            stage: "plan",
+            reason: errorText(error),
+          })
+          return { enabled: true as const, degraded: true as const }
+        })
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
