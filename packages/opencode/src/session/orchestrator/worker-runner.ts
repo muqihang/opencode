@@ -1,0 +1,170 @@
+import { EvidenceWriter } from "@/evidence/writer"
+import { CachePolicy } from "@/cache/policy"
+import { CacheStore } from "@/cache/store"
+import { Instance } from "@/project/instance"
+import { stableJson } from "@/util/stable-json"
+import { sha256Text } from "@/routing/cache"
+import { LlmWorkerRolePack } from "@/protocol/llm-worker-role-pack"
+import { LlmWorkerResult } from "@/protocol/llm-worker-result"
+import { WorkerSpec, type WorkerModel } from "./worker-spec"
+
+type WorkerCache = {
+  status: "hit" | "miss" | "expired" | "disabled" | "forced_rebuild"
+  tier: "memory" | "disk" | "none"
+}
+
+type WorkerCompute = (input: {
+  rolePack: LlmWorkerRolePack
+  model?: WorkerModel
+  now?: string
+}) => Promise<LlmWorkerResult>
+
+type RunInput = {
+  sessionId: string
+  workerId: string
+  rolePack: LlmWorkerRolePack
+  model?: WorkerModel
+  now?: number
+  compute?: WorkerCompute
+}
+
+const ttlMs = 15 * 60 * 1000
+const toolLimit = 4
+
+const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
+
+const trimNote = (value: string) => (value.length > 380 ? `${value.slice(0, 380)}...` : value)
+
+const safeNote = (value: string) => trimNote(value.replace(/```/g, "''"))
+
+const errorText = (error: unknown) => {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+const planIdFromPointer = (value: string) => {
+  const normalized = value.trim().replace(/\\/g, "/")
+  if (!normalized) return
+  if (!normalized.includes("/")) return normalized
+  const match = normalized.match(/orchestrator\/([^/]+)/)
+  if (match?.[1]) return match[1]
+  const parts = normalized.split("/").filter(Boolean)
+  const tail = parts[parts.length - 1]
+  if (tail && tail !== "plan.json" && tail !== "plan") return tail
+  if (parts.length > 1) return parts[parts.length - 2]
+}
+
+const storeScope = () => ({
+  projectId: Instance.project.id,
+  worktreeRoot: baseDir(),
+})
+
+const cacheKey = (input: { workerId: string; rolePack: LlmWorkerRolePack; model?: WorkerModel }) => {
+  const scope = storeScope()
+  return CacheStore.key({
+    namespace: "orchestrator-worker",
+    scope,
+    input: {
+      specVersion: "orchestrator-worker-cache-key/1.0",
+      workerId: input.workerId,
+      model: input.model ?? null,
+      rolePack: input.rolePack,
+      versions: { stableJson: "v1" },
+    },
+  })
+}
+
+const degraded = (reason: string, tools?: LlmWorkerResult["toolRequests"]) =>
+  LlmWorkerResult.parse({
+    specVersion: "llm-worker-result/1.0",
+    status: "degraded",
+    toolRequests: tools && tools.length > 0 ? tools : undefined,
+    notes: [safeNote(reason)],
+  })
+
+const verify = (value: LlmWorkerResult) => {
+  const notes = value.notes ?? []
+  const tools = value.toolRequests ?? []
+  const issues: string[] = []
+
+  if (notes.some((note) => note.includes("```"))) issues.push("notes contain code fences")
+  if (tools.length > toolLimit) issues.push(`toolRequests limit exceeded (${toolLimit})`)
+  if (issues.length === 0) return { ok: true as const, result: value }
+
+  const safeTools = tools.length > toolLimit ? [] : tools
+  const safeNotes = issues.map((issue) => safeNote(`degraded: ${issue}`))
+  const result = LlmWorkerResult.parse({
+    specVersion: "llm-worker-result/1.0",
+    status: "degraded",
+    toolRequests: safeTools.length > 0 ? safeTools : undefined,
+    notes: safeNotes,
+  })
+  return { ok: false as const, result }
+}
+
+const emptyCache = { status: "miss", tier: "none" } as const
+
+export const WorkerRunner = {
+  async run(input: RunInput): Promise<{ result: LlmWorkerResult; cache: WorkerCache }> {
+    const parsed = LlmWorkerRolePack.safeParse(input.rolePack)
+    if (!parsed.success) return { result: degraded("role pack invalid"), cache: emptyCache }
+
+    const rolePack = parsed.data
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
+    if (!writer) return { result: degraded("evidence writer unavailable"), cache: emptyCache }
+
+    const planId = planIdFromPointer(rolePack.planPointer) ?? sha256Text(rolePack.planPointer).slice(0, 12)
+    const rolePath = `orchestrator/${planId}/workers/${input.workerId}/role-pack.json`
+
+    const wrote = await writer
+      .artifact({
+        kind: "orchestrator-worker-role-pack",
+        path: rolePath,
+        data: stableJson(rolePack),
+      })
+      .then((entry) => ({ ok: true as const, entry }))
+      .catch((error) => ({ ok: false as const, error }))
+
+    if (!wrote.ok) {
+      const reason = errorText(wrote.error)
+      return { result: degraded(`role pack artifact failed: ${reason}`), cache: emptyCache }
+    }
+
+    const worker = input.compute ? { compute: input.compute } : WorkerSpec.get(input.workerId)
+    if (!worker) return { result: degraded(`unknown worker: ${input.workerId}`), cache: emptyCache }
+
+    const scope = storeScope()
+    const clock = typeof input.now === "number" ? { nowMs: () => input.now } : undefined
+    const store = CacheStore.open({
+      namespace: "orchestrator-worker",
+      scope,
+      limits: CachePolicy.limits(),
+      ...(clock ? { clock } : {}),
+    })
+
+    const key = cacheKey({ workerId: input.workerId, rolePack, model: input.model })
+    const policy = { enabled: CachePolicy.effective().storeEnabled, force: false }
+    const nowMs = typeof input.now === "number" ? input.now : Date.now()
+    const nowIso = new Date(nowMs).toISOString()
+    const compute = () => worker.compute({ rolePack, model: input.model, now: nowIso })
+
+    const cached = await store
+      .getOrCompute({ key, ttlMs, policy, compute })
+      .then((value) => ({ ok: true as const, value }))
+      .catch((error) => ({ ok: false as const, error }))
+
+    if (!cached.ok) {
+      const reason = errorText(cached.error)
+      return { result: degraded(`worker compute failed: ${reason}`), cache: emptyCache }
+    }
+
+    const cache = { status: cached.value.status, tier: cached.value.tier }
+    const result = LlmWorkerResult.safeParse(cached.value.value)
+    if (!result.success) {
+      return { result: degraded("worker result schema invalid"), cache }
+    }
+
+    const verified = verify(result.data)
+    return { result: verified.result, cache }
+  },
+}
