@@ -1,18 +1,19 @@
 import z from "zod"
 import { randomBytes } from "crypto"
 
-export namespace Identifier {
-  const prefixes = {
-    session: "ses",
-    message: "msg",
-    permission: "per",
-    question: "que",
-    user: "usr",
-    part: "prt",
-    pty: "pty",
-    tool: "tool",
-    snapshot: "snp",
-  } as const
+  export namespace Identifier {
+    const prefixes = {
+      session: "ses",
+      message: "msg",
+      permission: "per",
+      question: "que",
+      user: "usr",
+      part: "prt",
+      pty: "pty",
+      tool: "tool",
+      snapshot: "snp",
+      cache: "cac",
+    } as const
 
   export function schema(prefix: keyof typeof prefixes) {
     return z.string().startsWith(prefixes[prefix])

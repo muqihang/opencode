@@ -11,6 +11,8 @@ import { resolveWorkdirMode, resolveWorkdirPath } from "@/workdir/resolve"
 import { stableJson } from "@/util/stable-json"
 import { ContextLedger } from "@/session/context-ledger"
 
+type Writer = Awaited<ReturnType<typeof EvidenceWriter.open>>
+
 const FinalizeInput = z
   .object({
     parentSessionId: z.string().min(1),
@@ -72,6 +74,8 @@ function sha256Bytes(bytes: Uint8Array) {
   return hash.digest("hex")
 }
 
+const present = <T>(value: T | undefined): value is T => value !== undefined
+
 async function pointerFromFile(input: { kind: string; base: string; file: string }) {
   const rel = path.relative(input.base, input.file).replace(/\\/g, "/")
   const bytes = await Bun.file(input.file).bytes()
@@ -86,7 +90,7 @@ async function pointerFromRel(input: { kind: string; base: string; rel: string }
 async function emitHandoffCapsule(input: {
   parentSessionId: string
   childSessionId: string
-  writer: EvidenceWriter
+  writer: Writer
   base: string
   status: "ok" | "conflict" | "no_changes"
   appliedFiles: string[]
@@ -105,7 +109,7 @@ async function emitHandoffCapsule(input: {
       input.changeSetPath
         ? pointerFromFile({ kind: "worktree.changeset", base: input.base, file: input.changeSetPath })
         : undefined,
-    ].filter(Boolean),
+    ].filter(present),
   )
 
   const ordered = [...pointers].sort((a, b) => {

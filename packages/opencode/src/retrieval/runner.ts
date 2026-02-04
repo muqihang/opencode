@@ -533,7 +533,7 @@ export const RetrievalRunner = {
       const workbenchHits = workbenchResults.flatMap((item) => {
         if (!item.ok) {
           errors.push({ stage: "workbench", error: item.error })
-          return [] as typeof item.value
+          return [] as Awaited<ReturnType<typeof runWorkbenchRetrieval>>
         }
         return item.value
       })

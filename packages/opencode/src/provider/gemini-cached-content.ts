@@ -39,7 +39,7 @@ type Result = {
     namespace: string
     key: string
     scope: Scope
-    status: "hit" | "miss" | "expired" | "forced_rebuild"
+    status: "hit" | "miss" | "expired" | "disabled" | "forced_rebuild"
     tier: "memory" | "disk" | "none"
   } | null
   reason?: string

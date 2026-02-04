@@ -115,6 +115,8 @@ export const CapsuleAssistedVerifyFailure = z
   })
   .strict()
 
+export type CapsuleAssistedVerifyFailure = z.infer<typeof CapsuleAssistedVerifyFailure>
+
 export const CapsuleAssistedVerify = z
   .object({
     specVersion: z.literal("capsule-assisted-verify/1.0"),
@@ -130,4 +132,3 @@ export const CapsuleAssistedVerify = z
   .strict()
 
 export type CapsuleAssistedVerify = z.infer<typeof CapsuleAssistedVerify>
-

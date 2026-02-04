@@ -605,7 +605,7 @@ export const runVerification = async (input: VerificationInput) => {
   const hintText = hint || (degraded ? "核验降级" : ok ? "核验完成" : "核验完成（未通过）")
 
   const report = {
-    specVersion: "verification-report/1.0",
+    specVersion: "verification-report/1.0" as const,
     verificationId,
     mode,
     contextPackId: frame.contextPackId,

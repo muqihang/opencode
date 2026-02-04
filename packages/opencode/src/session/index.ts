@@ -420,13 +420,18 @@ export namespace Session {
     return part
   })
 
-  export const getUsage = fn(
-    z.object({
-      model: z.custom<Provider.Model>(),
-      usage: z.custom<LanguageModelUsage>(),
-      metadata: z.custom<ProviderMetadata>().optional(),
-      flags: z
-        .object({
+	  export const getUsage = fn(
+	    z.object({
+	      model: z.custom<{
+	        providerID: string
+	        id: string
+	        api: { npm: string; id: string }
+	        cost?: Provider.Model["cost"]
+	      }>(),
+	      usage: z.custom<LanguageModelUsage>(),
+	      metadata: z.custom<ProviderMetadata>().optional(),
+	      flags: z
+	        .object({
           openaiChatCachedTokens: z.boolean().optional(),
         })
         .optional(),
