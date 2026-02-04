@@ -34,20 +34,36 @@ type ForkTaskResult = {
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
+type ForkNoticeMode = "auto" | "suggest" | "off"
+
 const sanitizePrompt = (value: string) => {
   const compact = value.replace(/\s+/g, " ").trim()
   const max = 200
   return compact.length > max ? `${compact.slice(0, max)}...` : compact
 }
 
-const renderNotice = (input: { description: string; subagentType: string; prompt: string }) => {
+export const renderForkNotice = (input: {
+  mode: ForkNoticeMode
+  description: string
+  subagentType: string
+  prompt: string
+}) => {
+  const prompt = sanitizePrompt(input.prompt)
+  const header = "【派工提示】本轮计划包含写入/执行意图，需要 fork 到子会话。"
+  const how = (() => {
+    if (input.mode === "auto") return "系统将尝试自动派工到 tool:task（需要你的权限确认）。"
+    if (input.mode === "suggest") return "当前策略：forkStrategy=suggest（基座不自动派工）。请使用 tool:task 手动派工。"
+    if (input.mode === "off") return "当前策略：forkStrategy=off（已禁用派工）。如仍需执行，请手动调用 tool:task。"
+    return "请使用 tool:task 派工。"
+  })()
+
   return [
-    "【派工提示】本轮计划包含写入/执行意图，需要 fork 到子会话。",
-    "系统将自动派工到 tool:task（需要你的权限确认）。",
-    "若你拒绝或派工失败，请复制以下参数：",
+    header,
+    how,
+    "请复制以下参数：",
     `description: ${input.description}`,
     `subagent_type: ${input.subagentType}`,
-    `prompt: ${input.prompt}`,
+    `prompt: ${prompt}`,
   ].join("\n")
 }
 
@@ -82,10 +98,11 @@ export const runForkTask = async (input: ForkTaskInput): Promise<ForkTaskResult>
   const callId = Identifier.ascending("tool")
   const partId = Identifier.ascending("part")
   const start = Date.now()
-  const notice = renderNotice({
+  const notice = renderForkNotice({
+    mode: "auto",
     description: input.task.description,
     subagentType: input.task.subagentType,
-    prompt: sanitizePrompt(input.task.prompt),
+    prompt: input.task.prompt,
   })
 
   const run = async (): Promise<ForkTaskResult> => {

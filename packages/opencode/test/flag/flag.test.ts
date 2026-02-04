@@ -44,4 +44,16 @@ describe("flag.orchestrator", () => {
     const invalid = await loadFlag()
     expect(invalid.OPENCODE_ORCHESTRATOR_UX_MODE).toBeUndefined()
   })
+
+  test("parses OPENCODE_ORCHESTRATOR_FORK_STRATEGY values", async () => {
+    process.env["OPENCODE_ORCHESTRATOR_FORK_STRATEGY"] = "SuGgEsT"
+
+    const flag = await loadFlag()
+    expect(flag.OPENCODE_ORCHESTRATOR_FORK_STRATEGY).toBe("suggest")
+
+    process.env["OPENCODE_ORCHESTRATOR_FORK_STRATEGY"] = "invalid"
+
+    const invalid = await loadFlag()
+    expect(invalid.OPENCODE_ORCHESTRATOR_FORK_STRATEGY).toBeUndefined()
+  })
 })

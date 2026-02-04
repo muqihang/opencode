@@ -21,7 +21,7 @@ import { Flag } from "@/flag/flag"
 import { writeUsageEvents } from "@/usage/events"
 import { prepareOrchestratorPlan } from "./orchestrator/prepare"
 import { runOrchestratorTurn } from "./orchestrator"
-import { runForkTask } from "./orchestrator/fork"
+import { renderForkNotice, runForkTask } from "./orchestrator/fork"
 import { resolveSecureOutputMode } from "./orchestrator/policy"
 
 export namespace SessionProcessor {
@@ -136,17 +136,32 @@ export namespace SessionProcessor {
           })
           return { system: streamInput.system, tools: streamInput.tools, degraded: true }
         })
-        const forkResult = await (async () => {
+        const forkNotice = await (async () => {
           if (!orchestrator.enabled) return
           if (orchestrator.degraded) return
           if (orchestrator.plan.orchestratorMode !== "fork") return
+          const strategy = Flag.OPENCODE_ORCHESTRATOR_FORK_STRATEGY ?? "auto"
           const session = orchestrator.session ?? (await Session.get(input.sessionID).catch(() => undefined))
           if (!session) return
           const agent = await Agent.get(input.assistantMessage.agent)
           const prompt = orchestrator.intentText
             ? `请在子会话完成以下任务：${orchestrator.intentText}`
             : "请在子会话完成写入或执行任务。"
-          return runForkTask({
+          const task = {
+            description: "orchestrator task",
+            subagentType: "general",
+            prompt,
+          }
+          if (strategy === "suggest" || strategy === "off") {
+            return renderForkNotice({
+              mode: strategy,
+              description: task.description,
+              subagentType: task.subagentType,
+              prompt: task.prompt,
+            })
+          }
+
+          const result = await runForkTask({
             sessionId: input.sessionID,
             assistantMessageId: input.assistantMessage.id,
             agent,
@@ -157,12 +172,10 @@ export namespace SessionProcessor {
               api: input.model.api,
             },
             abort: input.abort,
-            task: {
-              description: "orchestrator task",
-              subagentType: "general",
-              prompt,
-            },
+            task,
           })
+          if (result.status === "degraded") return result.notice
+          return
         })().catch(async (error) => {
           await writeOrchestratorDegraded({
             sessionId: input.sessionID,
@@ -176,7 +189,6 @@ export namespace SessionProcessor {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            const forkNotice = forkResult?.status === "degraded" ? forkResult.notice : undefined
             const orchestratedInput = {
               ...streamInput,
               system: forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system,

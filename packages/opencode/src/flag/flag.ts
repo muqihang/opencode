@@ -57,6 +57,7 @@ export namespace Flag {
   export const OPENCODE_DISABLE_HANDOFF_HINTS = truthy("OPENCODE_DISABLE_HANDOFF_HINTS")
   export const OPENCODE_EXPERIMENTAL_ORCHESTRATOR = truthy("OPENCODE_EXPERIMENTAL_ORCHESTRATOR")
   export const OPENCODE_ORCHESTRATOR_UX_MODE = uxMode()
+  export const OPENCODE_ORCHESTRATOR_FORK_STRATEGY = forkStrategy()
 
   function number(key: string) {
     const value = process.env[key]
@@ -70,6 +71,14 @@ export namespace Flag {
     if (!value) return undefined
     const normalized = value.toLowerCase()
     if (normalized === "fast" || normalized === "auto" || normalized === "deep") return normalized
+    return undefined
+  }
+
+  function forkStrategy() {
+    const value = process.env["OPENCODE_ORCHESTRATOR_FORK_STRATEGY"]
+    if (!value) return undefined
+    const normalized = value.toLowerCase()
+    if (normalized === "auto" || normalized === "suggest" || normalized === "off") return normalized
     return undefined
   }
 }
