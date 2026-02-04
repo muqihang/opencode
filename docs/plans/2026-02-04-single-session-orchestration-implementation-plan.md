@@ -42,6 +42,7 @@
 - **SSOT：工具输出/中间产物必须 pointerize**：orchestrator/Tool Broker 流程只回填 `{pointers, summary}`，大内容一律落 artifacts/manifest。
 - **`mainTools` 语义必须保留三态**：`null/缺省`=不覆写；`[]`=强制无工具；`["read",...]`=allowlist（且永远不额外增权）。
 - **概念不串台**：这里的 `orchestratorPlan/orchestratorMode` 是“控制平面工作单”，不是用户可见的“Plan agent”（不要和 `OPENCODE_EXPERIMENTAL_PLAN_MODE` 的用户体验混在一起）。
+- **fork 派工策略必须可配置**：引入 `forkStrategy=auto|suggest|off`（先用 env/flag 承载），用于兼容上层多智能体插件（例如 `oh-my-opencode`）并避免“双重派工”；默认 `auto`，插件接管派工时切到 `suggest`。
 
 ---
 
@@ -469,7 +470,10 @@ cd packages/opencode && BUN_INSTALL=/tmp/bun-install TMPDIR=/tmp bun test test/s
 **行为：**
 - 若 `orchestratorMode=fork`：
   - 父会话输出：为什么需要 fork、需要哪些确认、可选降级方案
-  - 自动调用 `tool:task` 创建子会话（或提示用户一键创建）
+  - 根据 `forkStrategy` 决定是否自动派工：
+    - `auto`：自动调用 `tool:task` 创建子会话（必须走 PermissionNext.ask；deny/异常/失败则降级为“提示式派工”模板并事件化）
+    - `suggest`：不自动 `tool:task`，只输出“提示式派工”模板（供插件/用户接管触发）
+    - `off`：不派工（只解释原因与降级方案）
 - 子会话的 agent/tool 权限与 workdirMode 沿用现有 task 机制（`packages/opencode/src/tool/task.ts`）
 
 **注意**：
@@ -562,3 +566,4 @@ cd packages/opencode && BUN_INSTALL=/tmp/bun-install TMPDIR=/tmp bun test test/s
 - Phase 1（默认关闭）：仅内部/开发机开 `OPENCODE_EXPERIMENTAL_ORCHESTRATOR=1`，观测 artifacts/events
 - Phase 2（灰度）：只对 `uxMode=deep` 开启 1 个 worker（`evidence_critic`），并严格预算
 - Phase 3（默认开启 Auto）：当 offline eval 与线上事件指标稳定后，默认 `uxMode=auto`，但 `chat` 仍保持轻量
+- Phase 4（插件接管派工，可选）：当需要与 `oh-my-opencode` 这类编排插件融合时，将基座设为 `forkStrategy=suggest`，由插件消费 orchestrator artifacts/events 来派工，避免双重编排抢控制权
