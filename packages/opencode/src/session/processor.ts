@@ -22,6 +22,7 @@ import { writeUsageEvents } from "@/usage/events"
 import { prepareOrchestratorPlan } from "./orchestrator/prepare"
 import { runOrchestratorTurn } from "./orchestrator"
 import { runForkTask } from "./orchestrator/fork"
+import { resolveSecureOutputMode } from "./orchestrator/policy"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -477,11 +478,17 @@ export namespace SessionProcessor {
                       if (input.assistantMessage.summary) return { ok: false as const }
                       if (currentText.synthetic) return { ok: false as const }
                       if (input.assistantMessage.agent !== "build") return { ok: false as const }
+                      const orchestratorEnabled = orchestrator.enabled && !orchestrator.degraded
+                      const secureMode = resolveSecureOutputMode({
+                        enabled: orchestratorEnabled,
+                        plan: orchestratorEnabled ? orchestrator.plan : undefined,
+                      })
+                      if (!secureMode) return { ok: false as const }
 
                       return runSecureOutput({
                         sessionId: input.sessionID,
                         messageId: input.assistantMessage.id,
-                        mode: "balanced",
+                        mode: secureMode,
                         budget: { timeMs: 8000, maxScripts: 4 },
                         text: currentText.text,
                         ctx: {
