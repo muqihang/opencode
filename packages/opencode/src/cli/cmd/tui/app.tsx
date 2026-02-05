@@ -13,6 +13,7 @@ import { LocalProvider, useLocal } from "@tui/context/local"
 import { DialogModel, useConnected } from "@tui/component/dialog-model"
 import { DialogMcp } from "@tui/component/dialog-mcp"
 import { DialogStatus } from "@tui/component/dialog-status"
+import { DialogMode } from "@tui/component/dialog-mode"
 import { DialogThemeList } from "@tui/component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
 import { CommandProvider, useCommandDialog } from "@tui/component/dialog-command"
@@ -436,6 +437,17 @@ function App() {
         dialog.replace(() => <DialogProviderList />)
       },
       category: "Provider",
+    },
+    {
+      title: "Switch mode (切换模式)",
+      value: "product.mode",
+      slash: {
+        name: "mode",
+      },
+      onSelect: () => {
+        dialog.replace(() => <DialogMode />)
+      },
+      category: "System",
     },
     {
       title: "View status (查看状态)",
