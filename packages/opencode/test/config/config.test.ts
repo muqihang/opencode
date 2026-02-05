@@ -1487,6 +1487,25 @@ describe("filterPlugins", () => {
   })
 })
 
+describe("product.mode", () => {
+  test("filters config.plugin in Config.get()", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        plugin: ["oh-my-opencode@2.4.3", "some-plugin@1.0.0"],
+        product: { mode: "programming" },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const config = await Config.get()
+        expect(config.plugin).toEqual(["oh-my-opencode@2.4.3"])
+      },
+    })
+  })
+})
+
 describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
   test("skips project config files when flag is set", async () => {
     const originalEnv = process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
