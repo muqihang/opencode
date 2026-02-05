@@ -2,5 +2,10 @@
 exact = true
 
 [test]
-root = "./do-not-run-tests-from-root"
-
+root = "./packages/opencode"
+# Python venv/pip setup can take a while; raise the per-test default.
+timeout = 20000
+# Ensure opencode tests run in an isolated home/XDG environment.
+preload = ["./packages/opencode/test/preload.ts"]
+# Keep coverage enabled for opencode (matches packages/opencode intent).
+coverage = true
