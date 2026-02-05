@@ -200,6 +200,7 @@ export namespace Config {
     }
 
     result.plugin = deduplicatePlugins(result.plugin ?? [])
+    result.plugin = filterPlugins(result.plugin, result.product)
 
     return {
       config: result,
@@ -386,7 +387,14 @@ export namespace Config {
    */
   export function getPluginName(plugin: string): string {
     if (plugin.startsWith("file://")) {
-      return path.parse(new URL(plugin).pathname).name
+      const pathname = new URL(plugin).pathname
+      const parsed = path.parse(pathname)
+      if (parsed.name !== "index") return parsed.name
+
+      const parts = pathname.split("/").filter(Boolean)
+      const parent = parts.slice(0, -1).toReversed()
+      const skip = ["dist", "build", "lib", "src"]
+      return parent.find((part) => !skip.includes(part)) ?? parsed.name
     }
     const lastAt = plugin.lastIndexOf("@")
     if (lastAt > 0) {
@@ -424,6 +432,36 @@ export namespace Config {
     }
 
     return uniqueSpecifiers.toReversed()
+  }
+
+  type ProductMode = "base" | "programming" | "legal"
+  type ProductConfig = {
+    mode?: ProductMode
+    plugins?: {
+      common?: string[]
+      base?: string[]
+      programming?: string[]
+      legal?: string[]
+    }
+  }
+
+  export function filterPlugins(plugins: string[], product?: ProductConfig): string[] {
+    const mode = product?.mode
+    if (!mode) return plugins
+
+    const defaults = {
+      base: [],
+      programming: ["oh-my-opencode"],
+      legal: ["oh-my-legal"],
+    } satisfies Record<ProductMode, string[]>
+
+    const cfg = product?.plugins
+    const common = cfg?.common ?? []
+    const selected = (cfg?.[mode] ?? defaults[mode]) as string[]
+    const allow = new Set([...common, ...selected])
+    if (allow.size === 0) return []
+
+    return plugins.filter((specifier) => allow.has(getPluginName(specifier)))
   }
 
   export const McpLocal = z

@@ -1365,6 +1365,11 @@ describe("getPluginName", () => {
     expect(Config.getPluginName("file:///some/path/my-plugin.js")).toBe("my-plugin")
   })
 
+  test("treats index entrypoint as package directory name", () => {
+    expect(Config.getPluginName("file:///path/to/oh-my-opencode/dist/index.js")).toBe("oh-my-opencode")
+    expect(Config.getPluginName("file:///path/to/oh-my-opencode/src/index.ts")).toBe("oh-my-opencode")
+  })
+
   test("extracts name from npm package with version", () => {
     expect(Config.getPluginName("oh-my-opencode@2.4.3")).toBe("oh-my-opencode")
     expect(Config.getPluginName("some-plugin@1.0.0")).toBe("some-plugin")
@@ -1449,6 +1454,36 @@ describe("deduplicatePlugins", () => {
         expect(myPlugins[0].startsWith("file://")).toBe(true)
       },
     })
+  })
+})
+
+describe("filterPlugins", () => {
+  test("keeps legacy behavior when product mode is unset", () => {
+    const plugins = ["oh-my-opencode@2.4.3", "some-plugin@1.0.0"]
+    expect(Config.filterPlugins(plugins, undefined)).toEqual(plugins)
+  })
+
+  test("base mode disables third-party plugins by default", () => {
+    const plugins = ["oh-my-opencode@2.4.3", "some-plugin@1.0.0"]
+    expect(Config.filterPlugins(plugins, { mode: "base" })).toEqual([])
+  })
+
+  test("programming mode allowlists oh-my-opencode by default", () => {
+    const plugins = ["oh-my-opencode@2.4.3", "some-plugin@1.0.0"]
+    expect(Config.filterPlugins(plugins, { mode: "programming" })).toEqual(["oh-my-opencode@2.4.3"])
+  })
+
+  test("common plugins are enabled in all modes", () => {
+    const plugins = ["oh-my-opencode@2.4.3", "some-plugin@1.0.0"]
+    expect(
+      Config.filterPlugins(plugins, {
+        mode: "programming",
+        plugins: {
+          common: ["some-plugin"],
+          programming: ["oh-my-opencode"],
+        },
+      }),
+    ).toEqual(["oh-my-opencode@2.4.3", "some-plugin@1.0.0"])
   })
 })
 
