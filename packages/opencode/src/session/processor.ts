@@ -22,7 +22,7 @@ import { writeUsageEvents } from "@/usage/events"
 import { prepareOrchestratorPlan } from "./orchestrator/prepare"
 import { runOrchestratorTurn } from "./orchestrator"
 import { renderForkNotice, runForkTask } from "./orchestrator/fork"
-import { resolveSecureOutputMode } from "./orchestrator/policy"
+import { resolveForkStrategy, resolveSecureOutputMode } from "./orchestrator/policy"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -82,7 +82,8 @@ export namespace SessionProcessor {
       async process(streamInput: LLM.StreamInput) {
         log.info("process")
         needsCompaction = false
-        const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
+        const config = await Config.get()
+        const shouldBreak = config.experimental?.continue_loop_on_deny !== true
         const orchestrator = await (async () => {
           if (Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR !== true) return { enabled: false as const }
           if (input.assistantMessage.agent !== "build") return { enabled: false as const }
@@ -140,7 +141,10 @@ export namespace SessionProcessor {
           if (!orchestrator.enabled) return
           if (orchestrator.degraded) return
           if (orchestrator.plan.orchestratorMode !== "fork") return
-          const strategy = Flag.OPENCODE_ORCHESTRATOR_FORK_STRATEGY ?? "auto"
+          const strategy = resolveForkStrategy({
+            product: config.product,
+            env: Flag.OPENCODE_ORCHESTRATOR_FORK_STRATEGY,
+          })
           const session = orchestrator.session ?? (await Session.get(input.sessionID).catch(() => undefined))
           if (!session) return
           const agent = await Agent.get(input.assistantMessage.agent)

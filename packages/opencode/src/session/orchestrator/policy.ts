@@ -1,10 +1,19 @@
 import type { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 
 type SecureOutputMode = "strict" | "balanced" | "loose"
+type ForkStrategy = "auto" | "suggest" | "off"
 
 type ResolveInput = {
   enabled: boolean
   plan?: OrchestratorPlan
+}
+
+type ForkInput = {
+  product?: {
+    mode?: "base" | "programming" | "legal"
+    forkStrategy?: ForkStrategy
+  }
+  env?: ForkStrategy
 }
 
 export const resolveSecureOutputMode = (input: ResolveInput): SecureOutputMode | null => {
@@ -24,4 +33,14 @@ export const resolveSecureOutputMode = (input: ResolveInput): SecureOutputMode |
   return "balanced"
 }
 
-export type { SecureOutputMode, ResolveInput }
+export const resolveForkStrategy = (input: ForkInput): ForkStrategy => {
+  const strategy = input.product?.forkStrategy
+  if (strategy) return strategy
+
+  const mode = input.product?.mode
+  if (mode && mode !== "base") return "suggest"
+
+  return input.env ?? "auto"
+}
+
+export type { SecureOutputMode, ResolveInput, ForkStrategy, ForkInput }
