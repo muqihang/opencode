@@ -1382,6 +1382,12 @@ describe("getPluginName", () => {
   })
 })
 
+describe("Config.Info product", () => {
+  test("accepts product mode settings", () => {
+    expect(() => Config.Info.parse({ product: { mode: "base" } })).not.toThrow()
+  })
+})
+
 describe("deduplicatePlugins", () => {
   test("removes duplicates keeping higher priority (later entries)", () => {
     const plugins = ["global-plugin@1.0.0", "shared-plugin@1.0.0", "local-plugin@2.0.0", "shared-plugin@2.0.0"]

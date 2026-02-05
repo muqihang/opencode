@@ -933,6 +933,25 @@ export namespace Config {
         })
         .optional(),
       plugin: z.string().array().optional(),
+      product: z
+        .object({
+          mode: z.enum(["base", "programming", "legal"]).optional().describe("User-facing product mode selector"),
+          plugins: z
+            .object({
+              common: z.array(z.string()).optional().describe("Plugins enabled in all modes"),
+              base: z.array(z.string()).optional().describe("Plugins enabled in base mode"),
+              programming: z.array(z.string()).optional().describe("Plugins enabled in programming mode"),
+              legal: z.array(z.string()).optional().describe("Plugins enabled in legal mode"),
+            })
+            .strict()
+            .optional(),
+          forkStrategy: z
+            .enum(["auto", "suggest", "off"])
+            .optional()
+            .describe("Fork dispatch strategy (auto: base dispatches, suggest: hint only, off: silent)"),
+        })
+        .strict()
+        .optional(),
       snapshot: z.boolean().optional(),
       workdir: z
         .object({
