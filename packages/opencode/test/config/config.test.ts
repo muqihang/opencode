@@ -74,6 +74,31 @@ test("loads JSON config file", async () => {
   })
 })
 
+test("loads UI-managed config.json file in project directory", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "config.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          plugin: ["oh-my-opencode@2.4.3", "some-plugin@1.0.0"],
+          product: { mode: "programming" },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.product?.mode).toBe("programming")
+      // product.mode triggers plugin allowlisting.
+      expect(config.plugin).toEqual(["oh-my-opencode@2.4.3"])
+    },
+  })
+})
+
 test("loads JSONC config file", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -1391,6 +1416,10 @@ describe("Config.Info product", () => {
   test("accepts product mode settings", () => {
     expect(() => Config.Info.parse({ product: { mode: "base" } })).not.toThrow()
   })
+
+  test("accepts marxism product mode settings (future mode)", () => {
+    expect(() => Config.Info.parse({ product: { mode: "marxism" } })).not.toThrow()
+  })
 })
 
 describe("deduplicatePlugins", () => {
@@ -1471,6 +1500,21 @@ describe("filterPlugins", () => {
   test("programming mode allowlists oh-my-opencode by default", () => {
     const plugins = ["oh-my-opencode@2.4.3", "some-plugin@1.0.0"]
     expect(Config.filterPlugins(plugins, { mode: "programming" })).toEqual(["oh-my-opencode@2.4.3"])
+  })
+
+  test("legal mode allowlists oh-my-legal by default", () => {
+    const plugins = ["oh-my-legal@0.1.0", "some-plugin@1.0.0"]
+    expect(Config.filterPlugins(plugins, { mode: "legal" })).toEqual(["oh-my-legal@0.1.0"])
+  })
+
+  test("legal mode does not crash when allowlisted plugin is missing", () => {
+    const plugins = ["some-plugin@1.0.0"]
+    expect(Config.filterPlugins(plugins, { mode: "legal" })).toEqual([])
+  })
+
+  test("marxism mode allowlists oh-my-marxism by default", () => {
+    const plugins = ["oh-my-marxism@0.1.0", "some-plugin@1.0.0"]
+    expect(Config.filterPlugins(plugins, { mode: "marxism" })).toEqual(["oh-my-marxism@0.1.0"])
   })
 
   test("common plugins are enabled in all modes", () => {

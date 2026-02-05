@@ -10,6 +10,8 @@ export const ToolRequest = z
   })
   .strict()
 
+export type ToolRequest = z.infer<typeof ToolRequest>
+
 export const LlmWorkerStatus = z.enum(["ok", "degraded", "timeout", "cancelled"])
 export type LlmWorkerStatus = z.infer<typeof LlmWorkerStatus>
 

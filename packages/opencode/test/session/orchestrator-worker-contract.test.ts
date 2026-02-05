@@ -25,8 +25,8 @@ describe("orchestrator worker runner", () => {
         const compute = async () => {
           count.value += 1
           return {
-            specVersion: "llm-worker-result/1.0",
-            status: "ok",
+            specVersion: "llm-worker-result/1.0" as const,
+            status: "ok" as const,
             notes: ["cached"],
           }
         }
@@ -58,8 +58,8 @@ describe("orchestrator worker runner", () => {
       fn: async () => {
         const rolePack = pack({ pointers: ["p2"], planPointer: "orchestrator/verify/plan.json" })
         const compute = async () => ({
-          specVersion: "llm-worker-result/1.0",
-          status: "ok",
+          specVersion: "llm-worker-result/1.0" as const,
+          status: "ok" as const,
           notes: ["```bad```"],
         })
 

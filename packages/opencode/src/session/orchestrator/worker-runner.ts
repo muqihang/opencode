@@ -134,7 +134,8 @@ export const WorkerRunner = {
     if (!worker) return { result: degraded(`unknown worker: ${input.workerId}`), cache: emptyCache }
 
     const scope = storeScope()
-    const clock = typeof input.now === "number" ? { nowMs: () => input.now } : undefined
+    const capturedNow = input.now
+    const clock = typeof capturedNow === "number" ? { nowMs: () => capturedNow } : undefined
     const store = CacheStore.open({
       namespace: "orchestrator-worker",
       scope,
