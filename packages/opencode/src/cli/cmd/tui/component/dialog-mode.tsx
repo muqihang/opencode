@@ -5,7 +5,7 @@ import { DialogSelect } from "@tui/ui/dialog-select"
 import { useSDK } from "@tui/context/sdk"
 import { useSync } from "@tui/context/sync"
 
-type Mode = "base" | "programming" | "legal"
+type Mode = "base" | "programming" | "legal" | "marxism"
 type Product = {
   mode?: Mode
   forkStrategy?: "auto" | "suggest" | "off"
@@ -14,6 +14,7 @@ type Product = {
     base?: string[]
     programming?: string[]
     legal?: string[]
+    marxism?: string[]
   }
 }
 type ModeConfig = SDKConfig & { product?: Product }
@@ -44,6 +45,11 @@ export function DialogMode() {
       title: "律师助理模式",
       description: "启用律师插件（如 oh-my-legal）；多会话派工由插件接管（基座默认只提示）。",
     },
+    {
+      value: "marxism" as const,
+      title: "马哲分析模式",
+      description: "启用马哲分析插件（未来如 oh-my-marxism）；多会话派工由插件接管（基座默认只提示）。",
+    },
   ]
 
   return (
@@ -71,4 +77,3 @@ export function DialogMode() {
     />
   )
 }
-

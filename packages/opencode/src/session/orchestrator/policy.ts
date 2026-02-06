@@ -10,7 +10,7 @@ type ResolveInput = {
 
 type ForkInput = {
   product?: {
-    mode?: "base" | "programming" | "legal"
+    mode?: "base" | "programming" | "legal" | "marxism"
     forkStrategy?: ForkStrategy
   }
   env?: ForkStrategy

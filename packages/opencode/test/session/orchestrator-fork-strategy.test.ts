@@ -10,6 +10,14 @@ describe("resolveForkStrategy", () => {
     expect(resolveForkStrategy({ product: { mode: "programming" }, env: undefined })).toBe("suggest")
   })
 
+  test("legal mode defaults to suggest", () => {
+    expect(resolveForkStrategy({ product: { mode: "legal" }, env: undefined })).toBe("suggest")
+  })
+
+  test("marxism mode defaults to suggest", () => {
+    expect(resolveForkStrategy({ product: { mode: "marxism" }, env: undefined })).toBe("suggest")
+  })
+
   test("explicit product forkStrategy overrides mode default", () => {
     expect(resolveForkStrategy({ product: { mode: "programming", forkStrategy: "auto" }, env: undefined })).toBe("auto")
   })
@@ -18,4 +26,3 @@ describe("resolveForkStrategy", () => {
     expect(resolveForkStrategy({ product: { mode: "legal", forkStrategy: "off" }, env: "auto" })).toBe("off")
   })
 })
-

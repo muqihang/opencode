@@ -27,7 +27,7 @@ describe("orchestrator integration", () => {
         const messages = [
           {
             role: "user" as const,
-            content: [{ type: "text", text: "Please review the file." }],
+            content: [{ type: "text" as const, text: "Please review the file." }],
           },
         ]
         const toolsSnapshot = Object.keys(tools)

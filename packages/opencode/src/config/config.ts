@@ -81,7 +81,9 @@ export namespace Config {
 
     // Project config has highest precedence (overrides global and remote)
     if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-      for (const file of ["opencode.jsonc", "opencode.json"]) {
+      // `config.json` is the UI-managed config file written via the API (Config.update).
+      // Load it last so it can override user-authored opencode.json/c when present.
+      for (const file of ["opencode.jsonc", "opencode.json", "config.json"]) {
         const found = await Filesystem.findUp(file, Instance.directory, Instance.worktree)
         for (const resolved of found.toReversed()) {
           result = mergeConfigConcatArrays(result, await loadFile(resolved))
@@ -434,7 +436,7 @@ export namespace Config {
     return uniqueSpecifiers.toReversed()
   }
 
-  type ProductMode = "base" | "programming" | "legal"
+  type ProductMode = "base" | "programming" | "legal" | "marxism"
   type ProductConfig = {
     mode?: ProductMode
     plugins?: {
@@ -442,6 +444,7 @@ export namespace Config {
       base?: string[]
       programming?: string[]
       legal?: string[]
+      marxism?: string[]
     }
   }
 
@@ -453,6 +456,7 @@ export namespace Config {
       base: [],
       programming: ["oh-my-opencode"],
       legal: ["oh-my-legal"],
+      marxism: ["oh-my-marxism"],
     } satisfies Record<ProductMode, string[]>
 
     const cfg = product?.plugins
@@ -973,13 +977,14 @@ export namespace Config {
       plugin: z.string().array().optional(),
       product: z
         .object({
-          mode: z.enum(["base", "programming", "legal"]).optional().describe("User-facing product mode selector"),
+          mode: z.enum(["base", "programming", "legal", "marxism"]).optional().describe("User-facing product mode selector"),
           plugins: z
             .object({
               common: z.array(z.string()).optional().describe("Plugins enabled in all modes"),
               base: z.array(z.string()).optional().describe("Plugins enabled in base mode"),
               programming: z.array(z.string()).optional().describe("Plugins enabled in programming mode"),
               legal: z.array(z.string()).optional().describe("Plugins enabled in legal mode"),
+              marxism: z.array(z.string()).optional().describe("Plugins enabled in marxism mode"),
             })
             .strict()
             .optional(),

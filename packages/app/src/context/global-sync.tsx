@@ -861,6 +861,14 @@ function createGlobalSync() {
       }, 1000)
       return response
     },
+    updateInstanceConfig: async (directory: string, config: Config) => {
+      setGlobalStore("reload", "pending")
+      const response = await sdkFor(directory).config.update({ config })
+      setTimeout(() => {
+        setGlobalStore("reload", "complete")
+      }, 1000)
+      return response
+    },
     project: {
       loadSessions,
       meta: projectMeta,

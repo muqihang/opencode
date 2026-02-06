@@ -1022,7 +1022,8 @@ export default function Layout(props: ParentProps) {
   }
 
   function openSettings() {
-    dialog.show(() => <DialogSettings />)
+    const directory = params.dir ? base64Decode(params.dir) : undefined
+    dialog.show(() => <DialogSettings directory={directory} />)
   }
 
   function navigateToProject(directory: string | undefined) {

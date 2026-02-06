@@ -100,6 +100,7 @@ export namespace SessionProcessor {
           })
           return {
             enabled: true as const,
+            degraded: false as const,
             plan: prepared.plan,
             features: prepared.features,
             toolsetFingerprint: prepared.toolsetFingerprint,

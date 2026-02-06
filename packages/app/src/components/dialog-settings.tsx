@@ -13,8 +13,9 @@ import { SettingsAgents } from "./settings-agents"
 import { SettingsCommands } from "./settings-commands"
 import { SettingsMcp } from "./settings-mcp"
 import { SettingsMemory } from "./settings-memory"
+import { SettingsMode } from "./settings-mode"
 
-export const DialogSettings: Component = () => {
+export const DialogSettings: Component<{ directory?: string }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
 
@@ -46,6 +47,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="server" />
                       {language.t("settings.providers.title")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="mode">
+                      <Icon name="selector" />
+                      {language.t("settings.mode.title")}
+                    </Tabs.Trigger>
                     <Tabs.Trigger value="memory">
                       <Icon name="brain" />
                       {language.t("settings.memory.title")}
@@ -68,6 +73,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="providers" class="no-scrollbar">
           <SettingsProviders />
+        </Tabs.Content>
+        <Tabs.Content value="mode" class="no-scrollbar">
+          <SettingsMode directory={props.directory} />
         </Tabs.Content>
         <Tabs.Content value="memory" class="no-scrollbar">
           <SettingsMemory />
