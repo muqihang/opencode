@@ -65,21 +65,6 @@ const hasDisclaimer = (text: string) => {
   return patterns.some((p) => text.includes(p))
 }
 
-const join = (items: string[]) => items.filter(Boolean).join("；")
-
-const degradeText = (input: { reasons: string[] }) => {
-  const reasonText = join(input.reasons)
-  const lines = [
-    "为了避免把未核验内容当作事实输出，我已将相关结论降级为「未知/不支持」。",
-    reasonText ? `原因：${reasonText}` : "原因：证据不足或输出不符合可核验协议。",
-    "下一步：",
-    "1) 补检索/补取证：生成可核验 pointers（path+sha256+anchor）；",
-    "2) 或切换策略：strict/balanced 会强制核验；loose 允许推测但必须显式标注；",
-    `3) 请让模型在回答末尾附带 ${openTag} ... ${closeTag} 的结构化断言块，以便核验。`,
-  ]
-  return lines.join("\n") + "\n"
-}
-
 const readReport = async (root: string) => {
   const text = await Bun.file(root).text().catch(() => "")
   if (!text) return { ok: false as const, error: "report_empty" as const }
@@ -169,7 +154,7 @@ export const runSecureOutput = async (input: {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    return { status: "degraded", text: degradeText({ reasons }), artifacts: [inputEntry.path, errorEntry.path] }
+    return { status: "degraded", text: input.text.trimEnd(), artifacts: [inputEntry.path, errorEntry.path] }
   }
 
   const parsed = safeJson(stripped.raw)
@@ -205,7 +190,7 @@ export const runSecureOutput = async (input: {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    return { status: "degraded", text: degradeText({ reasons: [reason] }), artifacts: [inputEntry.path, errorEntry.path] }
+    return { status: "degraded", text: stripped.cleaned, artifacts: [inputEntry.path, errorEntry.path] }
   }
 
   const claims = AssistantClaims.safeParse(parsed.value)
@@ -246,7 +231,7 @@ export const runSecureOutput = async (input: {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    return { status: "degraded", text: degradeText({ reasons: [reason] }), artifacts: [inputEntry.path, errorEntry.path] }
+    return { status: "degraded", text: stripped.cleaned, artifacts: [inputEntry.path, errorEntry.path] }
   }
 
   const claimList = claims.data.claims
@@ -275,7 +260,7 @@ export const runSecureOutput = async (input: {
         data: { mode, claims_artifact: claimsEntry.path, reason_codes: ["missing_disclaimer"] },
         redaction: { applied: true, policyVersion: "v1" },
       })
-      return { status: "degraded", text: degradeText({ reasons }), artifacts: [inputEntry.path, claimsEntry.path] }
+      return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path] }
     }
 
     if (looksCertain(cleaned)) {
@@ -291,7 +276,7 @@ export const runSecureOutput = async (input: {
         data: { mode, claims_artifact: claimsEntry.path, reason_codes: ["classification_evasion"] },
         redaction: { applied: true, policyVersion: "v1" },
       })
-      return { status: "degraded", text: degradeText({ reasons }), artifacts: [inputEntry.path, claimsEntry.path] }
+      return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path] }
     }
 
     await writer.event({
@@ -345,7 +330,7 @@ export const runSecureOutput = async (input: {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    return { status: "degraded", text: degradeText({ reasons }), artifacts: [inputEntry.path, claimsEntry.path, verify.reportPath] }
+    return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path, verify.reportPath] }
   }
 
   await writer.event({

@@ -23,7 +23,7 @@ const buildCtx = (sessionId: string, messageId: string) => ({
 })
 
 describe("secure-output", () => {
-  test("strict: missing claims block degrades with chinese next steps and writes protocol.violation", async () => {
+  test("strict: missing claims block degrades but keeps the original answer text (no intrusive fallback)", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -42,8 +42,43 @@ describe("secure-output", () => {
         })
 
         expect(result.status).toBe("degraded")
-        expect(result.text).toContain("未知")
-        expect(result.text).toContain("下一步")
+        expect(result.text).toContain("这是一个确定事实")
+        expect(result.text).not.toContain("为了避免把未核验内容当作事实输出")
+
+        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
+        const eventsText = await Bun.file(eventsPath).text()
+        const types = eventsText
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => EventV1.parse(JSON.parse(line)).type)
+        expect(types).toContain("protocol.violation")
+        expect(types).toContain("secure_output.degraded")
+      },
+    })
+  })
+
+  test("balanced: missing claims block degrades but keeps the original answer text (no intrusive fallback)", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "so-4"
+        const messageId = "m-4"
+        const text = "这是一个确定事实：仓库已经配置了安全门禁。"
+
+        const result = await runSecureOutput({
+          sessionId,
+          messageId,
+          mode: "balanced",
+          budget: { timeMs: 20000, maxScripts: 2 },
+          text,
+          ctx: buildCtx(sessionId, messageId),
+        })
+
+        expect(result.status).toBe("degraded")
+        expect(result.text).toContain("这是一个确定事实")
+        expect(result.text).not.toContain("为了避免把未核验内容当作事实输出")
 
         const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
         const eventsText = await Bun.file(eventsPath).text()
@@ -126,7 +161,7 @@ describe("secure-output", () => {
     })
   })
 
-  test("balanced: missing evidence degrades with chinese reason", async () => {
+  test("balanced: missing evidence degrades but keeps the original answer text (no intrusive fallback)", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -170,9 +205,8 @@ describe("secure-output", () => {
         })
 
         expect(result.status).toBe("degraded")
-        expect(result.text).toContain("证据")
-        expect(result.text).toContain("缺失")
-        expect(result.text).toContain("下一步")
+        expect(result.text).toContain("这是一个事实")
+        expect(result.text).not.toContain("为了避免把未核验内容当作事实输出")
       },
     })
   })
