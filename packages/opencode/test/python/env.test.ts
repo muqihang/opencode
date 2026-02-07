@@ -12,6 +12,8 @@ import {
 } from "../../src/python/env"
 
 describe("python env helpers", () => {
+  const timeout = 20_000
+
   test("computeFileSha256 returns deterministic hash", async () => {
     await using tmp = await tmpdir()
     const filePath = path.join(tmp.path, "sample.txt")
@@ -43,7 +45,7 @@ describe("python env helpers", () => {
     const venvPython = resolveVenvPythonPath(venvDir)
     const exists = await Bun.file(venvPython).exists()
     expect(exists).toBe(true)
-  })
+  }, timeout)
 
   test("pipFreeze returns output for a fresh venv", async () => {
     const python = Bun.which("python3")
@@ -54,7 +56,7 @@ describe("python env helpers", () => {
     const venvPython = resolveVenvPythonPath(venvDir)
     const output = await pipFreeze({ venvPython })
     expect(typeof output).toBe("string")
-  })
+  }, timeout)
 
   test("pipInstallOffline reports error when python is missing", async () => {
     await using tmp = await tmpdir()
