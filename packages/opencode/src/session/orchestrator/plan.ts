@@ -62,6 +62,38 @@ const resolveEvidencePolicy = (input: { uxMode: OrchestratorUxMode; hasVerificat
   return undefined
 }
 
+const resolveWorkers = (input: { orchestratorMode: OrchestratorMode }) => {
+  if (input.orchestratorMode === "assist") {
+    return [
+      {
+        id: "retrieval_planner",
+        model: "small" as const,
+        budget: { timeoutMs: 1500 },
+      },
+      {
+        id: "evidence_critic",
+        model: "small" as const,
+        budget: { timeoutMs: 1500 },
+      },
+    ]
+  }
+  if (input.orchestratorMode === "heavy") {
+    return [
+      {
+        id: "retrieval_planner",
+        model: "small" as const,
+        budget: { timeoutMs: 1500 },
+      },
+      {
+        id: "patch_planner",
+        model: "small" as const,
+        budget: { timeoutMs: 1500 },
+      },
+    ]
+  }
+  return []
+}
+
 const resolveReasons = (input: {
   uxMode: OrchestratorUxMode
   hasWriteIntent: boolean
@@ -152,16 +184,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
         intentTokensEstimate: feat.intentTokensEstimate,
       })
 
-      const hasWorkers = orchestratorMode === "assist" || orchestratorMode === "heavy"
-      const workers = hasWorkers
-        ? [
-            {
-              id: "evidence_critic",
-              model: "small" as const,
-              budget: { timeoutMs: 1500 },
-            },
-          ]
-        : []
+      const workers = resolveWorkers({ orchestratorMode })
 
       const budgets = {
         maxWallClockMs: 8000,
