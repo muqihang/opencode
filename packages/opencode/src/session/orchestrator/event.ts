@@ -24,6 +24,9 @@ export const LifecyclePayload = z.object({
   latencyMs: z.number().nonnegative().optional(),
   cache: WorkerCache.optional(),
   reason: z.string().optional(),
+  fromModel: z.string().min(1).optional(),
+  toModel: z.string().min(1).optional(),
+  gateReason: z.string().min(1).optional(),
 })
 export type LifecyclePayload = z.infer<typeof LifecyclePayload>
 
