@@ -28,6 +28,19 @@ console.log("Generated models-snapshot.ts")
 const singleFlag = process.argv.includes("--single")
 const baselineFlag = process.argv.includes("--baseline")
 const skipInstall = process.argv.includes("--skip-install")
+const noCleanFlag = process.argv.includes("--no-clean")
+const outDir = (() => {
+  const env = process.env.OPENCODE_BUILD_OUTDIR
+  if (env) return env
+
+  const idx = process.argv.indexOf("--outdir")
+  if (idx === -1) return "dist"
+
+  const value = process.argv[idx + 1]
+  if (!value) return "dist"
+
+  return value
+})()
 
 const allTargets: {
   os: string
@@ -109,7 +122,9 @@ const targets = singleFlag
     })
   : allTargets
 
-await $`rm -rf dist`
+if (!noCleanFlag) {
+  await $`rm -rf ${outDir}`
+}
 
 const binaries: Record<string, string> = {}
 if (!skipInstall) {
@@ -128,7 +143,7 @@ for (const item of targets) {
     .filter(Boolean)
     .join("-")
   console.log(`building ${name}`)
-  await $`mkdir -p dist/${name}/bin`
+  await $`mkdir -p ${outDir}/${name}/bin`
 
   const parserWorker = fs.realpathSync(path.resolve(dir, "./node_modules/@opentui/core/parser.worker.js"))
   const workerPath = "./src/cli/cmd/tui/worker.ts"
@@ -149,7 +164,7 @@ for (const item of targets) {
       autoloadTsconfig: true,
       autoloadPackageJson: true,
       target: name.replace(pkg.name, "bun") as any,
-      outfile: `dist/${name}/bin/opencode`,
+      outfile: `${outDir}/${name}/bin/opencode`,
       execArgv: [`--user-agent=opencode/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
     },
@@ -163,8 +178,10 @@ for (const item of targets) {
     },
   })
 
-  await $`rm -rf ./dist/${name}/bin/tui`
-  await Bun.file(`dist/${name}/package.json`).write(
+  if (!noCleanFlag) {
+    await $`rm -rf ./${outDir}/${name}/bin/tui`
+  }
+  await Bun.file(`${outDir}/${name}/package.json`).write(
     JSON.stringify(
       {
         name,
