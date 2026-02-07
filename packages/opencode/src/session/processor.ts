@@ -1,4 +1,5 @@
 import { MessageV2 } from "./message-v2"
+import type { Tool } from "ai"
 import { Log } from "@/util/log"
 import { Identifier } from "@/id/id"
 import { Session } from "."
@@ -23,6 +24,91 @@ import { prepareOrchestratorPlan } from "./orchestrator/prepare"
 import { runOrchestratorTurn } from "./orchestrator"
 import { renderForkNotice, runForkTask } from "./orchestrator/fork"
 import { resolveForkStrategy, resolveSecureOutputMode } from "./orchestrator/policy"
+
+export type OrchestratorRollout = {
+  enabled: boolean
+  llmWorkers: boolean
+  workerBadge: boolean
+  shadowMode: boolean
+}
+
+type OrchestratorRolloutFlags = {
+  orchestrator: boolean
+  llmWorkers: boolean
+  workerBadge: boolean
+  shadowMode: boolean
+}
+
+type OrchestratorTurnShape = {
+  system: string[]
+  tools: Record<string, Tool>
+  degraded: boolean
+}
+
+export const resolveOrchestratorRollout = (
+  config?: Config.Info,
+  flags?: Partial<OrchestratorRolloutFlags>,
+): OrchestratorRollout => {
+  const resolved = {
+    orchestrator: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR === true,
+    llmWorkers: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_LLM_WORKERS === true,
+    workerBadge: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_BADGE === true,
+    shadowMode: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_SHADOW_MODE === true,
+    ...flags,
+  }
+
+  const enabled = resolved.orchestrator === true
+  if (!enabled) {
+    return {
+      enabled: false,
+      llmWorkers: false,
+      workerBadge: false,
+      shadowMode: false,
+    }
+  }
+
+  const llmWorkers = config?.experimental?.orchestrator_llm_workers ?? resolved.llmWorkers
+  const workerBadge = config?.experimental?.orchestrator_worker_badge ?? resolved.workerBadge
+  const shadowMode = config?.experimental?.orchestrator_shadow_mode ?? resolved.shadowMode
+
+  return {
+    enabled,
+    llmWorkers,
+    workerBadge,
+    shadowMode,
+  }
+}
+
+export const executeOrchestratorTurnByRollout = async (input: {
+  rollout: OrchestratorRollout
+  base: Pick<OrchestratorTurnShape, "system" | "tools">
+  run: () => Promise<OrchestratorTurnShape>
+}): Promise<OrchestratorTurnShape> => {
+  if (!input.rollout.enabled) {
+    return {
+      system: input.base.system,
+      tools: input.base.tools,
+      degraded: false,
+    }
+  }
+
+  if (!input.rollout.llmWorkers) {
+    return {
+      system: input.base.system,
+      tools: input.base.tools,
+      degraded: false,
+    }
+  }
+
+  const result = await input.run()
+  if (!input.rollout.shadowMode) return result
+
+  return {
+    system: input.base.system,
+    tools: input.base.tools,
+    degraded: false,
+  }
+}
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -84,8 +170,9 @@ export namespace SessionProcessor {
         needsCompaction = false
         const config = await Config.get()
         const shouldBreak = config.experimental?.continue_loop_on_deny !== true
+        const rollout = resolveOrchestratorRollout(config)
         const orchestrator = await (async () => {
-          if (Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR !== true) return { enabled: false as const }
+          if (!rollout.enabled) return { enabled: false as const }
           if (input.assistantMessage.agent !== "build") return { enabled: false as const }
           if (streamInput.agent.mode !== "primary") return { enabled: false as const }
           const session = await Session.get(input.sessionID).catch(() => undefined)
@@ -117,17 +204,23 @@ export namespace SessionProcessor {
           return { enabled: true as const, degraded: true as const }
         })
         const orchestratorTurn = await (async () => {
-          if (!orchestrator.enabled) return { system: streamInput.system, tools: streamInput.tools, degraded: false }
-          if (orchestrator.degraded) return { system: streamInput.system, tools: streamInput.tools, degraded: true }
-          return runOrchestratorTurn({
-            sessionId: input.sessionID,
-            messageId: streamInput.user.id,
-            abort: input.abort,
-            plan: orchestrator.plan,
-            features: orchestrator.features,
-            intentText: orchestrator.intentText,
-            system: streamInput.system,
-            tools: streamInput.tools,
+          const base = { system: streamInput.system, tools: streamInput.tools }
+          if (!orchestrator.enabled) return { ...base, degraded: false }
+          if (orchestrator.degraded) return { ...base, degraded: true }
+          return executeOrchestratorTurnByRollout({
+            rollout,
+            base,
+            run: async () =>
+              runOrchestratorTurn({
+                sessionId: input.sessionID,
+                messageId: streamInput.user.id,
+                abort: input.abort,
+                plan: orchestrator.plan,
+                features: orchestrator.features,
+                intentText: orchestrator.intentText,
+                system: streamInput.system,
+                tools: streamInput.tools,
+              }),
           })
         })().catch(async (error) => {
           await writeOrchestratorDegraded({

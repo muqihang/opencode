@@ -1197,6 +1197,18 @@ export namespace Config {
             .optional()
             .describe("Tools that should only be available to primary agents."),
           continue_loop_on_deny: z.boolean().optional().describe("Continue the agent loop when a tool call is denied"),
+          orchestrator_llm_workers: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator LLM workers when orchestrator is enabled"),
+          orchestrator_worker_badge: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator worker badge when orchestrator is enabled"),
+          orchestrator_shadow_mode: z
+            .boolean()
+            .optional()
+            .describe("Run orchestrator workers in shadow mode without injecting output"),
           mcp_timeout: z
             .number()
             .int()
