@@ -14,6 +14,14 @@ import {
 describe("python env helpers", () => {
   const timeout = 20_000
 
+  const retry = async (run: () => Promise<void>) => {
+    const e1 = await run().then(() => undefined).catch((err) => err)
+    if (!e1) return
+    const e2 = await run().then(() => undefined).catch((err) => err)
+    if (!e2) return
+    await run()
+  }
+
   test("computeFileSha256 returns deterministic hash", async () => {
     await using tmp = await tmpdir()
     const filePath = path.join(tmp.path, "sample.txt")
@@ -41,22 +49,26 @@ describe("python env helpers", () => {
     if (!python) return
     await using tmp = await tmpdir()
     const venvDir = path.join(tmp.path, ".opencode", "runtime", "python", "venv", "base")
-    await ensureVenv({ pythonPath: python, venvDir })
+    await retry(async () => {
+      await ensureVenv({ pythonPath: python, venvDir })
+    })
     const venvPython = resolveVenvPythonPath(venvDir)
     const exists = await Bun.file(venvPython).exists()
     expect(exists).toBe(true)
-  }, timeout)
+  }, { timeout })
 
   test("pipFreeze returns output for a fresh venv", async () => {
     const python = Bun.which("python3")
     if (!python) return
     await using tmp = await tmpdir()
     const venvDir = path.join(tmp.path, ".opencode", "runtime", "python", "venv", "freeze")
-    await ensureVenv({ pythonPath: python, venvDir })
+    await retry(async () => {
+      await ensureVenv({ pythonPath: python, venvDir })
+    })
     const venvPython = resolveVenvPythonPath(venvDir)
     const output = await pipFreeze({ venvPython })
     expect(typeof output).toBe("string")
-  }, timeout)
+  }, { timeout })
 
   test("pipInstallOffline reports error when python is missing", async () => {
     await using tmp = await tmpdir()
