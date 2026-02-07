@@ -78,7 +78,18 @@ describe("orchestrator worker runner", () => {
 
   test("evidence_critic requests retrieval when working set empty", async () => {
     const rolePack = pack({ pointers: [], planPointer: "orchestrator/empty/plan.json" })
-    const output = await evidenceCritic(rolePack)
+    const output = await evidenceCritic(
+      { rolePack },
+      {
+        run: async () => ({
+          status: "ok",
+          object: {
+            status: "ok",
+            notes: ["need evidence"],
+          },
+        }),
+      },
+    )
 
     expect(output.toolRequests?.length ?? 0).toBeGreaterThan(0)
     expect(output.toolRequests?.[0]?.kind).toBe("retrieval")

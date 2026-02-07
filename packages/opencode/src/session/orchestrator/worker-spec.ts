@@ -23,10 +23,12 @@ export type WorkerSpecItem = {
 const registry: Record<OrchestratorWorkerId, WorkerSpecItem> = {
   evidence_critic: {
     id: "evidence_critic",
-    compute: async (input) => evidenceCritic(input.rolePack),
+    compute: async (input) => evidenceCritic(input),
   },
 }
 
-const get = (workerId: string) => registry[workerId as OrchestratorWorkerId]
+const isWorkerId = (workerId: string): workerId is OrchestratorWorkerId => workerId === "evidence_critic"
+
+const get = (workerId: string) => (isWorkerId(workerId) ? registry[workerId] : undefined)
 
 export const WorkerSpec = { get }
