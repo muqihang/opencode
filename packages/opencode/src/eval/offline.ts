@@ -53,7 +53,7 @@ const baseline = {
   routingContractHash: "e7c7e8214a952671261330a04c5965aec5f4beb43aff9ced0a4ea2762b7b2638",
   retrievalDeterminismHash: "0adc7f7de965d2bb52ff5264e82ae0aca97d0f24b2e91f1ad7ece13cfcbc492c",
   orchestratorPlanChatHash: "0844c28fe130faf00de6ce8e9e6e2d69474e9bc6483ecb9e4232378feb57083f",
-  orchestratorPlanAssistHash: "f6ebe80005ca9815a3da9cc648e372da7872270e857d7df717694a238d4a498c",
+  orchestratorPlanAssistHash: "6372677e675c436ba1aa9c52828886951f6aed103aec9f03b86f8b727eea5f0c",
   orchestratorPlanForkHash: "86282fe6b138c7b857ec002521ffe3f37c9a234aaf867ca17cb7f596816951bd",
   toolBrokerContractHash: "d44938c8bedf21ad339e3aea36ec1750d722413baa8a9b7369b7124ebede0ae2",
 } as const
