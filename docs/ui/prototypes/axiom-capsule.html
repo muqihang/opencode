@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Axiom: Ultimate Fusion (v2 Structure + v4 Soul)</title>
+    <style>
+        :root {
+            --bg: #FAFAFA;
+            --surface: #FFFFFF;
+            --line: #E5E7EB;
+            --text-main: #111827;
+            --text-dim: #6B7280;
+            --axiom-blue: #2563EB;
+            --axiom-dark: #1E40AF;
+            --axiom-light: #EFF6FF;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            min-height: 100vh;
+        }
+
+        /* 纸张纹理 */
+        .grain {
+            position: fixed; inset: 0; pointer-events: none; opacity: 0.5; z-index: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.08'/%3E%3C/svg%3E");
+        }
+
+        /* --- 布局结构 (复刻 v2) --- */
+        .container {
+            display: grid;
+            grid-template-columns: 24px 1fr; /* 左轨 + 右文 */
+            gap: 20px;
+            width: 100%; max-width: 500px;
+            position: relative; z-index: 10;
+        }
+
+        /* 左侧轨道 */
+        .timeline-track { position: relative; display: flex; flex-direction: column; align-items: center; }
+        
+        .axis-line {
+            position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); z-index: 0;
+        }
+
+        /* --- 光柱 (v4 Jitter + v2 Growth) --- */
+        .beam-wrapper {
+            position: relative; z-index: 10;
+            width: 100%; height: 40px; /* 初始高度 */
+            transition: height 0.3s cubic-bezier(0.25, 1, 0.5, 1); /* 平滑生长 */
+        }
+
+        .living-beam {
+            width: 3px; height: 100%; /* 撑满 wrapper */
+            background: var(--axiom-blue);
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(37, 99, 235, 0.4);
+            margin: 0 auto;
+            transition: width 0.1s, background-color 0.3s, box-shadow 0.1s;
+        }
+
+        /* Jitter (震颤) */
+        .living-beam.jitter {
+            width: 5px; background: #60A5FA;
+            box-shadow: 0 0 25px rgba(37, 99, 235, 0.8);
+        }
+
+        /* Tick (凝固) */
+        .tick-node {
+            width: 12px; height: 12px;
+            background: var(--axiom-dark);
+            border-radius: 50%;
+            box-shadow: 0 0 0 6px var(--bg);
+            margin-top: -6px; /* Center alignment */
+            transform: scale(0);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: absolute; top: 100%; /* At the bottom of beam */
+        }
+        .tick-node.visible { transform: scale(1); }
+
+        /* --- 右侧内容流 --- */
+        .content-stack { display: flex; flex-direction: column; gap: 12px; padding-top: 0; }
+
+        /* 状态头 */
+        .status-header {
+            font-size: 0.85rem; font-weight: 600; color: var(--axiom-blue);
+            letter-spacing: 0.05em; height: 20px; display: flex; align-items: center;
+        }
+        .status-header.done { color: var(--text-main); }
+
+        /* 日志列表 (v2 List Style) */
+        .log-list {
+            display: flex; flex-direction: column; gap: 8px;
+            border-left: 1px solid var(--line);
+            padding-left: 20px; margin-left: -32px; /* Visual indent alignment */
+            padding-top: 4px; padding-bottom: 4px;
+        }
+
+        .log-item {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem; color: var(--text-dim);
+            line-height: 1.5;
+            display: flex; align-items: center;
+        }
+        .log-item::before {
+            content: ""; display: block; width: 6px; height: 1px; background: var(--line);
+            margin-right: 12px; margin-left: -20px;
+        }
+        
+        /* 光标 */
+        .cursor { display: inline-block; width: 6px; height: 14px; background: var(--axiom-blue); margin-left: 4px; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* --- 结果卡片 (v4 Blueprint Style) --- */
+        .axiom-card {
+            background: var(--surface);
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px -5px rgba(0,0,0,0.1);
+            margin-top: 16px;
+            opacity: 0; transform: translateY(10px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .axiom-card.visible { opacity: 1; transform: translateY(0); }
+
+        .card-header {
+            background: #F9FAFB; padding: 12px 20px; border-bottom: 1px solid var(--line);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .card-title { font-weight: 600; font-size: 0.9rem; color: var(--text-main); }
+        
+        .card-body { padding: 20px; }
+        
+        /* 决策项 */
+        .decision-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .icon-check { color: var(--axiom-blue); margin-top: 2px; }
+        
+        /* 真理锚点 */
+        .anchor-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+        .chip {
+            font-size: 0.75rem; color: var(--axiom-dark); background: var(--axiom-light);
+            padding: 2px 8px; border-radius: 4px; border: 1px solid transparent; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .chip:hover { background: white; border-color: var(--axiom-blue); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
+        .btn { position: fixed; top: 30px; padding: 10px 20px; z-index: 100; cursor: pointer; }
+
+    </style>
+</head>
+<body>
+
+    <div class="grain"></div>
+    <button class="btn" onclick="start()">▶ 启动 Axiom (Ultimate)</button>
+
+    <div class="container">
+        
+        <!-- 左侧：轴 + 动态生长的光柱 -->
+        <div class="timeline-track">
+            <div class="axis-line"></div>
+            <div class="beam-wrapper" id="beamWrap">
+                <div class="living-beam" id="beam"></div>
+            </div>
+            <!-- 铆钉跟随光柱底部 -->
+            <div class="tick-node" id="tick"></div>
+        </div>
+
+        <!-- 右侧：内容流 -->
+        <div class="content-stack">
+            <div class="status-header" id="status">待机中</div>
+            
+            <!-- 思考过程 (列表) -->
+            <div class="log-list" id="logList"></div>
+
+            <!-- 任务交付框 (结果卡片) -->
+            <div class="axiom-card" id="card">
+                <div class="card-header">
+                    <span class="card-title">AI 建议要点 (可核验)</span>
+                    <span style="font-size:0.7rem; color:var(--axiom-blue); border:1px solid var(--line); padding:2px 6px; border-radius:4px;">复制蓝图</span>
+                </div>
+                <div class="card-body">
+                    <div class="decision-row">
+                        <svg class="icon-check" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                        <div>
+                            <div style="font-size:0.9rem; line-height:1.5; color:var(--text-main);">
+                                建议将 <span style="border-bottom:1px solid #93C5FD;">Context Store</span> 迁移至 SQLite
+                            </div>
+                            <div class="anchor-chips">
+                                <span class="chip">📄 store.ts (SHA: a1b2)</span>
+                                <span class="chip">📑 RFC-003 数据库迁移</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="decision-row">
+                        <svg class="icon-check" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                        <div>
+                            <div style="font-size:0.9rem; line-height:1.5; color:var(--text-main);">
+                                禁用开发环境的强缓存策略
+                            </div>
+                            <div class="anchor-chips">
+                                <span class="chip">⚙️ .env.development</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const beamWrap = document.getElementById('beamWrap');
+        const beam = document.getElementById('beam');
+        const tick = document.getElementById('tick');
+        const status = document.getElementById('status');
+        const logList = document.getElementById('logList');
+        const card = document.getElementById('card');
+
+        const logs = [
+            "正在扫描项目上下文结构...",
+            "分析数据持久化方案...",
+            "比对开发环境配置差异...",
+            "生成最终建议要点..."
+        ];
+
+        async function start() {
+            // Reset
+            logList.innerHTML = '';
+            card.className = "axiom-card";
+            tick.className = "tick-node";
+            status.innerText = "正在推演";
+            status.style.color = "var(--axiom-blue)";
+            
+            // Beam Reset
+            beamWrap.style.height = "40px";
+            beamWrap.style.opacity = "1";
+            
+            // Sequence
+            for (let i = 0; i < logs.length; i++) {
+                // 1. New Line
+                const item = document.createElement('div');
+                item.className = 'log-item';
+                logList.appendChild(item);
+                
+                // 2. Beam Grows (物理生长)
+                // 每一行日志增加高度，模拟算力延伸
+                beamWrap.style.height = `${40 + (i + 1) * 30}px`;
+
+                // 3. Typewriter
+                await typeWriter(item, logs[i]);
+                await new Promise(r => setTimeout(r, 200));
+            }
+            
+            finish();
+        }
+
+        function typeWriter(element, text) {
+            return new Promise(resolve => {
+                let i = 0;
+                // Add cursor
+                const cursor = document.createElement('span');
+                cursor.className = 'cursor';
+                element.appendChild(cursor);
+
+                const interval = setInterval(() => {
+                    // Insert char before cursor
+                    cursor.insertAdjacentText('beforebegin', text.charAt(i));
+                    
+                    // --- NEURO-LINK JITTER (震颤) ---
+                    // 打字时，左侧光柱疯狂震动
+                    beam.classList.add('jitter');
+                    setTimeout(() => beam.classList.remove('jitter'), 50);
+
+                    i++;
+                    if (i >= text.length) {
+                        clearInterval(interval);
+                        cursor.remove(); // Remove cursor
+                        resolve();
+                    }
+                }, 30); // Typing speed
+            });
+        }
+
+        function finish() {
+            // Morph Sequence
+            
+            // 1. Beam Collapses (Height stays, but visual beam disappears or morphs)
+            // 这里为了视觉连接，我们让 Tick 在光柱底部出现
+            
+            tick.className = "tick-node visible";
+            
+            // 2. Hide Beam Body (Fade out)
+            beam.style.opacity = "0";
+            
+            // 3. Update Status
+            status.innerText = "推演完成";
+            status.className = "status-header done";
+
+            // 4. Show Card
+            setTimeout(() => {
+                card.className = "axiom-card visible";
+            }, 300);
+        }
+
+    </script>
+</body>
+</html>
