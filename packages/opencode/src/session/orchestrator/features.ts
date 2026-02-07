@@ -17,11 +17,35 @@ const ExecPattern =
 const VerifyPattern =
   /(cite|citation|source|evidence|verify|verification|fact check|reference|proof|quote|引用|证据|来源|核验|验证|对账|合规|事实核查)/i
 
+const FilePartPattern =
+  /(上传文件|提供的文件|附件|file part|attached file|uploaded file|该文件|这个文件|文件里|文件中的|文件内)/i
+
+const FileWriteVerbPattern =
+  /(修改|编辑|修复|改动|重构|重命名|删除|新增|写入|patch|fix|rewrite|refactor|rename|delete|update|edit|modify)/i
+
+const FileExecVerbPattern =
+  /(运行|执行|测试|复现|构建|编译|命令|脚本|run|execute|test|build|compile|command|script)/i
+
+const byFileParts = (input: { hasFileParts: boolean; intentText: string; kind: "write" | "exec" }) => {
+  if (!input.hasFileParts) return false
+  if (!FilePartPattern.test(input.intentText)) return false
+  if (input.kind === "write") return FileWriteVerbPattern.test(input.intentText)
+  return FileExecVerbPattern.test(input.intentText)
+}
+
 export const extractFeatures = (input: FeatureInput) => {
   const intentBytes = Math.max(1, Buffer.byteLength(input.intentText, "utf8"))
   const intentTokensEstimate = Math.max(1, Math.ceil(intentBytes / 4))
-  const hasWriteIntent = WritePattern.test(input.intentText)
-  const hasExecIntent = ExecPattern.test(input.intentText)
+  const hasWriteIntent = WritePattern.test(input.intentText) || byFileParts({
+    hasFileParts: input.hasFileParts,
+    intentText: input.intentText,
+    kind: "write",
+  })
+  const hasExecIntent = ExecPattern.test(input.intentText) || byFileParts({
+    hasFileParts: input.hasFileParts,
+    intentText: input.intentText,
+    kind: "exec",
+  })
   const hasVerificationIntent = VerifyPattern.test(input.intentText)
 
   return OrchestratorFeatures.parse({

@@ -40,6 +40,8 @@ const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance
 
 const LargeIntentTokens = 256
 
+const HeavyIntentTokens = 1024
+
 const resolveMode = (input: {
   uxMode: OrchestratorUxMode
   hasWriteIntent: boolean
@@ -48,6 +50,7 @@ const resolveMode = (input: {
   intentTokensEstimate: number
 }): OrchestratorMode => {
   if (input.hasWriteIntent || input.hasExecIntent) return "fork"
+  if (input.uxMode === "deep" && input.intentTokensEstimate >= HeavyIntentTokens) return "heavy"
   if (input.hasVerificationIntent) return "assist"
   if (input.uxMode === "deep" && input.intentTokensEstimate >= LargeIntentTokens) return "assist"
   return "chat"
@@ -73,12 +76,19 @@ const resolveReasons = (input: {
   const verification = input.hasVerificationIntent
     ? { code: "intent.verification", message: "verification intent detected" }
     : undefined
+  const heavy =
+    input.uxMode === "deep" && input.intentTokensEstimate >= HeavyIntentTokens
+      ? { code: "ux.deep.high_complexity", message: "deep mode with high complexity intent" }
+      : undefined
+
   const deep =
     input.uxMode === "deep" && input.intentTokensEstimate >= LargeIntentTokens
       ? { code: "ux.deep.large", message: "deep mode with large intent" }
       : undefined
 
-  const reasons = [primary, verification, deep].filter((item): item is { code: string; message: string } => !!item)
+  const reasons = [primary, heavy, verification, deep].filter(
+    (item): item is { code: string; message: string } => !!item,
+  )
   return reasons.length > 0
     ? reasons
     : [{ code: "intent.chat", message: "default chat intent" }]

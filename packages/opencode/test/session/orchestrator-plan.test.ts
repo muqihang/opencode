@@ -52,6 +52,68 @@ describe("orchestrator plan", () => {
     })
   })
 
+  test("deep + high complexity reaches heavy with explicit reason", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const intentText = `请深度分析并制定完整方案 ${"context ".repeat(640)}`
+        const features = extractFeatures({
+          uxMode: "deep",
+          intentText,
+          hasFileParts: false,
+        })
+
+        const result = await buildPlan({
+          sessionId: "s2_heavy",
+          messageId: "m2_heavy",
+          features,
+          toolsetFingerprint: "toolset-2-heavy",
+        })
+
+        expect(result.plan.orchestratorMode).toBe("heavy")
+        expect(result.plan.reasons.some((item) => item.code === "ux.deep.high_complexity")).toBe(true)
+      },
+    })
+  })
+
+  test("file parts can escalate write/exec intent to fork", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const intentText = "请修复我上传文件里的问题并复现结果"
+        const withoutFile = extractFeatures({
+          uxMode: "auto",
+          intentText,
+          hasFileParts: false,
+        })
+        const withFile = extractFeatures({
+          uxMode: "auto",
+          intentText,
+          hasFileParts: true,
+        })
+
+        const withoutFileResult = await buildPlan({
+          sessionId: "s_file_1",
+          messageId: "m_file_1",
+          features: withoutFile,
+          toolsetFingerprint: "toolset-file-1",
+        })
+        const withFileResult = await buildPlan({
+          sessionId: "s_file_2",
+          messageId: "m_file_2",
+          features: withFile,
+          toolsetFingerprint: "toolset-file-2",
+        })
+
+        expect(withoutFileResult.plan.orchestratorMode).not.toBe("fork")
+        expect(withFileResult.plan.orchestratorMode).toBe("fork")
+        expect(withFile.features.hasWriteIntent || withFile.features.hasExecIntent).toBe(true)
+      },
+    })
+  })
+
   test("chat keeps workers empty", async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({

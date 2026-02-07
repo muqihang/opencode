@@ -38,4 +38,23 @@ describe("orchestrator features", () => {
     expect(result.features.intentBytes).toBeGreaterThan(0)
     expect(result.features.intentTokensEstimate).toBeGreaterThan(0)
   })
+
+  test("file parts can activate write/exec intent for file-operation phrasing", () => {
+    const intentText = "请修复我上传文件里的问题并复现结果"
+    const withoutFile = extractFeatures({
+      uxMode: "auto",
+      intentText,
+      hasFileParts: false,
+    })
+    const withFile = extractFeatures({
+      uxMode: "auto",
+      intentText,
+      hasFileParts: true,
+    })
+
+    expect(withoutFile.features.hasWriteIntent).toBe(false)
+    expect(withoutFile.features.hasExecIntent).toBe(false)
+    expect(withFile.features.hasWriteIntent).toBe(true)
+    expect(withFile.features.hasExecIntent).toBe(true)
+  })
 })
