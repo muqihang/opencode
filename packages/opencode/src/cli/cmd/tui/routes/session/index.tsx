@@ -75,6 +75,7 @@ import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import { formatTranscript } from "../../util/transcript"
+import { formatWorkerHint } from "@tui/context/worker-status"
 
 addDefaultParsers(parsers.parsers)
 
@@ -1147,6 +1148,17 @@ function UserMessage(props: {
   const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
 
   const compaction = createMemo(() => props.parts.find((x) => x.type === "compaction"))
+  const workerTurn = createMemo(() => sync.data.worker[props.message.sessionID]?.[props.message.id])
+  const workerHint = createMemo(() => {
+    return formatWorkerHint(workerTurn())
+  })
+  const workerTone = createMemo(() => {
+    const turn = workerTurn()
+    if (!turn?.triggered) return theme.textMuted
+    if (turn.phase === "degraded") return theme.warning
+    if (turn.phase === "running") return theme.accent
+    return theme.textMuted
+  })
 
   return (
     <>
@@ -1206,6 +1218,12 @@ function UserMessage(props: {
             >
               <text fg={theme.textMuted}>
                 <span style={{ bg: theme.accent, fg: theme.backgroundPanel, bold: true }}> QUEUED </span>
+              </text>
+            </Show>
+            <Show when={workerHint()}>
+              <text fg={workerTone()}>
+                <span style={{ fg: theme.textMuted }}>↳ </span>
+                {workerHint()}
               </text>
             </Show>
           </box>

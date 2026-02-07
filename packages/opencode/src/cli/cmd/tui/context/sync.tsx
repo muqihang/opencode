@@ -28,6 +28,7 @@ import { useArgs } from "./args"
 import { batch, onMount } from "solid-js"
 import { Log } from "@/util/log"
 import type { Path } from "@opencode-ai/sdk"
+import { mergeWorkerTurn, readWorkerLifecycle, type WorkerTurn } from "./worker-status"
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
@@ -59,6 +60,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       }
       message: {
         [sessionID: string]: Message[]
+      }
+      worker: {
+        [sessionID: string]: {
+          [messageID: string]: WorkerTurn
+        }
       }
       part: {
         [messageID: string]: Part[]
@@ -93,6 +99,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       session_diff: {},
       todo: {},
       message: {},
+      worker: {},
       part: {},
       lsp: [],
       mcp: {},
@@ -106,6 +113,18 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
     sdk.event.listen((e) => {
       const event = e.details
+      const lifecycle = readWorkerLifecycle(event as { type: string; properties?: unknown })
+      if (lifecycle) {
+        const turns = store.worker[lifecycle.sessionID] ?? {}
+        setStore(
+          "worker",
+          lifecycle.sessionID,
+          reconcile({
+            ...turns,
+            [lifecycle.messageID]: mergeWorkerTurn(turns[lifecycle.messageID], lifecycle),
+          }),
+        )
+      }
       switch (event.type) {
         case "server.instance.disposed":
           bootstrap()
@@ -203,6 +222,14 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               }),
             )
           }
+          if (store.worker[event.properties.info.id]) {
+            setStore(
+              "worker",
+              produce((draft) => {
+                delete draft[event.properties.info.id]
+              }),
+            )
+          }
           break
         }
         case "session.updated": {
@@ -260,6 +287,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                   delete draft[oldest.id]
                 }),
               )
+              if (store.worker[event.properties.info.sessionID]?.[oldest.id]) {
+                setStore(
+                  "worker",
+                  event.properties.info.sessionID,
+                  produce((draft) => {
+                    delete draft[oldest.id]
+                  }),
+                )
+              }
             })
           }
           break
@@ -273,6 +309,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               event.properties.sessionID,
               produce((draft) => {
                 draft.splice(result.index, 1)
+              }),
+            )
+          }
+          if (store.worker[event.properties.sessionID]?.[event.properties.messageID]) {
+            setStore(
+              "worker",
+              event.properties.sessionID,
+              produce((draft) => {
+                delete draft[event.properties.messageID]
               }),
             )
           }
