@@ -15,6 +15,12 @@ type WorkerCache = {
   tier: "memory" | "disk" | "none"
 }
 
+type Route = {
+  fromModel?: string
+  toModel?: string
+  gateReason?: string
+}
+
 type WorkerCompute = (input: {
   rolePack: LlmWorkerRolePack
   model?: WorkerModel
@@ -43,6 +49,32 @@ const safeNote = (value: string) => trimNote(value.replace(/```/g, "''"))
 const errorText = (error: unknown) => {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+const modelFrom = (value: string) => {
+  const text = value.trim()
+  const idx = text.indexOf("=")
+  if (idx <= 0) return
+  const key = text.slice(0, idx).trim().toLowerCase()
+  const item = text.slice(idx + 1).trim()
+  if (!item) return
+  if (key === "from_model") return { key: "fromModel" as const, value: item }
+  if (key === "to_model") return { key: "toModel" as const, value: item }
+  if (key === "gate_reason") return { key: "gateReason" as const, value: item }
+}
+
+const routeFrom = (result: LlmWorkerResult): Route | undefined => {
+  const notes = result.notes ?? []
+  if (notes.length === 0) return
+  const parsed = notes.map((item) => modelFrom(item)).filter((item): item is { key: keyof Route; value: string } => !!item)
+  if (parsed.length === 0) return
+  const base: Route = {}
+  for (const item of parsed) {
+    if (item.key === "fromModel") base.fromModel = item.value
+    if (item.key === "toModel") base.toModel = item.value
+    if (item.key === "gateReason") base.gateReason = item.value
+  }
+  return base
 }
 
 const planIdFromPointer = (value: string) => {
@@ -117,6 +149,7 @@ const emitLifecycle = async (input: {
   cache?: WorkerCache
   reason?: string
   latencyMs?: number
+  route?: Route
 }) => {
   await Bus.publish(OrchestratorEvent.WorkerLifecycle, {
     sessionID: input.sessionId,
@@ -132,6 +165,9 @@ const emitLifecycle = async (input: {
     cache: input.cache,
     reason: input.reason,
     latencyMs: input.latencyMs,
+    fromModel: input.route?.fromModel,
+    toModel: input.route?.toModel,
+    gateReason: input.route?.gateReason,
   }).catch(() => {})
 }
 
@@ -279,6 +315,7 @@ export const WorkerRunner = {
     }
 
     const verified = verify(result.data)
+    const route = routeFrom(verified.result)
     const ended = typeof input.now === "number" ? input.now : Date.now()
     const phase = verified.result.status === "degraded" ? "degraded" : "completed"
     await emitLifecycle({
@@ -291,6 +328,7 @@ export const WorkerRunner = {
       cache,
       latencyMs: Math.max(0, ended - started),
       reason: verified.result.status === "degraded" ? (verified.result.notes ?? []).join("; ") : undefined,
+      route,
     })
     return { result: verified.result, cache }
   },

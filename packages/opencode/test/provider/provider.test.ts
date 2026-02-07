@@ -985,6 +985,73 @@ test("getSmallModel respects config small_model override", async () => {
   })
 })
 
+test("getSmallModel supports role-based routing override", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          small_model: "anthropic/claude-haiku-4-5-20251001",
+          provider: {
+            anthropic: {
+              options: {
+                worker_small_models: {
+                  evidence_critic: "claude-sonnet-4-20250514",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      Env.set("ANTHROPIC_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      const model = await Provider.getSmallModel("anthropic", "evidence_critic")
+      expect(model?.providerID).toBe("anthropic")
+      expect(model?.id).toBe("claude-sonnet-4-20250514")
+    },
+  })
+})
+
+test("getSmallModel role route falls back when role model missing", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            anthropic: {
+              options: {
+                worker_small_models: {
+                  evidence_critic: "missing-role-model",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      Env.set("ANTHROPIC_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      const model = await Provider.getSmallModel("anthropic", "evidence_critic")
+      expect(model).toBeDefined()
+      expect(model?.id).toContain("haiku")
+    },
+  })
+})
+
 test("provider.sort prioritizes preferred models", () => {
   const models = [
     { id: "random-model", name: "Random" },

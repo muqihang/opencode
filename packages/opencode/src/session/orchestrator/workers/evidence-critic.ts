@@ -57,7 +57,10 @@ const bounded = (input: { rolePack: LlmWorkerRolePack; output: Critic }) => {
   const notes = (input.output.notes ?? [])
     .map((item) => clean(item, maxText))
     .filter((item) => item.length > 0)
-    .slice(0, maxNotes)
+  const gate = ["from_model=", "to_model=", "gate_reason="]
+  const head = notes.filter((item) => gate.some((prefix) => item.includes(prefix))).slice(0, gate.length)
+  const tail = notes.filter((item) => !gate.some((prefix) => item.includes(prefix))).slice(0, Math.max(0, maxNotes - head.length))
+  const merged = [...head, ...tail]
 
   const tools = (input.output.toolRequests ?? [])
     .map((item) => ({ kind: item.kind, input: clean(item.input, Math.min(1200, maxText * 2)) }))
@@ -69,7 +72,7 @@ const bounded = (input: { rolePack: LlmWorkerRolePack; output: Critic }) => {
 
   return {
     status: input.output.status,
-    notes: notes.length > 0 ? notes : undefined,
+    notes: merged.length > 0 ? merged : undefined,
     toolRequests: withNeed.slice(0, maxTools),
   }
 }
@@ -116,6 +119,7 @@ export const evidenceCritic = async (input: WorkerComputeInput, deps?: Partial<C
     providerID: model.providerID,
     modelID: model.modelID,
     model: input.model,
+    role: "evidence_critic",
     schema: Critic,
     timeoutMs: rolePack.budget.timeoutMs,
     messages: [
