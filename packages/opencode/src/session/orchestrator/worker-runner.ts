@@ -7,6 +7,8 @@ import { sha256Text } from "@/routing/cache"
 import { LlmWorkerRolePack } from "@/protocol/llm-worker-role-pack"
 import { LlmWorkerResult } from "@/protocol/llm-worker-result"
 import { WorkerSpec, type WorkerModel } from "./worker-spec"
+import { Bus } from "@/bus"
+import { OrchestratorEvent } from "./event"
 
 type WorkerCache = {
   status: "hit" | "miss" | "expired" | "disabled" | "forced_rebuild"
@@ -21,6 +23,7 @@ type WorkerCompute = (input: {
 
 type RunInput = {
   sessionId: string
+  messageId?: string
   workerId: string
   rolePack: LlmWorkerRolePack
   model?: WorkerModel
@@ -104,16 +107,78 @@ const verify = (value: LlmWorkerResult) => {
 
 const emptyCache = { status: "miss", tier: "none" } as const
 
+const emitLifecycle = async (input: {
+  sessionId: string
+  messageId?: string
+  planId: string
+  workerId: string
+  phase: "planned" | "running" | "completed" | "degraded" | "skipped"
+  attempt: number
+  cache?: WorkerCache
+  reason?: string
+  latencyMs?: number
+}) => {
+  await Bus.publish(OrchestratorEvent.WorkerLifecycle, {
+    sessionID: input.sessionId,
+    sessionId: input.sessionId,
+    messageID: input.messageId ?? "unknown",
+    messageId: input.messageId,
+    planID: input.planId,
+    planId: input.planId,
+    workerID: input.workerId,
+    workerId: input.workerId,
+    phase: input.phase,
+    attempt: input.attempt,
+    cache: input.cache,
+    reason: input.reason,
+    latencyMs: input.latencyMs,
+  }).catch(() => {})
+}
+
 export const WorkerRunner = {
   async run(input: RunInput): Promise<{ result: LlmWorkerResult; cache: WorkerCache }> {
     const parsed = LlmWorkerRolePack.safeParse(input.rolePack)
-    if (!parsed.success) return { result: degraded("role pack invalid"), cache: emptyCache }
+    const rolePackForPlan = parsed.success ? parsed.data : undefined
+    const planId = rolePackForPlan ? (planIdFromPointer(rolePackForPlan.planPointer) ?? sha256Text(rolePackForPlan.planPointer).slice(0, 12)) : "invalid"
+    const started = typeof input.now === "number" ? input.now : Date.now()
+    await emitLifecycle({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      planId,
+      workerId: input.workerId,
+      phase: "planned",
+      attempt: 1,
+    })
+
+    if (!parsed.success) {
+      await emitLifecycle({
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        planId,
+        workerId: input.workerId,
+        phase: "degraded",
+        attempt: 1,
+        reason: "role pack invalid",
+      })
+      return { result: degraded("role pack invalid"), cache: emptyCache }
+    }
 
     const rolePack = parsed.data
-    const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
-    if (!writer) return { result: degraded("evidence writer unavailable"), cache: emptyCache }
 
-    const planId = planIdFromPointer(rolePack.planPointer) ?? sha256Text(rolePack.planPointer).slice(0, 12)
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
+    if (!writer) {
+      await emitLifecycle({
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        planId,
+        workerId: input.workerId,
+        phase: "skipped",
+        attempt: 1,
+        reason: "evidence writer unavailable",
+      })
+      return { result: degraded("evidence writer unavailable"), cache: emptyCache }
+    }
+
     const rolePath = `orchestrator/${planId}/workers/${input.workerId}/role-pack.json`
 
     const wrote = await writer
@@ -127,11 +192,40 @@ export const WorkerRunner = {
 
     if (!wrote.ok) {
       const reason = errorText(wrote.error)
+      await emitLifecycle({
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        planId,
+        workerId: input.workerId,
+        phase: "degraded",
+        attempt: 1,
+        reason: `role pack artifact failed: ${reason}`,
+      })
       return { result: degraded(`role pack artifact failed: ${reason}`), cache: emptyCache }
     }
 
     const worker = input.compute ? { compute: input.compute } : WorkerSpec.get(input.workerId)
-    if (!worker) return { result: degraded(`unknown worker: ${input.workerId}`), cache: emptyCache }
+    if (!worker) {
+      await emitLifecycle({
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        planId,
+        workerId: input.workerId,
+        phase: "skipped",
+        attempt: 1,
+        reason: `unknown worker: ${input.workerId}`,
+      })
+      return { result: degraded(`unknown worker: ${input.workerId}`), cache: emptyCache }
+    }
+
+    await emitLifecycle({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      planId,
+      workerId: input.workerId,
+      phase: "running",
+      attempt: 1,
+    })
 
     const scope = storeScope()
     const capturedNow = input.now
@@ -156,16 +250,48 @@ export const WorkerRunner = {
 
     if (!cached.ok) {
       const reason = errorText(cached.error)
+      await emitLifecycle({
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        planId,
+        workerId: input.workerId,
+        phase: "degraded",
+        attempt: 1,
+        reason: `worker compute failed: ${reason}`,
+      })
       return { result: degraded(`worker compute failed: ${reason}`), cache: emptyCache }
     }
 
     const cache = { status: cached.value.status, tier: cached.value.tier }
     const result = LlmWorkerResult.safeParse(cached.value.value)
     if (!result.success) {
+      await emitLifecycle({
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        planId,
+        workerId: input.workerId,
+        phase: "degraded",
+        attempt: 1,
+        cache,
+        reason: "worker result schema invalid",
+      })
       return { result: degraded("worker result schema invalid"), cache }
     }
 
     const verified = verify(result.data)
+    const ended = typeof input.now === "number" ? input.now : Date.now()
+    const phase = verified.result.status === "degraded" ? "degraded" : "completed"
+    await emitLifecycle({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      planId,
+      workerId: input.workerId,
+      phase,
+      attempt: 1,
+      cache,
+      latencyMs: Math.max(0, ended - started),
+      reason: verified.result.status === "degraded" ? (verified.result.notes ?? []).join("; ") : undefined,
+    })
     return { result: verified.result, cache }
   },
 }

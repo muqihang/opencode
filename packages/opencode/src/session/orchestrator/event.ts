@@ -1,0 +1,32 @@
+import z from "zod"
+import { BusEvent } from "@/bus/bus-event"
+
+export const LifecyclePhase = z.enum(["planned", "running", "completed", "degraded", "skipped"])
+export type LifecyclePhase = z.infer<typeof LifecyclePhase>
+
+export const WorkerCache = z.object({
+  status: z.enum(["hit", "miss", "expired", "disabled", "forced_rebuild"]),
+  tier: z.enum(["memory", "disk", "none"]),
+})
+export type WorkerCache = z.infer<typeof WorkerCache>
+
+export const LifecyclePayload = z.object({
+  sessionID: z.string(),
+  sessionId: z.string().optional(),
+  messageID: z.string(),
+  messageId: z.string().optional(),
+  planID: z.string(),
+  planId: z.string().optional(),
+  workerID: z.string(),
+  workerId: z.string().optional(),
+  phase: LifecyclePhase,
+  attempt: z.number().int().min(1),
+  latencyMs: z.number().nonnegative().optional(),
+  cache: WorkerCache.optional(),
+  reason: z.string().optional(),
+})
+export type LifecyclePayload = z.infer<typeof LifecyclePayload>
+
+export const OrchestratorEvent = {
+  WorkerLifecycle: BusEvent.define("orchestrator.worker.lifecycle", LifecyclePayload),
+}
