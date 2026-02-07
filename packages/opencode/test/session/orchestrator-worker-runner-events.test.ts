@@ -207,4 +207,53 @@ describe("orchestrator worker runner lifecycle events", () => {
       },
     })
   })
+
+  test("degraded lifecycle carries model gate observability fields", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const sessionID = "s-events-route"
+        const workerID = "evidence_critic"
+        const rolePack = pack({ pointers: ["ptr-1"], planPointer: "orchestrator/plan-events-route/plan.json" })
+        const events: Array<{ phase: string; reason?: string; fromModel?: string; toModel?: string; gateReason?: string }> = []
+        const unsub = Bus.subscribe(OrchestratorEvent.WorkerLifecycle, (event) => {
+          if (event.properties.sessionID !== sessionID) return
+          if (event.properties.workerID !== workerID) return
+          events.push({
+            phase: event.properties.phase,
+            reason: event.properties.reason,
+            fromModel: event.properties.fromModel,
+            toModel: event.properties.toModel,
+            gateReason: event.properties.gateReason,
+          })
+        })
+
+        const output = await WorkerRunner.run({
+          sessionId: sessionID,
+          messageId: "m-events-route",
+          workerId: workerID,
+          rolePack,
+          compute: async () => ({
+            specVersion: "llm-worker-result/1.0",
+            status: "degraded",
+            notes: [
+              "worker degraded: error",
+              "from_model=openai/gpt-5",
+              "to_model=opencode/gpt-5-nano",
+              "gate_reason=error_degraded",
+            ],
+          }),
+        })
+
+        unsub()
+
+        expect(output.result.status).toBe("degraded")
+        const degraded = events.find((item) => item.phase === "degraded")
+        expect(degraded?.fromModel).toBe("openai/gpt-5")
+        expect(degraded?.toModel).toBe("opencode/gpt-5-nano")
+        expect(degraded?.gateReason).toBe("error_degraded")
+      },
+    })
+  })
 })

@@ -1134,15 +1134,48 @@ export namespace Provider {
     }
   }
 
-  export async function getSmallModel(providerID: string) {
+  const readRecord = (value: unknown) => {
+    if (!value) return undefined
+    if (typeof value !== "object") return undefined
+    return value as Record<string, unknown>
+  }
+
+  const readString = (value: unknown) => (typeof value === "string" ? value : undefined)
+
+  const readRoleModel = (input: { options: Record<string, unknown> | undefined; role: string | undefined }) => {
+    if (!input.role) return undefined
+    const pack = readRecord(input.options?.["worker_small_models"])
+    if (!pack) return undefined
+    const raw = readString(pack[input.role])
+    if (!raw) return undefined
+    if (raw.includes("/")) return parseModel(raw)
+    return { providerID: undefined, modelID: raw }
+  }
+
+  const getSmallModelByRole = async (providerID: string, role?: string) => {
     const cfg = await Config.get()
+
+    const provider = await state().then((state) => state.providers[providerID])
+
+    const roleModel = readRoleModel({ options: provider?.options, role })
+    if (roleModel?.providerID && roleModel.modelID) {
+      const resolved = await getModel(roleModel.providerID, roleModel.modelID)
+        .then((value) => ({ ok: true as const, value }))
+        .catch(() => ({ ok: false as const }))
+      if (resolved.ok) return resolved.value
+    }
+    if (roleModel?.modelID) {
+      const resolved = await getModel(providerID, roleModel.modelID)
+        .then((value) => ({ ok: true as const, value }))
+        .catch(() => ({ ok: false as const }))
+      if (resolved.ok) return resolved.value
+    }
 
     if (cfg.small_model) {
       const parsed = parseModel(cfg.small_model)
       return getModel(parsed.providerID, parsed.modelID)
     }
 
-    const provider = await state().then((state) => state.providers[providerID])
     if (provider) {
       let priority = [
         "claude-haiku-4-5",
@@ -1174,6 +1207,10 @@ export namespace Provider {
     }
 
     return undefined
+  }
+
+  export async function getSmallModel(providerID: string, role?: string) {
+    return getSmallModelByRole(providerID, role)
   }
 
   const priority = ["gpt-5", "claude-sonnet-4", "big-pickle", "gemini-3-pro"]

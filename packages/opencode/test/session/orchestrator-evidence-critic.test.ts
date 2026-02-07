@@ -98,4 +98,31 @@ describe("orchestrator evidence_critic", () => {
 
     expect(result.toolRequests?.length).toBe(1)
   })
+
+  test("worker permissions stay no-write/no-exec/no-ask after llm degradation", async () => {
+    const rolePack = pack({ pointers: ["ptr-1"] })
+    const result = await evidenceCritic(
+      { rolePack },
+      {
+        run: async () => ({
+          status: "degraded",
+          reason: "error",
+          object: {
+            status: "degraded",
+            notes: [
+              "worker degraded: error",
+              "from_model=openai/gpt-5",
+              "to_model=opencode/gpt-5-nano",
+              "gate_reason=error_degraded",
+            ],
+            toolRequests: [{ kind: "retrieval", input: "safe" }],
+          },
+        }),
+      },
+    )
+
+    const kinds = (result.toolRequests ?? []).map((item) => item.kind)
+    expect(kinds.includes("retrieval") || kinds.includes("verification")).toBe(true)
+    expect(result.notes?.some((item) => item.includes("gate_reason="))).toBe(true)
+  })
 })

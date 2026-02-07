@@ -191,4 +191,81 @@ describe("session.orchestrator.worker-llm", () => {
       notes: ["done"],
     })
   })
+
+  test("fallback chain upgrades to primary model when routed model fails", async () => {
+    const calls: string[] = []
+    const out = await runStructured({
+      providerID: "openai",
+      modelID: "gpt-5",
+      role: "evidence_critic",
+      schema,
+      messages: [{ role: "user", content: "hi" }],
+      timeoutMs: 100,
+      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
+      deps: {
+        resolveSmallModel: async () => ({ providerID: "openai", id: "gpt-5-nano" }) as never,
+        getModel: async () => ({ providerID: "openai", id: "gpt-5" }) as never,
+        getSmallModel: async () => undefined,
+        getLanguage: async (model) => ({ id: (model as { id: string }).id }) as never,
+        generate: async (input) => {
+          const id = (input.model as { id: string }).id
+          calls.push(id)
+          if (id === "gpt-5-nano") {
+            throw Object.assign(new Error("request timed out"), { name: "TimeoutError" })
+          }
+          return {
+            object: {
+              status: "ok",
+              notes: ["recovered"],
+            },
+          }
+        },
+        timeout: async (promise) => promise,
+      },
+    })
+
+    expect(out.status).toBe("ok")
+    expect(out.object.status).toBe("ok")
+    expect(calls).toEqual(["gpt-5-nano", "gpt-5"])
+  })
+
+  test("degraded callback receives route metadata and emits gate tags", async () => {
+    const seen: Array<{ fromModel: string; toModel: string; gateReason: string }> = []
+    const out = await runStructured({
+      providerID: "openai",
+      modelID: "gpt-5",
+      role: "evidence_critic",
+      schema,
+      messages: [{ role: "user", content: "hi" }],
+      timeoutMs: 100,
+      degraded: (reason, route) => {
+        seen.push(route)
+        return {
+          status: "degraded",
+          notes: [`worker degraded: ${reason}`],
+        }
+      },
+      deps: {
+        resolveSmallModel: async () => ({ providerID: "openai", id: "gpt-5-nano" }) as never,
+        getModel: async () => ({ providerID: "openai", id: "gpt-5" }) as never,
+        getSmallModel: async () => ({ providerID: "opencode", id: "gpt-5-nano" }) as never,
+        getLanguage: async () => ({}) as never,
+        generate: async () => {
+          throw new Error("upstream down")
+        },
+        timeout: async (promise) => promise,
+      },
+    })
+
+    expect(out.status).toBe("degraded")
+    expect(out.reason).toBe("error")
+    expect(seen.length).toBe(1)
+    expect(seen[0]).toEqual({
+      fromModel: "openai/gpt-5",
+      toModel: "opencode/gpt-5-nano",
+      gateReason: "error_degraded",
+    })
+    expect(out.object.notes?.some((note) => note.includes("from_model="))).toBe(true)
+    expect(out.object.notes?.some((note) => note.includes("gate_reason="))).toBe(true)
+  })
 })

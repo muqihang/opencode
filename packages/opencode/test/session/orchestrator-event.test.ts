@@ -71,4 +71,16 @@ describe("orchestrator event contract", () => {
       }),
     ).toThrow()
   })
+
+  test("payload accepts route observability fields", () => {
+    const parsed = LifecyclePayload.parse({
+      ...base,
+      fromModel: "openai/gpt-5",
+      toModel: "openai/gpt-5-nano",
+      gateReason: "timeout_degraded",
+    })
+    expect(parsed.fromModel).toBe("openai/gpt-5")
+    expect(parsed.toModel).toBe("openai/gpt-5-nano")
+    expect(parsed.gateReason).toBe("timeout_degraded")
+  })
 })
