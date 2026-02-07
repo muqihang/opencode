@@ -30,6 +30,8 @@ export type OrchestratorRollout = {
   llmWorkers: boolean
   workerBadge: boolean
   shadowMode: boolean
+  v15B1: boolean
+  adaptiveTTC: boolean
 }
 
 type OrchestratorRolloutFlags = {
@@ -37,6 +39,13 @@ type OrchestratorRolloutFlags = {
   llmWorkers: boolean
   workerBadge: boolean
   shadowMode: boolean
+  orchestratorV15B1: boolean
+  adaptiveTTC: boolean
+}
+
+export type OrchestratorRunGate = {
+  v15B1: boolean
+  adaptiveTTC: boolean
 }
 
 type OrchestratorTurnShape = {
@@ -54,6 +63,8 @@ export const resolveOrchestratorRollout = (
     llmWorkers: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_LLM_WORKERS === true,
     workerBadge: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_BADGE === true,
     shadowMode: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_SHADOW_MODE === true,
+    orchestratorV15B1: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_B1 === true,
+    adaptiveTTC: Flag.OPENCODE_EXPERIMENTAL_ADAPTIVE_TTC === true,
     ...flags,
   }
 
@@ -64,25 +75,42 @@ export const resolveOrchestratorRollout = (
       llmWorkers: false,
       workerBadge: false,
       shadowMode: false,
+      v15B1: false,
+      adaptiveTTC: false,
     }
   }
 
   const llmWorkers = config?.experimental?.orchestrator_llm_workers ?? resolved.llmWorkers
   const workerBadge = config?.experimental?.orchestrator_worker_badge ?? resolved.workerBadge
   const shadowMode = config?.experimental?.orchestrator_shadow_mode ?? resolved.shadowMode
+  const v15B1 = config?.experimental?.orchestrator_v15_b1 ?? resolved.orchestratorV15B1
+  if (!v15B1) {
+    return {
+      enabled,
+      llmWorkers,
+      workerBadge,
+      shadowMode,
+      v15B1: false,
+      adaptiveTTC: false,
+    }
+  }
+
+  const adaptiveTTC = config?.experimental?.adaptive_ttc ?? resolved.adaptiveTTC
 
   return {
     enabled,
     llmWorkers,
     workerBadge,
     shadowMode,
+    v15B1,
+    adaptiveTTC,
   }
 }
 
 export const executeOrchestratorTurnByRollout = async (input: {
   rollout: OrchestratorRollout
   base: Pick<OrchestratorTurnShape, "system" | "tools">
-  run: () => Promise<OrchestratorTurnShape>
+  run: (gate: OrchestratorRunGate) => Promise<OrchestratorTurnShape>
 }): Promise<OrchestratorTurnShape> => {
   if (!input.rollout.enabled) {
     return {
@@ -100,7 +128,10 @@ export const executeOrchestratorTurnByRollout = async (input: {
     }
   }
 
-  const result = await input.run()
+  const result = await input.run({
+    v15B1: input.rollout.v15B1,
+    adaptiveTTC: input.rollout.v15B1 && input.rollout.adaptiveTTC,
+  })
   if (!input.rollout.shadowMode) return result
 
   return {
