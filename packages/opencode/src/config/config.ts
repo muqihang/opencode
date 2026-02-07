@@ -1209,6 +1209,14 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Run orchestrator workers in shadow mode without injecting output"),
+          orchestrator_v15_b1: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator v1.5 b1 behaviors when orchestrator is enabled"),
+          adaptive_ttc: z
+            .boolean()
+            .optional()
+            .describe("Enable adaptive test-time compute when orchestrator v1.5 b1 is enabled"),
           mcp_timeout: z
             .number()
             .int()

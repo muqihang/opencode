@@ -36,6 +36,8 @@ describe("orchestrator integration v2 rollout", () => {
           llmWorkers: false,
           workerBadge: false,
           shadowMode: false,
+          v15B1: false,
+          adaptiveTTC: false,
         },
       },
       {
@@ -50,6 +52,8 @@ describe("orchestrator integration v2 rollout", () => {
           llmWorkers: false,
           workerBadge: false,
           shadowMode: false,
+          v15B1: false,
+          adaptiveTTC: false,
         },
       },
       {
@@ -64,6 +68,8 @@ describe("orchestrator integration v2 rollout", () => {
           llmWorkers: false,
           workerBadge: true,
           shadowMode: false,
+          v15B1: false,
+          adaptiveTTC: false,
         },
       },
       {
@@ -78,6 +84,8 @@ describe("orchestrator integration v2 rollout", () => {
           llmWorkers: true,
           workerBadge: true,
           shadowMode: true,
+          v15B1: false,
+          adaptiveTTC: false,
         },
       },
     ]
@@ -98,6 +106,8 @@ describe("orchestrator integration v2 rollout", () => {
       llmWorkers: false,
       workerBadge: false,
       shadowMode: false,
+      v15B1: false,
+      adaptiveTTC: false,
     }
     let calls = 0
 
@@ -162,6 +172,8 @@ describe("orchestrator integration v2 rollout", () => {
             llmWorkers: true,
             workerBadge: true,
             shadowMode: true,
+            v15B1: false,
+            adaptiveTTC: false,
           },
           base,
           run: async () =>
@@ -203,6 +215,8 @@ describe("orchestrator integration v2 rollout", () => {
         llmWorkers: true,
         workerBadge: false,
         shadowMode: false,
+        v15B1: false,
+        adaptiveTTC: false,
       },
       base,
       run: async () => {
