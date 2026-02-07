@@ -2,6 +2,7 @@ import { useSDK } from "@/context/sdk"
 import { synthesize } from "@/lib/chronology/engine"
 import { groupActivitiesByMessageId, summarizeTurn } from "@/lib/chronology/selectors"
 import type { EventV1 } from "@/lib/chronology/types"
+import { groupWorkerLifecycleByMessage, lifecycleEventV1, readWorkerLifecycle } from "@/lib/chronology/worker-lifecycle"
 import { createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 
@@ -30,17 +31,28 @@ export function useActivity(props: { sessionID: string }) {
     if (!sessionID()) return
     poll()
     const timer = setInterval(poll, 1000)
-    onCleanup(() => clearInterval(timer))
+    const stop = sdk.event.listen((evt) => {
+      const event = readWorkerLifecycle(evt.details)
+      if (!event) return
+      if (event.sessionID !== sessionID()) return
+      setState("events", (prev) => [...prev, lifecycleEventV1(event, new Date().toISOString())])
+    })
+    onCleanup(() => {
+      clearInterval(timer)
+      stop()
+    })
   })
 
   const activities = createMemo(() => synthesize(state.events))
   const activitiesByMessageId = createMemo(() => groupActivitiesByMessageId(activities()))
+  const workerLifecycleByMessageId = createMemo(() => groupWorkerLifecycleByMessage(state.events))
   const turnSummary = (messageId: string) => summarizeTurn(activitiesByMessageId().get(messageId) ?? [])
 
   return {
     events: createMemo(() => state.events),
     activities,
     activitiesByMessageId,
+    workerLifecycleByMessageId,
     turnSummary,
   }
 }

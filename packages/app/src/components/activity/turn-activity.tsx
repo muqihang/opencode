@@ -8,6 +8,8 @@ import { clock, sliceTimeline, turnElapsedMs, selectHeadlineItem } from "./turn-
 import { mapActivityItem } from "./activity-narrative"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
+import type { WorkerLifecycleSummary } from "@/lib/chronology/worker-lifecycle"
+import { workerBadge } from "@/lib/chronology/worker-lifecycle"
 
 type Headline = {
   kind: TurnSummary["kind"]
@@ -42,6 +44,7 @@ export function TurnActivity(props: {
   messageId: string
   items: () => ActivityItem[]
   summary: () => TurnSummary
+  workerLifecycle?: () => WorkerLifecycleSummary | undefined
   subtasks?: () => { running: number; total: number }
   expanded: () => boolean
   touched: () => boolean
@@ -143,6 +146,19 @@ export function TurnActivity(props: {
   })
 
   const subtasks = createMemo(() => props.subtasks?.())
+  const worker = createMemo(() => props.workerLifecycle?.())
+  const badge = createMemo(() => {
+    const summary = worker()
+    if (!summary) return
+    return workerBadge(summary)
+  })
+
+  const badgeClass = createMemo(() => {
+    const tone = badge()?.tone
+    if (tone === "success") return "border-border-success-base bg-surface-success-base text-text-on-success-base"
+    if (tone === "warning") return "border-border-warning-base bg-surface-warning-base text-text-on-warning-base"
+    return "border-border-weak-base bg-surface-raised-base text-text-subtle"
+  })
 
   const toggle = () => props.setExpanded(!props.expanded(), true)
 
@@ -152,7 +168,7 @@ export function TurnActivity(props: {
     <div data-component="turn-activity" class="pt-2">
       <div class="flex items-center gap-2">
         <Button variant="ghost" size="small" onClick={toggle} aria-expanded={props.expanded()}>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <Icon
               name="chevron-down"
               size="small"
@@ -165,6 +181,21 @@ export function TurnActivity(props: {
               <span class="text-12-regular text-text-weak">
                 · 并行子任务 ×{subtasks()?.running}
               </span>
+            </Show>
+            <Show when={badge()}>
+              {(b) => (
+                <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-11-regular ${badgeClass()}`}>
+                  <span>{b().text}</span>
+                  <span classList={{
+                    "text-11-regular": true,
+                    "text-text-subtle": b().tone === "info",
+                    "text-text-on-success-base": b().tone === "success",
+                    "text-text-on-warning-base": b().tone === "warning",
+                  }}>
+                    · {b().counts}
+                  </span>
+                </span>
+              )}
             </Show>
           </div>
         </Button>

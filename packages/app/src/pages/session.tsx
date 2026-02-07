@@ -1699,6 +1699,7 @@ export default function Page() {
                                         messageId={ctx.messageID}
                                         items={() => activity.activitiesByMessageId().get(ctx.messageID) ?? []}
                                         summary={() => activity.turnSummary(ctx.messageID)}
+                                        workerLifecycle={() => activity.workerLifecycleByMessageId().get(ctx.messageID)}
                                         subtasks={() => (ctx.working ? subtasks() : { running: 0, total: 0 })}
                                         expanded={() => store.activityExpanded[ctx.messageID] ?? false}
                                         touched={() => store.activityTouched[ctx.messageID] ?? false}
