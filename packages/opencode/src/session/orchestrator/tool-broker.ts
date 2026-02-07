@@ -1,6 +1,7 @@
 import { EvidenceWriter } from "@/evidence/writer"
 import { runRetrieval } from "@/retrieval/runner"
 import type { ToolRequest, ToolRequestKind } from "@/protocol/llm-worker-result"
+import type { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 
 type Pointer = { path: string; sha256: string; kind: string }
 
@@ -26,6 +27,8 @@ type BrokerResult = {
   results: RequestResult[]
 }
 
+type ToolPolicy = OrchestratorPlan["toolPolicy"]
+
 const joinPath = (...parts: string[]) => parts.join("/").replace(/\\/g, "/").replace(/\/+/g, "/")
 
 const prefixPointers = (input: { sessionId: string; pointers: Pointers }) => {
@@ -38,7 +41,9 @@ const prefixPointers = (input: { sessionId: string; pointers: Pointers }) => {
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
-const allowKind = (kind: ToolRequestKind) => kind === "retrieval"
+const canRunKind = (kind: ToolRequestKind) => kind === "retrieval"
+
+const allowKind = (input: { kind: ToolRequestKind; policy: ToolPolicy }) => input.policy.allowed.includes(input.kind)
 
 const summaryText = (status: "ok" | "rejected" | "degraded", kind: ToolRequestKind) => {
   if (status === "ok") return `tool broker ${kind} completed`
@@ -50,8 +55,11 @@ export const runToolBroker = async (input: {
   sessionId: string
   messageId: string
   toolRequests: ToolRequest[]
+  toolPolicy: ToolPolicy
+  cycle?: number
   abort: AbortSignal
 }): Promise<BrokerResult> => {
+  const cycle = input.cycle ?? 1
   const writer = await EvidenceWriter.open({ sessionId: input.sessionId })
 
   await writer.event({
@@ -65,15 +73,52 @@ export const runToolBroker = async (input: {
     data: {
       messageId: input.messageId,
       count: input.toolRequests.length,
+      cycle,
+      bounceMax: input.toolPolicy.bounceMax,
+      allowed: input.toolPolicy.allowed,
       kinds: input.toolRequests.map((request) => request.kind),
     },
     redaction: { applied: true, policyVersion: "v1" },
   })
 
+  const bounced = cycle > input.toolPolicy.bounceMax
+  if (bounced) {
+    const results = input.toolRequests.map((request) => ({
+      kind: request.kind,
+      status: "rejected" as const,
+      reason: "bounce_limit_v1",
+    }))
+    await Promise.all(
+      results.map((item) =>
+        writer.event({
+          specVersion: "event/1.0",
+          ts: new Date().toISOString(),
+          sessionId: input.sessionId,
+          severity: "warn",
+          actor: "orchestrator:tool_broker",
+          type: "tool_broker.rejected",
+          summary: summaryText(item.status, item.kind),
+          data: {
+            messageId: input.messageId,
+            cycle,
+            bounceMax: input.toolPolicy.bounceMax,
+            kind: item.kind,
+            reason: item.reason,
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        }),
+      ),
+    )
+    return {
+      status: "degraded",
+      results,
+    }
+  }
+
   const results: RequestResult[] = []
 
   for (const request of input.toolRequests) {
-    if (!allowKind(request.kind)) {
+    if (!canRunKind(request.kind)) {
       const rejected: RequestResult = {
         kind: request.kind,
         status: "rejected",
@@ -91,6 +136,32 @@ export const runToolBroker = async (input: {
         data: {
           messageId: input.messageId,
           kind: request.kind,
+          reason: rejected.reason,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+      continue
+    }
+
+    if (!allowKind({ kind: request.kind, policy: input.toolPolicy })) {
+      const rejected: RequestResult = {
+        kind: request.kind,
+        status: "rejected",
+        reason: "policy_kind_not_allowed_v1",
+      }
+      results.push(rejected)
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionId,
+        severity: "warn",
+        actor: "orchestrator:tool_broker",
+        type: "tool_broker.rejected",
+        summary: summaryText(rejected.status, request.kind),
+        data: {
+          messageId: input.messageId,
+          kind: request.kind,
+          allowed: input.toolPolicy.allowed,
           reason: rejected.reason,
         },
         redaction: { applied: true, policyVersion: "v1" },

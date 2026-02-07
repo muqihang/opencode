@@ -18,6 +18,7 @@ test("tool broker rejects verification requests in v0", async () => {
         sessionId: "session_tb_reject",
         messageId: "msg_tb_reject",
         toolRequests: [{ kind: "verification", input: "confirm" }],
+        toolPolicy: { allowed: ["retrieval"], bounceMax: 1 },
         abort: new AbortController().signal,
       })
 
@@ -48,6 +49,7 @@ test("tool broker returns retrieval pointers", async () => {
         sessionId,
         messageId: "msg_tb_retrieval",
         toolRequests: [{ kind: "retrieval", input: keyword }],
+        toolPolicy: { allowed: ["retrieval"], bounceMax: 1 },
         abort: new AbortController().signal,
       })
 

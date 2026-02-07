@@ -389,6 +389,7 @@ export const runOfflineEval = async (input: {
         sessionId,
         messageId: "eval_tool_broker",
         toolRequests,
+        toolPolicy: { allowed: ["retrieval"], bounceMax: 1 },
         abort,
       })
       const toolPrefix = `.opencode/artifacts/${sessionId}/retrieval/`

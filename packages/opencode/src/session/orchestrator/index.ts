@@ -173,6 +173,8 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
           sessionId: input.sessionId,
           messageId: input.messageId,
           toolRequests,
+          toolPolicy: input.plan.toolPolicy,
+          cycle: 1,
           abort: input.abort,
         })
       : undefined
