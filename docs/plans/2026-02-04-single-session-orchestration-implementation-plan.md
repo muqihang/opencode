@@ -567,3 +567,53 @@ cd packages/opencode && BUN_INSTALL=/tmp/bun-install TMPDIR=/tmp bun test test/s
 - Phase 2（灰度）：只对 `uxMode=deep` 开启 1 个 worker（`evidence_critic`），并严格预算
 - Phase 3（默认开启 Auto）：当 offline eval 与线上事件指标稳定后，默认 `uxMode=auto`，但 `chat` 仍保持轻量
 - Phase 4（插件接管派工，可选）：当需要与 `oh-my-opencode` 这类编排插件融合时，将基座设为 `forkStrategy=suggest`，由插件消费 orchestrator artifacts/events 来派工，避免双重编排抢控制权
+
+---
+
+## 附录 B（2026-02-07）：V1 Task11+12 进展补记（仅追加）
+
+> 本附录仅记录本阶段进展与验收口径，不改动既有里程碑正文。
+
+### B.1 交付边界
+
+- Task11 负责：flags、shadow/canary 行为、集成路径联通。
+- Task12 负责：发布门禁文档、事故 runbook、可回滚与验证口径沉淀。
+- 新增发布文档：`docs/plans/2026-02-07-single-session-real-llm-workers-rollout.md`。
+
+### B.2 与本实现计划的映射
+
+- 对应本计划 `Task 11`：补全三类 flag 治理语义。
+  - `OPENCODE_EXPERIMENTAL_ORCHESTRATOR_LLM_WORKERS`
+  - `OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_BADGE`
+  - `OPENCODE_EXPERIMENTAL_ORCHESTRATOR_SHADOW_MODE`
+- 对应本计划 `Task 12`：将发布策略从“建议段落”升级为可操作 runbook（Gate A/B/C + Kill Switch + 指标门禁）。
+
+### B.3 当前发布策略（V1）
+
+- Gate A：dogfood（`deep` + 单 worker，先 shadow）
+- Gate B：5% canary（`auto` 小流量注入）
+- Gate C：default on（默认开启，保留永久 kill switch）
+- 降级路径：`C -> B -> A -> Shadow -> Off`
+
+### B.4 可回滚口径（V1 Task11+12）
+
+- 回滚方式：flag 级一键回退，优先 KS-2/KS-3。
+- 回滚目标：分钟级恢复到“worker 未启用等价态”，且主链路不受阻断。
+- 回滚后判定：worker 相关注入/事件停止，`chat`/基础会话可用性恢复。
+
+### B.5 验证口径（V1 Task11+12）
+
+- 测试与回归命令口径：
+  - `cd packages/opencode && bun test test/session/orchestrator-integration-v2.test.ts`
+  - `cd packages/opencode && bun test`
+  - `cd packages/app && bun test`
+  - `cd packages/opencode && bun test test/eval/offline-regression.test.ts`
+- 指标口径：`Latency / Error Rate / Cost / Evidence Coverage` 四类门禁。
+- 质量口径：需证据任务若无 pointer 支撑，必须 `unknown/unsupported`。
+
+### B.6 Blocker 追踪（基线已知项）
+
+- 基线复现命令：`cd packages/opencode && bun test test/eval/offline-regression.test.ts --bail`
+- 当前失败点：`orchestratorPlanDeterminism.ok=false`。
+- 归因标签：**非本次 Task11/Task12 引入**，归类为“**determinism 旧问题**”。
+- 处理策略：本次不修复，单开后续任务追踪与修复，避免与本轮发布门禁混淆。

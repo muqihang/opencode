@@ -540,3 +540,42 @@ worker 输出必须是结构化 JSON：
 - `orchestratorMode=heavy`：默认 `strict`（研究/多源对账/大量证据核验）；  
 - `orchestratorMode=fork`：执行链路在子会话里更严格；父会话以“计划与验收”为主。  
 策略来源：以 deterministic features 为主（用户显式档位/任务类型/风险信号），LLM triage 只能建议，不能绕过安全策略。
+
+---
+
+## 附录 A（2026-02-07）：V1 Task11+12 状态补记（仅追加）
+
+> 本附录仅补充当前发布状态，不改动本设计稿历史正文与既有定案。
+
+### A.1 当前状态与定位
+
+- 本设计稿中的 `Gate` / `fallback` / `evidencePolicy` 约束，已进入 V1 `Task11 + Task12` 的上线治理范围。
+- 发布治理文档已单列到：`docs/plans/2026-02-07-single-session-real-llm-workers-rollout.md`。
+- V1 仍坚持：`chat` 轻量路径优先、`assist/heavy` 才启用真实 workers、`fork` 仍为写入/执行隔离路径。
+
+### A.2 与发布门禁的对齐关系
+
+- 设计稿中的模式约束，对应 rollout 的 `Gate A/B/C`（dogfood -> 5% canary -> default on）。
+- 设计稿中的“降级不打断主链路”要求，对应 rollout 的事故 runbook 与降级路径：`C -> B -> A -> Shadow -> Off`。
+- 设计稿中的“Tool Broker + pointerize + unknown/unsupported”原则，对应 rollout 的证据覆盖门禁。
+
+### A.3 V1 可回滚口径（Task11+12）
+
+- 回滚以 flag 为单一控制面，不依赖代码回退与数据回滚。
+- 目标：从任意 Gate 在分钟级恢复到“等价于 worker 未开启”的运行状态。
+- 最终回退位：
+  - `OPENCODE_EXPERIMENTAL_ORCHESTRATOR=0`
+  - `OPENCODE_EXPERIMENTAL_ORCHESTRATOR_LLM_WORKERS=0`
+  - `OPENCODE_EXPERIMENTAL_ORCHESTRATOR_SHADOW_MODE=0`
+  - `OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_BADGE=0`
+
+### A.4 V1 验证口径（Task11+12）
+
+- 验证以四类门禁为准：`Latency / Error Rate / Cost / Evidence Coverage`。
+- 发布前与回滚后均需执行集成与回归验证（详见 rollout 文档第 6 节）。
+- 判定基线：若需证据任务不能满足 pointer 支撑，则必须 `unknown/unsupported`，不得强行断言。
+
+### A.5 基线 blocker 对齐说明
+
+- 离线回归 `cd packages/opencode && bun test test/eval/offline-regression.test.ts --bail` 的 `orchestratorPlanDeterminism.ok=false` 记为基线已知阻塞项。
+- 该项**非本次 Task11/Task12 引入**，按 determinism 旧问题单独跟踪，不回写为本设计附录的新增功能回归。
