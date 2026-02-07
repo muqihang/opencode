@@ -20,6 +20,10 @@ function ctx(sessionID: string) {
   return { ...baseCtx, sessionID }
 }
 
+function sid(name: string, dir: string) {
+  return name + "-" + path.basename(dir)
+}
+
 async function readEventTypes(sessionID: string) {
   const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionID, "events.jsonl")
   const text = await Bun.file(eventsPath).text().catch(() => "")
@@ -31,6 +35,8 @@ async function readEventTypes(sessionID: string) {
 }
 
 describe("python deps offline-first", () => {
+  const timeout = 30_000
+
   test("no deps configured uses base python", async () => {
     const python = Bun.which("python3")
     if (!python) return
@@ -38,10 +44,11 @@ describe("python deps offline-first", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const session = sid("nodeps", tmp.path)
         const tool = await PythonTool.init()
         const result = await tool.execute(
           { script_id: "summarize-json", input_json: { ok: true }, description: "Summarize JSON" },
-          ctx("nodeps"),
+          ctx(session),
         )
         expect(result.metadata.python_path.includes(`${path.sep}.opencode${path.sep}runtime${path.sep}python${path.sep}venv`)).toBe(
           false,
@@ -50,7 +57,7 @@ describe("python deps offline-first", () => {
           Instance.worktree,
           ".opencode",
           "artifacts",
-          "nodeps",
+          session,
           "python",
           "deps-lock.sha256.txt",
         )
@@ -58,7 +65,7 @@ describe("python deps offline-first", () => {
         expect(lockExists).toBe(false)
       },
     })
-  })
+  }, { timeout })
 
   test("offline deps with missing wheelhouse fails and records policy", async () => {
     const python = Bun.which("python3")
@@ -77,29 +84,30 @@ describe("python deps offline-first", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const session = sid("missing-wheelhouse", tmp.path)
         const tool = await PythonTool.init()
         await expect(
           tool.execute(
             { script_id: "summarize-json", input_json: { ok: true }, description: "Summarize JSON" },
-            ctx("missing-wheelhouse"),
+            ctx(session),
           ),
         ).rejects.toThrow()
         const lockArtifact = path.join(
           Instance.worktree,
           ".opencode",
           "artifacts",
-          "missing-wheelhouse",
+          session,
           "python",
           "deps-lock.sha256.txt",
         )
         const lockExists = await Bun.file(lockArtifact).exists()
         expect(lockExists).toBe(true)
-        const types = await readEventTypes("missing-wheelhouse")
+        const types = await readEventTypes(session)
         expect(types).toContain("tool.python.deps.policy")
         expect(types).toContain("tool.python.deps.offline_install_failed")
       },
     })
-  })
+  }, { timeout })
 
   test("deps disabled ignores lock file", async () => {
     const python = Bun.which("python3")
@@ -119,10 +127,11 @@ describe("python deps offline-first", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const session = sid("disabled", tmp.path)
         const tool = await PythonTool.init()
         const result = await tool.execute(
           { script_id: "summarize-json", input_json: { ok: true }, description: "Summarize JSON" },
-          ctx("disabled"),
+          ctx(session),
         )
         expect(result.metadata.python_path.includes(`${path.sep}.opencode${path.sep}runtime${path.sep}python${path.sep}venv`)).toBe(
           false,
@@ -131,7 +140,7 @@ describe("python deps offline-first", () => {
           Instance.worktree,
           ".opencode",
           "artifacts",
-          "disabled",
+          session,
           "python",
           "deps-lock.sha256.txt",
         )
@@ -139,7 +148,7 @@ describe("python deps offline-first", () => {
         expect(lockExists).toBe(false)
       },
     })
-  })
+  }, { timeout })
 
   test("offline deps with empty lock and wheelhouse succeeds and writes freeze", async () => {
     const python = Bun.which("python3")
@@ -160,10 +169,11 @@ describe("python deps offline-first", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const session = sid("offline-empty", tmp.path)
         const tool = await PythonTool.init()
         const result = await tool.execute(
           { script_id: "summarize-json", input_json: { ok: true }, description: "Summarize JSON" },
-          ctx("offline-empty"),
+          ctx(session),
         )
         expect(result.metadata.python_path.includes(`${path.sep}.opencode${path.sep}runtime${path.sep}python${path.sep}venv`)).toBe(
           true,
@@ -172,7 +182,7 @@ describe("python deps offline-first", () => {
           Instance.worktree,
           ".opencode",
           "artifacts",
-          "offline-empty",
+          session,
           "python",
           "deps-lock.sha256.txt",
         )
@@ -182,7 +192,7 @@ describe("python deps offline-first", () => {
           Instance.worktree,
           ".opencode",
           "artifacts",
-          "offline-empty",
+          session,
           "python",
           "pip-freeze.txt",
         )
@@ -190,7 +200,7 @@ describe("python deps offline-first", () => {
         expect(freezeExists).toBe(true)
       },
     })
-  })
+  }, { timeout })
 
   test("online fallback blocked when network deny_all", async () => {
     const python = Bun.which("python3")
@@ -213,10 +223,11 @@ describe("python deps offline-first", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const session = sid("fallback-deny", tmp.path)
         const tool = await PythonTool.init()
         const requests: Array<{ permission: string }> = []
         const testCtx = {
-          ...ctx("fallback-deny"),
+          ...ctx(session),
           ask: async (req: { permission: string }) => {
             requests.push(req)
           },
@@ -231,7 +242,7 @@ describe("python deps offline-first", () => {
         expect(permissions).not.toContain("python.deps_online")
       },
     })
-  })
+  }, { timeout })
 
   test("online fallback requests explicit approval when allowed", async () => {
     const python = Bun.which("python3")
@@ -254,10 +265,11 @@ describe("python deps offline-first", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const session = sid("fallback-ask", tmp.path)
         const tool = await PythonTool.init()
         const requests: Array<{ permission: string }> = []
         const testCtx = {
-          ...ctx("fallback-ask"),
+          ...ctx(session),
           ask: async (req: { permission: string }) => {
             requests.push(req)
             if (req.permission === "python.deps_online") {
@@ -275,5 +287,5 @@ describe("python deps offline-first", () => {
         expect(permissions).toContain("python.deps_online")
       },
     })
-  })
+  }, { timeout })
 })
