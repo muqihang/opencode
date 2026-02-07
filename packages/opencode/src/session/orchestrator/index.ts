@@ -156,7 +156,7 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
       intentText: input.intentText,
       workingSetPointers: input.workingSetPointers ?? [],
     })
-    const workers = input.plan.workers.slice(0, 2)
+    const workers = input.plan.workers
     const runs = await Promise.all(
       workers.map((worker) =>
         WorkerRunner.run({

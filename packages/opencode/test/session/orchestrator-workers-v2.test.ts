@@ -90,7 +90,11 @@ describe("orchestrator workers v2", () => {
         expect(assist.plan.orchestratorMode).toBe("assist")
         expect(assist.plan.workers.map((item) => item.id)).toEqual(["retrieval_planner", "evidence_critic"])
         expect(heavy.plan.orchestratorMode).toBe("heavy")
-        expect(heavy.plan.workers.map((item) => item.id)).toEqual(["retrieval_planner", "patch_planner"])
+        expect(heavy.plan.workers.map((item) => item.id)).toEqual([
+          "retrieval_planner",
+          "patch_planner",
+          "evidence_critic",
+        ])
       },
     })
   })

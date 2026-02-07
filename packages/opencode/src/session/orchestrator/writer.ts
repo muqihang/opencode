@@ -46,4 +46,25 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
     },
     redaction: { applied: true, policyVersion: "v1" },
   })
+
+  const adaptive = data.plan.reasons.filter((item) => item.code.startsWith("adaptive.ttc."))
+  if (adaptive.length === 0) return
+
+  await writer
+    .event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: data.sessionId,
+      severity: "warn",
+      actor: "orchestrator:writer",
+      type: "orchestrator.degraded",
+      summary: "orchestrator adaptive ttc degraded",
+      data: {
+        planId,
+        stage: "adaptive_ttc",
+        reason: adaptive.map((item) => item.code).join(","),
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    .catch(() => {})
 }
