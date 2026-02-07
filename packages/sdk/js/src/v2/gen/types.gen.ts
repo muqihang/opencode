@@ -445,6 +445,26 @@ export type CompactionPart = {
   messageID: string
   type: "compaction"
   auto: boolean
+  trigger?: {
+    specVersion: "compaction-trigger/1.0"
+    level: "soft" | "hard" | "emergency"
+    thresholds: {
+      specVersion: "compaction-thresholds/1.0"
+      soft: number
+      hard: number
+      emergency: number
+    }
+    tokens: {
+      count: number
+      usable: number
+      ratio: number
+    }
+    limit: {
+      context: number
+      input?: number
+      output: number
+    }
+  }
 }
 
 export type Part =
@@ -520,30 +540,8 @@ export type EventPermissionReplied = {
   }
 }
 
-export type SessionStatus =
-  | {
-      type: "idle"
-    }
-  | {
-      type: "retry"
-      attempt: number
-      message: string
-      next: number
-    }
-  | {
-      type: "busy"
-    }
-
-export type EventSessionStatus = {
-  type: "session.status"
-  properties: {
-    sessionID: string
-    status: SessionStatus
-  }
-}
-
-export type EventSessionIdle = {
-  type: "session.idle"
+export type EventSessionCompacted = {
+  type: "session.compacted"
   properties: {
     sessionID: string
   }
@@ -617,13 +615,6 @@ export type EventQuestionRejected = {
   properties: {
     sessionID: string
     requestID: string
-  }
-}
-
-export type EventSessionCompacted = {
-  type: "session.compacted"
-  properties: {
-    sessionID: string
   }
 }
 
@@ -738,6 +729,57 @@ export type EventCommandExecuted = {
     sessionID: string
     arguments: string
     messageID: string
+  }
+}
+
+export type SessionStatus =
+  | {
+      type: "idle"
+    }
+  | {
+      type: "retry"
+      attempt: number
+      message: string
+      next: number
+    }
+  | {
+      type: "busy"
+    }
+
+export type EventSessionStatus = {
+  type: "session.status"
+  properties: {
+    sessionID: string
+    status: SessionStatus
+  }
+}
+
+export type EventSessionIdle = {
+  type: "session.idle"
+  properties: {
+    sessionID: string
+  }
+}
+
+export type EventOrchestratorWorkerLifecycle = {
+  type: "orchestrator.worker.lifecycle"
+  properties: {
+    sessionID: string
+    sessionId?: string
+    messageID: string
+    messageId?: string
+    planID: string
+    planId?: string
+    workerID: string
+    workerId?: string
+    phase: "planned" | "running" | "completed" | "degraded" | "skipped"
+    attempt: number
+    latencyMs?: number
+    cache?: {
+      status: "hit" | "miss" | "expired" | "disabled" | "forced_rebuild"
+      tier: "memory" | "disk" | "none"
+    }
+    reason?: string
   }
 }
 
@@ -897,12 +939,10 @@ export type Event =
   | EventMessagePartRemoved
   | EventPermissionAsked
   | EventPermissionReplied
-  | EventSessionStatus
-  | EventSessionIdle
+  | EventSessionCompacted
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
-  | EventSessionCompacted
   | EventTodoUpdated
   | EventFileWatcherUpdated
   | EventTuiPromptAppend
@@ -912,6 +952,9 @@ export type Event =
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
+  | EventSessionStatus
+  | EventSessionIdle
+  | EventOrchestratorWorkerLifecycle
   | EventSessionCreated
   | EventSessionUpdated
   | EventSessionDeleted
@@ -1678,6 +1721,38 @@ export type Config = {
     ignore?: Array<string>
   }
   plugin?: Array<string>
+  product?: {
+    /**
+     * User-facing product mode selector
+     */
+    mode?: "base" | "programming" | "legal" | "marxism"
+    plugins?: {
+      /**
+       * Plugins enabled in all modes
+       */
+      common?: Array<string>
+      /**
+       * Plugins enabled in base mode
+       */
+      base?: Array<string>
+      /**
+       * Plugins enabled in programming mode
+       */
+      programming?: Array<string>
+      /**
+       * Plugins enabled in legal mode
+       */
+      legal?: Array<string>
+      /**
+       * Plugins enabled in marxism mode
+       */
+      marxism?: Array<string>
+    }
+    /**
+     * Fork dispatch strategy (auto: base dispatches, suggest: hint only, off: silent)
+     */
+    forkStrategy?: "auto" | "suggest" | "off"
+  }
   snapshot?: boolean
   workdir?: {
     primary?: "shared" | "isolated"
