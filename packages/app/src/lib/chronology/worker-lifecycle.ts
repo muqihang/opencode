@@ -36,6 +36,7 @@ export type WorkerLifecycleEvent = {
 }
 
 type WorkerState = {
+  message: string
   worker: string
   attempt: number
   phase: WorkerLifecyclePhase
@@ -79,15 +80,19 @@ function lifecyclePhase(input: unknown): WorkerLifecyclePhase | undefined {
   if (input === "skipped") return input
 }
 
+const fallbackMessage = "unknown"
+
 function messageId(event: EventV1) {
   const data = lifecycleData(event)
-  if (!data) return
+  if (!data) return fallbackMessage
 
   const id = data.messageId
-  if (typeof id === "string" && id.length > 0) return id
+  if (typeof id === "string" && id.length > 0 && id !== fallbackMessage) return id
 
   const legacy = data.messageID
-  if (typeof legacy === "string" && legacy.length > 0) return legacy
+  if (typeof legacy === "string" && legacy.length > 0 && legacy !== fallbackMessage) return legacy
+
+  return fallbackMessage
 }
 
 function workerId(event: EventV1) {
@@ -171,6 +176,7 @@ function state(event: EventV1): WorkerState | undefined {
   const data = lifecycleData(event)
 
   return {
+    message,
     worker,
     attempt: attempt(event),
     phase: next,
@@ -262,15 +268,12 @@ export function groupWorkerLifecycleByMessage(events: EventV1[]) {
     const parsed = state(node.event)
     if (!parsed) continue
 
-    const message = messageId(node.event)
-    if (!message) continue
-
     const key = `${parsed.worker}:${parsed.attempt}`
-    const group = byMessage.get(message)
+    const group = byMessage.get(parsed.message)
     if (!group) {
       const next = new Map<string, WorkerState>()
       next.set(key, parsed)
-      byMessage.set(message, next)
+      byMessage.set(parsed.message, next)
       continue
     }
 

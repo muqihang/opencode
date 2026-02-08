@@ -21,12 +21,12 @@ function event(input: {
     type: input.type ?? "orchestrator.worker.lifecycle",
     summary: "worker lifecycle",
     data: {
-      ...(input.messageId ? { messageId: input.messageId } : {}),
-      ...(input.messageID ? { messageID: input.messageID } : {}),
-      ...(input.workerId ? { workerId: input.workerId } : {}),
-      ...(input.workerID ? { workerID: input.workerID } : {}),
-      ...(input.phase ? { phase: input.phase } : {}),
-      ...(input.attempt ? { attempt: input.attempt } : {}),
+      ...(input.messageId !== undefined ? { messageId: input.messageId } : {}),
+      ...(input.messageID !== undefined ? { messageID: input.messageID } : {}),
+      ...(input.workerId !== undefined ? { workerId: input.workerId } : {}),
+      ...(input.workerID !== undefined ? { workerID: input.workerID } : {}),
+      ...(input.phase !== undefined ? { phase: input.phase } : {}),
+      ...(input.attempt !== undefined ? { attempt: input.attempt } : {}),
     },
     redaction: { applied: true, policyVersion: "v1" },
   }
@@ -79,6 +79,34 @@ describe("worker-lifecycle", () => {
     expect(summary?.phase).toBe("skipped")
     expect(summary?.total).toBe(1)
     expect(summary?.counts.skipped).toBe(1)
+  })
+
+  test("unknown message fallback keeps real groups clean", () => {
+    const groups = groupWorkerLifecycleByMessage([
+      event({ ts: "2026-02-01T00:00:00.000Z", messageId: "m7", workerId: "real", phase: "running", attempt: 1 }),
+      event({ ts: "2026-02-01T00:00:01.000Z", messageID: "unknown", workerID: "legacy", phase: "degraded", attempt: 1 }),
+      event({ ts: "2026-02-01T00:00:02.000Z", messageId: "", workerId: "empty", phase: "completed", attempt: 1 }),
+    ])
+
+    const real = groups.get("m7")
+    const fallback = groups.get("unknown")
+
+    expect(real?.counts).toEqual({
+      planned: 0,
+      running: 1,
+      completed: 0,
+      degraded: 0,
+      skipped: 0,
+    })
+    expect(real?.total).toBe(1)
+    expect(fallback?.counts).toEqual({
+      planned: 0,
+      running: 0,
+      completed: 1,
+      degraded: 1,
+      skipped: 0,
+    })
+    expect(fallback?.total).toBe(2)
   })
 
   test("ignores non lifecycle and malformed lifecycle events", () => {
