@@ -150,7 +150,11 @@ describe("orchestrator integration v2 rollout", () => {
         const plan = {
           ...built,
           workers: built.workers.filter((item) => item.id !== "evidence_critic"),
-          dualPass: undefined,
+          dualPass: {
+            enabled: true,
+            criticTimeoutMs: 120,
+            unknownFirst: "unknown-first",
+          },
         }
 
         const original = WorkerRunner.run
@@ -195,6 +199,21 @@ describe("orchestrator integration v2 rollout", () => {
           expect(calls.includes("evidence_critic")).toBe(true)
           expect(result.degraded).toBe(true)
           expect(result.system[result.system.length - 1]).toBe("unknown-first")
+
+          const events = await EvidenceReader.readEvents(sessionId, { cursor: 0 })
+          const broker = events.events.filter((event) => event.type === "tool_broker.requested")
+          const dualPass = events.events.find(
+            (event) => event.type === "orchestrator.degraded" && event.data?.stage === "dual_pass",
+          )
+          const planner = events.events.find(
+            (event) =>
+              event.type === "orchestrator.degraded" &&
+              event.data?.stage === "planner" &&
+              String(event.data?.reason ?? "").includes("planner_degraded_fallback"),
+          )
+          expect(broker.length).toBeGreaterThan(0)
+          expect(Boolean(dualPass)).toBe(true)
+          expect(Boolean(planner)).toBe(true)
         } finally {
           WorkerRunner.run = original
         }

@@ -273,7 +273,7 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
       workerResults,
     })
 
-    if (plannerDegraded && !dualPass.degraded) {
+    if (plannerDegraded) {
       await writeOrchestratorDegraded({
         sessionId: input.sessionId,
         messageId: input.messageId,
