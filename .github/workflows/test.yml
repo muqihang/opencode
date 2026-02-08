@@ -22,6 +22,7 @@ jobs:
               git config --global user.name "opencode"
               bun turbo typecheck
               bun turbo test
+              cd packages/opencode && bun run test:offline-eval
           - name: windows
             host: windows-latest
             playwright: bunx playwright install
