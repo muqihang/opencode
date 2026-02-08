@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
-import { extractFeatures } from "../../src/session/orchestrator/features"
+import { extractA1Features, extractFeatures } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
 import { defer } from "../../src/util/defer"
 
@@ -200,6 +200,87 @@ describe("orchestrator plan", () => {
 
         expect(first.cache.status).not.toBe("hit")
         expect(second.cache.status).toBe("hit")
+      },
+    })
+  })
+
+  test("high-risk citation candidate enables dual-pass by default", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const intentText = "请依据法律条款给出结论并提供可核验引用"
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText,
+          hasFileParts: false,
+        })
+        const a1 = extractA1Features({ intentText, hasFileParts: false })
+
+        const result = await buildPlan({
+          sessionId: "s6",
+          messageId: "m6",
+          features,
+          toolsetFingerprint: "toolset-6",
+          a1,
+          dualPassSynthesis: true,
+        })
+
+        expect(result.plan.dualPass?.enabled).toBe(true)
+      },
+    })
+  })
+
+  test("non-candidate request keeps dual-pass disabled", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const intentText = "请解释这段代码在做什么"
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText,
+          hasFileParts: false,
+        })
+        const a1 = extractA1Features({ intentText, hasFileParts: false })
+
+        const result = await buildPlan({
+          sessionId: "s7",
+          messageId: "m7",
+          features,
+          toolsetFingerprint: "toolset-7",
+          a1,
+          dualPassSynthesis: true,
+        })
+
+        expect(result.plan.dualPass).toBeUndefined()
+      },
+    })
+  })
+
+  test("dual-pass stays off when synthesis gate is closed", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const intentText = "请依据法律条款给出结论并提供可核验引用"
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText,
+          hasFileParts: false,
+        })
+        const a1 = extractA1Features({ intentText, hasFileParts: false })
+
+        const result = await buildPlan({
+          sessionId: "s8",
+          messageId: "m8",
+          features,
+          toolsetFingerprint: "toolset-8",
+          a1,
+          dualPassSynthesis: false,
+        })
+
+        expect(result.plan.dualPass).toBeUndefined()
       },
     })
   })
