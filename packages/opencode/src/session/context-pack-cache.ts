@@ -23,12 +23,14 @@ type EvidencePointers = {
   topK: Array<{ path: string; sha256: string }>
 }
 
+type Hydration = "pointer" | "full"
+
 type Template = {
   id: string
   kind: ContextPackType["segments"][number]["kind"]
   priority: ContextPackType["segments"][number]["priority"]
   tokenEstimate: number
-  preview: string
+  preview?: string
 }
 
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
@@ -51,8 +53,10 @@ export const ContextPackCache = {
     ledgerNotes?: string
     createdAtUtc?: string
     evidencePointers?: EvidencePointers
+    hydration?: Hydration
     policy: Policy
   }) {
+    const hydration = input.hydration ?? "pointer"
     const scope = storeScope()
     const key = CacheStore.key({
       namespace: "context-pack",
@@ -65,8 +69,9 @@ export const ContextPackCache = {
           id: input.model.id,
           limit: input.model.limit,
         },
+        hydration,
         maxOutputTokens: input.maxOutputTokens,
-        versions: { builder: "v2", stableJson: "v1" },
+        versions: { builder: "v3", stableJson: "v1" },
       },
     })
 
@@ -81,7 +86,7 @@ export const ContextPackCache = {
       ttlMs: storeTtlMs(),
       policy: input.policy,
       compute: async () => {
-        const templates = ContextPackBuilder.buildBlockTemplates(input.blocks)
+        const templates = ContextPackBuilder.buildBlockTemplates(input.blocks, hydration)
         return { specVersion: "context-pack-templates-cache/1.0", templates }
       },
     })
@@ -94,7 +99,7 @@ export const ContextPackCache = {
         blocks: input.blocks,
         templates,
       }),
-      ...(input.evidencePointers ? [ContextPackBuilder.buildEvidenceSegment(input.evidencePointers)] : []),
+      ...(input.evidencePointers ? [ContextPackBuilder.buildEvidenceSegment(input.evidencePointers, hydration)] : []),
     ]
 
     return {
