@@ -201,6 +201,13 @@ export namespace Config {
       result.compaction = { ...result.compaction, prune: false }
     }
 
+    const experimental = result.experimental ?? {}
+    result.experimental = {
+      ...experimental,
+      orchestrator_v15_a2: experimental.orchestrator_v15_a2 ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2,
+      offline_eval_gates: experimental.offline_eval_gates ?? Flag.OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES,
+    }
+
     result.plugin = deduplicatePlugins(result.plugin ?? [])
     result.plugin = filterPlugins(result.plugin, result.product)
 
@@ -1238,6 +1245,14 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Enable pointer-first context OS when orchestrator v1.5 b2 is enabled"),
+          orchestrator_v15_a2: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator v1.5 a2 behaviors"),
+          offline_eval_gates: z
+            .boolean()
+            .optional()
+            .describe("Enforce offline eval failure as a blocking gate"),
           mcp_timeout: z
             .number()
             .int()

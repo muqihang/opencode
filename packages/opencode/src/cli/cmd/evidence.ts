@@ -4,6 +4,7 @@ import { cmd } from "./cmd"
 import { bootstrap } from "../bootstrap"
 import { exportEvidence } from "../../evidence/export"
 import { runOfflineGateEval } from "../../eval/offline"
+import { Flag } from "../../flag/flag"
 
 export const EvidenceCommand = cmd({
   command: "evidence",
@@ -79,6 +80,12 @@ export const EvidenceEvalCommand = cmd({
     console.log(lines.join("\n"))
 
     if (report.gate.passed) return
+
+    if (!Flag.OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES) {
+      console.log("offline eval gate failed but downgraded to warning (OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES=false)")
+      return
+    }
+
     throw new Error("offline eval gate failed")
   },
 })

@@ -1748,3 +1748,68 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
     }
   })
 })
+
+describe("experimental flag defaults", () => {
+  test("maps A2 and offline gate switches from env flags", async () => {
+    const prevA2 = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
+    const prevGate = process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"]
+
+    try {
+      process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"] = "1"
+      process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"] = "false"
+
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const config = await Config.get()
+          expect(config.experimental?.orchestrator_v15_a2).toBe(true)
+          expect(config.experimental?.offline_eval_gates).toBe(false)
+        },
+      })
+    } finally {
+      if (prevA2 === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"] = prevA2
+      }
+
+      if (prevGate === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"] = prevGate
+      }
+    }
+  })
+
+  test("keeps offline gate enabled by default when env is absent", async () => {
+    const prevGate = process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"]
+    const prevA2 = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
+
+    try {
+      delete process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"]
+      delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
+
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const config = await Config.get()
+          expect(config.experimental?.offline_eval_gates).toBe(true)
+        },
+      })
+    } finally {
+      if (prevGate === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"] = prevGate
+      }
+
+      if (prevA2 === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
+        return
+      }
+      process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"] = prevA2
+    }
+  })
+})

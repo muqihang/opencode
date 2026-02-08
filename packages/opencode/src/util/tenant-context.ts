@@ -1,11 +1,11 @@
 import path from "path"
 import { Context } from "@/util/context"
+import { Flag } from "@/flag/flag"
 
 const DEFAULT_TENANT_ID = "local"
 const DEFAULT_ORG_ID = "default"
 const TENANT_ENV = "OPENCODE_TENANT_ID"
 const ORG_ENV = "OPENCODE_ORG_ID"
-const A2_ENV = "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"
 
 export type TenantScope = {
   tenantId: string
@@ -19,13 +19,6 @@ const text = (value: unknown, fallback: string) => {
   const normalized = value.trim()
   if (!normalized) return fallback
   return normalized
-}
-
-const truthy = (value: string | undefined) => {
-  if (!value) return false
-  const normalized = value.trim().toLowerCase()
-  if (normalized === "1") return true
-  return normalized === "true"
 }
 
 export const TenantContext = {
@@ -42,7 +35,7 @@ export const TenantContext = {
 }
 
 export const isA2TenantNamespaceEnabled = () => {
-  return truthy(process.env[A2_ENV])
+  return Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2 === true
 }
 
 export const resolveTenantScope = (input?: Partial<TenantScope>): TenantScope => {
