@@ -1,11 +1,20 @@
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
-import { OrchestratorUxMode } from "@/protocol/orchestrator-plan"
+import { type OrchestratorPlanScores, OrchestratorUxMode } from "@/protocol/orchestrator-plan"
+import { scoreOrchestrator } from "./scorer"
 
 type FeatureInput = {
   uxMode: OrchestratorUxMode
   intentText: string
   hasFileParts: boolean
   parentSessionId?: string
+}
+
+type FeatureSignals = {
+  intentBytes: number
+  intentTokensEstimate: number
+  hasWriteIntent: boolean
+  hasExecIntent: boolean
+  hasVerificationIntent: boolean
 }
 
 export type A1Features = {
@@ -47,6 +56,30 @@ const byFileParts = (input: { hasFileParts: boolean; intentText: string; kind: "
   return FileExecVerbPattern.test(input.intentText)
 }
 
+const featureSignals = (input: FeatureInput): FeatureSignals => {
+  const intentBytes = Math.max(1, Buffer.byteLength(input.intentText, "utf8"))
+  const intentTokensEstimate = Math.max(1, Math.ceil(intentBytes / 4))
+  const hasWriteIntent = WritePattern.test(input.intentText) || byFileParts({
+    hasFileParts: input.hasFileParts,
+    intentText: input.intentText,
+    kind: "write",
+  })
+  const hasExecIntent = ExecPattern.test(input.intentText) || byFileParts({
+    hasFileParts: input.hasFileParts,
+    intentText: input.intentText,
+    kind: "exec",
+  })
+  const hasVerificationIntent = VerifyPattern.test(input.intentText)
+
+  return {
+    intentBytes,
+    intentTokensEstimate,
+    hasWriteIntent,
+    hasExecIntent,
+    hasVerificationIntent,
+  }
+}
+
 export const extractA1Features = (input: { intentText: string; hasFileParts: boolean }): A1Features => {
   const requiresCitation = CitationPattern.test(input.intentText)
   const highRisk = HighRiskPattern.test(input.intentText)
@@ -64,31 +97,32 @@ export const extractA1Features = (input: { intentText: string; hasFileParts: boo
   }
 }
 
+export const extractScores = (input: FeatureInput): OrchestratorPlanScores => {
+  const features = featureSignals(input)
+  return scoreOrchestrator({
+    uxMode: input.uxMode,
+    intentText: input.intentText,
+    intentTokensEstimate: features.intentTokensEstimate,
+    hasFileParts: input.hasFileParts,
+    hasWriteIntent: features.hasWriteIntent,
+    hasExecIntent: features.hasExecIntent,
+    hasVerificationIntent: features.hasVerificationIntent,
+  })
+}
+
 export const extractFeatures = (input: FeatureInput) => {
-  const intentBytes = Math.max(1, Buffer.byteLength(input.intentText, "utf8"))
-  const intentTokensEstimate = Math.max(1, Math.ceil(intentBytes / 4))
-  const hasWriteIntent = WritePattern.test(input.intentText) || byFileParts({
-    hasFileParts: input.hasFileParts,
-    intentText: input.intentText,
-    kind: "write",
-  })
-  const hasExecIntent = ExecPattern.test(input.intentText) || byFileParts({
-    hasFileParts: input.hasFileParts,
-    intentText: input.intentText,
-    kind: "exec",
-  })
-  const hasVerificationIntent = VerifyPattern.test(input.intentText)
+  const features = featureSignals(input)
 
   return OrchestratorFeatures.parse({
     specVersion: "orchestrator-features/1.0",
     features: {
       uxMode: input.uxMode,
-      intentBytes,
-      intentTokensEstimate,
+      intentBytes: features.intentBytes,
+      intentTokensEstimate: features.intentTokensEstimate,
       hasFileParts: input.hasFileParts,
-      hasWriteIntent,
-      hasExecIntent,
-      hasVerificationIntent,
+      hasWriteIntent: features.hasWriteIntent,
+      hasExecIntent: features.hasExecIntent,
+      hasVerificationIntent: features.hasVerificationIntent,
       parentSessionId: input.parentSessionId,
     },
   })

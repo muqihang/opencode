@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { extractFeatures } from "../../src/session/orchestrator/features"
+import { extractFeatures, extractScores } from "../../src/session/orchestrator/features"
 
 describe("orchestrator features", () => {
   test("detects write and exec intent", () => {
@@ -56,5 +56,29 @@ describe("orchestrator features", () => {
     expect(withoutFile.features.hasExecIntent).toBe(false)
     expect(withFile.features.hasWriteIntent).toBe(true)
     expect(withFile.features.hasExecIntent).toBe(true)
+  })
+
+  test("extractScores returns bounded scores and boosts verification workloads", () => {
+    const simple = extractScores({
+      uxMode: "fast",
+      intentText: "解释这个函数",
+      hasFileParts: false,
+    })
+
+    const verification = extractScores({
+      uxMode: "auto",
+      intentText: "请检索官方文档并给出引用证据，核验这个结论",
+      hasFileParts: false,
+    })
+
+    expect(simple.complexity_score).toBeGreaterThanOrEqual(0)
+    expect(simple.complexity_score).toBeLessThanOrEqual(1)
+    expect(simple.risk_score).toBeGreaterThanOrEqual(0)
+    expect(simple.risk_score).toBeLessThanOrEqual(1)
+    expect(simple.tool_need_score).toBeGreaterThanOrEqual(0)
+    expect(simple.tool_need_score).toBeLessThanOrEqual(1)
+
+    expect(verification.complexity_score).toBeGreaterThan(simple.complexity_score)
+    expect(verification.tool_need_score).toBeGreaterThan(simple.tool_need_score)
   })
 })
