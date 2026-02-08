@@ -7,7 +7,6 @@ import { EvidenceReader } from "../../src/evidence/reader"
 import { extractFeatures } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
 import { runOrchestratorTurn } from "../../src/session/orchestrator"
-import { WorkerRunner } from "../../src/session/orchestrator/worker-runner"
 import type { Tool } from "ai"
 import { tool, jsonSchema } from "ai"
 
@@ -117,7 +116,7 @@ describe("orchestrator turn runner", () => {
     })
   })
 
-  test("assist mode binds worker lifecycle to current message", async () => {
+  test("assist mode keeps messageId passthrough in worker lifecycle evidence", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -136,19 +135,6 @@ describe("orchestrator turn runner", () => {
           toolsetFingerprint: "toolset-bind",
         }).then((res) => res.plan)
 
-        const captured: Array<Parameters<typeof WorkerRunner.run>[0]> = []
-        const original = WorkerRunner.run
-        WorkerRunner.run = (async (input) => {
-          captured.push(input)
-          return {
-            result: {
-              specVersion: "llm-worker-result/1.0",
-              status: "ok",
-            },
-            cache: { status: "miss", tier: "none" },
-          }
-        }) as typeof WorkerRunner.run
-
         await runOrchestratorTurn({
           sessionId,
           messageId,
@@ -160,10 +146,12 @@ describe("orchestrator turn runner", () => {
           tools: { read: makeTool() },
         })
 
-        WorkerRunner.run = original
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 200 })
+        const lifecycle = events.events.filter((event) => event.type === "orchestrator.worker.lifecycle")
 
-        expect(captured.length).toBeGreaterThan(0)
-        expect(captured[0]?.messageId).toBe(messageId)
+        expect(lifecycle.length).toBeGreaterThan(0)
+        expect(lifecycle.every((event) => event.data?.messageID === messageId)).toBe(true)
+        expect(lifecycle.every((event) => event.data?.messageId === messageId)).toBe(true)
       },
     })
   })

@@ -25,14 +25,26 @@ describe("orchestrator worker runner lifecycle events", () => {
         const sessionID = "s-events-success"
         const workerID = "evidence_critic"
         const rolePack = pack({ pointers: ["ptr-1"], planPointer: "orchestrator/plan-events-success/plan.json" })
-        const events: Array<{ phase: string; messageID?: string; planID: string }> = []
+        const events: Array<{
+          phase: string
+          messageID?: string
+          messageId?: string
+          planID: string
+          planId: string
+          workerID: string
+          workerId: string
+        }> = []
         const unsub = Bus.subscribe(OrchestratorEvent.WorkerLifecycle, (event) => {
           if (event.properties.sessionID !== sessionID) return
           if (event.properties.workerID !== workerID) return
           events.push({
             phase: event.properties.phase,
             messageID: event.properties.messageID,
+            messageId: event.properties.messageId,
             planID: event.properties.planID,
+            planId: event.properties.planId,
+            workerID: event.properties.workerID,
+            workerId: event.properties.workerId,
           })
         })
 
@@ -53,7 +65,11 @@ describe("orchestrator worker runner lifecycle events", () => {
         expect(output.result.status).toBe("ok")
         expect(events.map((item) => item.phase)).toEqual(["planned", "running", "completed"])
         expect(events[0]?.messageID).toBe("m-events-success")
+        expect(events[0]?.messageId).toBe("m-events-success")
         expect(events[0]?.planID).toBe("plan-events-success")
+        expect(events[0]?.planId).toBe("plan-events-success")
+        expect(events[0]?.workerID).toBe(workerID)
+        expect(events[0]?.workerId).toBe(workerID)
       },
     })
   })
@@ -173,6 +189,11 @@ describe("orchestrator worker runner lifecycle events", () => {
 
         expect(lifecycle.length).toBeGreaterThanOrEqual(3)
         expect(lifecycle.every((item) => item.data?.messageID === messageID)).toBe(true)
+        expect(lifecycle.every((item) => item.data?.messageId === messageID)).toBe(true)
+        expect(lifecycle.every((item) => item.data?.planID === "plan-events-evidence")).toBe(true)
+        expect(lifecycle.every((item) => item.data?.planId === "plan-events-evidence")).toBe(true)
+        expect(lifecycle.every((item) => item.data?.workerID === workerID)).toBe(true)
+        expect(lifecycle.every((item) => item.data?.workerId === workerID)).toBe(true)
       },
     })
   })
