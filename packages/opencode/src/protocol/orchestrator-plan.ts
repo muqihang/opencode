@@ -48,6 +48,14 @@ const Reason = z
   })
   .strict()
 
+export const OrchestratorPlanScores = z
+  .object({
+    complexity_score: z.number().min(0).max(1),
+    risk_score: z.number().min(0).max(1),
+    tool_need_score: z.number().min(0).max(1),
+  })
+  .strict()
+
 export const OrchestratorPlan = z
   .object({
     specVersion: z.literal("orchestrator-plan/1.0"),
@@ -69,6 +77,7 @@ export const OrchestratorPlan = z
     evidencePolicy: EvidencePolicy.optional(),
     toolPolicy: ToolPolicy,
     dualPass: DualPassPolicy.optional(),
+    scores: OrchestratorPlanScores.optional(),
     reasons: z.array(Reason),
     inputsFingerprint: z
       .object({
@@ -78,4 +87,5 @@ export const OrchestratorPlan = z
   })
   .strict()
 
+export type OrchestratorPlanScores = z.infer<typeof OrchestratorPlanScores>
 export type OrchestratorPlan = z.infer<typeof OrchestratorPlan>
