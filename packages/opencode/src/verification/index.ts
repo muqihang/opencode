@@ -7,6 +7,7 @@ import { CachePolicy } from "@/cache/policy"
 import { sha256Text } from "@/routing/cache"
 import { VerificationMode, VerificationReport } from "@/protocol/verification-report"
 import { ScriptRegistry } from "@/python/registry"
+import { gateVerificationResult } from "./claim-graph"
 import { runVerification as runWorker, VerificationStats } from "./worker"
 
 type ScriptDigest = { id: string; sha256: string }
@@ -28,6 +29,11 @@ const storeArtifact = async (key: string) => {
   const text = await Bun.file(file).text().catch(() => "")
   if (!text) return
   return { path: rel, sha256: sha256Text(text), kind: "cache-entry" }
+}
+
+const loadReport = async (reportPath: string) => {
+  const file = path.join(baseDir(), reportPath)
+  return Bun.file(file).json().catch(() => undefined)
 }
 
 const normalizePointer = (value: unknown) => {
@@ -226,11 +232,40 @@ export const runVerification = async (input: Parameters<typeof runWorker>[0]) =>
     const degraded = typeof view?.degraded === "boolean" ? view.degraded : undefined
     const hint = typeof view?.hint === "string" ? view.hint : undefined
 
-    if (ok === undefined || !verificationId || !reportPath || !viewPath || degraded === undefined || hint === undefined) {
-      return runWorker(input)
+    if (ok !== undefined && verificationId && reportPath && viewPath && degraded !== undefined && hint !== undefined) {
+      const report = await loadReport(reportPath)
+      const gated = gateVerificationResult({ result: { ok, degraded, hint }, report })
+      return {
+        ok: gated.ok,
+        degraded: gated.degraded,
+        verificationId,
+        hint: gated.hint,
+        reportPath,
+        viewPath,
+        claimGate: gated.claimGate,
+      }
     }
 
-    return { ok, degraded, verificationId, hint, reportPath, viewPath }
+    const fallback = await runWorker(input)
+    const report = await loadReport(fallback.reportPath)
+    const gated = gateVerificationResult({
+      result: {
+        ok: fallback.ok,
+        degraded: fallback.degraded,
+        hint: fallback.hint,
+      },
+      report,
+    })
+
+    return {
+      ok: gated.ok,
+      degraded: gated.degraded,
+      verificationId: fallback.verificationId,
+      hint: gated.hint,
+      reportPath: fallback.reportPath,
+      viewPath: fallback.viewPath,
+      claimGate: gated.claimGate,
+    }
   }
 
   const view = (cached.value as { view?: unknown }).view
@@ -269,12 +304,22 @@ export const runVerification = async (input: Parameters<typeof runWorker>[0]) =>
     redaction: { applied: true, policyVersion: "v1" },
   })
 
+  const gated = gateVerificationResult({
+    result: {
+      ok: parsedReport.ok,
+      degraded: parsedReport.degraded,
+      hint: "缓存命中",
+    },
+    report: parsedReport,
+  })
+
   return {
-    ok: parsedReport.ok,
-    degraded: parsedReport.degraded,
+    ok: gated.ok,
+    degraded: gated.degraded,
     verificationId: parsedReport.verificationId,
-    hint: "缓存命中",
+    hint: gated.hint,
     reportPath: reportEntry.path,
     viewPath: viewEntry.path,
+    claimGate: gated.claimGate,
   }
 }
