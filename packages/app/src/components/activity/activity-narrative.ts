@@ -440,13 +440,62 @@ function mapRouting(item: ActivityItem, events: readonly EventV1[]): NarrativeRe
 
     
 
+function workerRole(worker: string) {
+  if (worker === "retrieval_planner") return "检索"
+  if (worker === "patch_planner") return "规划"
+  if (worker === "evidence_critic") return "验证"
+  return "分析"
+}
+
+function lifecycleTitle(phase: string, role: string) {
+  if (phase === "degraded") return `${role}已降级`
+  if (phase === "completed") return `${role}完成`
+  if (phase === "skipped") return `${role}已跳过`
+  return `${role}中`
+}
+
+function safeReasonCode(input: unknown) {
+  if (typeof input !== "string") return
+  const value = input.trim()
+  if (!value) return
+  if (!/^[a-z0-9._:-]+$/i.test(value)) return
+  return value
+}
+
+function mapWorkerLifecycle(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
+  const event = events.find((e) => e.type === "orchestrator.worker.lifecycle")
+  if (!event) return { titleZh: "协助过程", isNoise: true }
+
+  const data = event.data && typeof event.data === "object" ? (event.data as Record<string, unknown>) : undefined
+  const worker =
+    typeof data?.workerID === "string"
+      ? data.workerID
+      : typeof data?.workerId === "string"
+        ? data.workerId
+        : ""
+  const phase = typeof data?.phase === "string" ? data.phase : item.status === "running" ? "running" : "completed"
+  const role = workerRole(worker)
+
+  const summary = event.summary.trim() ? event.summary.trim() : item.summary.trim() ? item.summary.trim() : undefined
+  const reason = safeReasonCode(data?.reason)
+  const subtitle = [summary, reason].filter((x): x is string => Boolean(x)).join(" · ")
+  const severity = phase === "degraded" ? "warning" : phase === "completed" ? "success" : "info"
+
+  return {
+    titleZh: lifecycleTitle(phase, role),
+    subtitleZh: subtitle || undefined,
+    severity,
+    isNoise: false,
+  }
+}
+
         function mapOther(item: ActivityItem, events: readonly EventV1[]): NarrativeResult {
 
     
 
           const type = events[0]?.type || item.title
 
-    
+          if (type === "orchestrator.worker.lifecycle") return mapWorkerLifecycle(item, events)
 
           if (type.startsWith("capsule.assisted.")) {
             if (type === "capsule.assisted.requested") {
