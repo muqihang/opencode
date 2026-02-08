@@ -1,5 +1,6 @@
 import { EvidenceWriter } from "@/evidence/writer"
 import { runRetrieval } from "@/retrieval/runner"
+import { stableJson } from "@/util/stable-json"
 import type { ToolRequest, ToolRequestKind } from "@/protocol/llm-worker-result"
 import type { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 
@@ -37,6 +38,65 @@ const prefixPointers = (input: { sessionId: string; pointers: Pointers }) => {
     artifacts: input.pointers.artifacts.map((item) => ({ ...item, path: joinPath(root, item.path) })),
     topK: input.pointers.topK.map((item) => ({ ...item, path: joinPath(root, item.path) })),
   }
+}
+
+const stripArtifactRoot = (input: { artifactRoot: string; pointerPath: string }) => {
+  const root = joinPath(input.artifactRoot).replace(/\/+$/, "")
+  const pointer = joinPath(input.pointerPath)
+  const prefix = root ? `${root}/` : ""
+  if (prefix && pointer.startsWith(prefix)) return pointer.slice(prefix.length)
+  return pointer
+}
+
+const pointerSnapshot = (input: { sessionId: string; pointers?: Pointers }) => {
+  if (!input.pointers) return { artifacts: [], topK: [] }
+  return prefixPointers({ sessionId: input.sessionId, pointers: input.pointers })
+}
+
+const withPrefixedPointers = (input: { sessionId: string; result: RequestResult }): RequestResult => {
+  if (!input.result.pointers) return input.result
+  return {
+    ...input.result,
+    pointers: prefixPointers({ sessionId: input.sessionId, pointers: input.result.pointers }),
+  }
+}
+
+const persistPointer = async (input: {
+  writer: Awaited<ReturnType<typeof EvidenceWriter.open>>
+  sessionId: string
+  messageId: string
+  cycle: number
+  index: number
+  result: RequestResult
+}) => {
+  const artifactRoot = joinPath(".opencode", "artifacts", input.sessionId)
+  const snapshot = pointerSnapshot({ sessionId: input.sessionId, pointers: input.result.pointers })
+  const name = `${String(input.index + 1).padStart(4, "0")}-${input.result.kind}.pointer.json`
+  const entry = await input.writer.artifact({
+    kind: "tool-broker-pointer",
+    path: `tool-broker/${input.messageId}/${name}`,
+    data: stableJson({
+      specVersion: "tool-broker-pointer/1.0",
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      cycle: input.cycle,
+      kind: input.result.kind,
+      status: input.result.status,
+      reason: input.result.reason,
+      summary: input.result.summary,
+      pointers: snapshot,
+      generatedAtUtc: new Date().toISOString(),
+    }),
+  })
+  const path = stripArtifactRoot({ artifactRoot, pointerPath: entry.path })
+  const pointers = input.result.pointers ?? { artifacts: [], topK: [] }
+  return {
+    ...input.result,
+    pointers: {
+      artifacts: [...pointers.artifacts, { path, sha256: entry.sha256, kind: entry.kind }],
+      topK: pointers.topK,
+    },
+  } satisfies RequestResult
 }
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -83,13 +143,25 @@ export const runToolBroker = async (input: {
 
   const bounced = cycle > input.toolPolicy.bounceMax
   if (bounced) {
-    const results = input.toolRequests.map((request) => ({
+    const rejected = input.toolRequests.map((request) => ({
       kind: request.kind,
       status: "rejected" as const,
       reason: "bounce_limit_v1",
     }))
+    const pointerized = await Promise.all(
+      rejected.map((item, index) =>
+        persistPointer({
+          writer,
+          sessionId: input.sessionId,
+          messageId: input.messageId,
+          cycle,
+          index,
+          result: item,
+        }),
+      ),
+    )
     await Promise.all(
-      results.map((item) =>
+      pointerized.map((item) =>
         writer.event({
           specVersion: "event/1.0",
           ts: new Date().toISOString(),
@@ -109,6 +181,9 @@ export const runToolBroker = async (input: {
         }),
       ),
     )
+    const results = pointerized.map((item) =>
+      withPrefixedPointers({ sessionId: input.sessionId, result: item }),
+    )
     return {
       status: "degraded",
       results,
@@ -117,14 +192,22 @@ export const runToolBroker = async (input: {
 
   const results: RequestResult[] = []
 
-  for (const request of input.toolRequests) {
+  for (const [index, request] of input.toolRequests.entries()) {
     if (!canRunKind(request.kind)) {
       const rejected: RequestResult = {
         kind: request.kind,
         status: "rejected",
         reason: "unsupported_kind_v0",
       }
-      results.push(rejected)
+      const pointerized = await persistPointer({
+        writer,
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        cycle,
+        index,
+        result: rejected,
+      })
+      results.push(pointerized)
       await writer.event({
         specVersion: "event/1.0",
         ts: new Date().toISOString(),
@@ -149,7 +232,15 @@ export const runToolBroker = async (input: {
         status: "rejected",
         reason: "policy_kind_not_allowed_v1",
       }
-      results.push(rejected)
+      const pointerized = await persistPointer({
+        writer,
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        cycle,
+        index,
+        result: rejected,
+      })
+      results.push(pointerized)
       await writer.event({
         specVersion: "event/1.0",
         ts: new Date().toISOString(),
@@ -184,7 +275,15 @@ export const runToolBroker = async (input: {
         status: "degraded",
         reason: errorText(retrieval.error),
       }
-      results.push(degraded)
+      const pointerized = await persistPointer({
+        writer,
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        cycle,
+        index,
+        result: degraded,
+      })
+      results.push(pointerized)
       await writer.event({
         specVersion: "event/1.0",
         ts: new Date().toISOString(),
@@ -203,13 +302,10 @@ export const runToolBroker = async (input: {
       continue
     }
 
-    const pointers = prefixPointers({
-      sessionId: input.sessionId,
-      pointers: {
-        artifacts: retrieval.value.evidencePointers.artifacts,
-        topK: retrieval.value.evidencePointers.topK,
-      },
-    })
+    const pointers = {
+      artifacts: retrieval.value.evidencePointers.artifacts,
+      topK: retrieval.value.evidencePointers.topK,
+    }
 
     const ok: RequestResult = {
       kind: request.kind,
@@ -217,7 +313,15 @@ export const runToolBroker = async (input: {
       summary: retrieval.value.evidencePointers.summary,
       pointers,
     }
-    results.push(ok)
+    const pointerized = await persistPointer({
+      writer,
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      cycle,
+      index,
+      result: ok,
+    })
+    results.push(pointerized)
     await writer.event({
       specVersion: "event/1.0",
       ts: new Date().toISOString(),
@@ -229,12 +333,13 @@ export const runToolBroker = async (input: {
       data: {
         messageId: input.messageId,
         kind: request.kind,
-        summary: ok.summary,
+        summary: pointerized.summary,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
   }
 
-  const status = results.every((item) => item.status === "ok") ? "ok" : "degraded"
-  return { status, results }
+  const finalized = results.map((item) => withPrefixedPointers({ sessionId: input.sessionId, result: item }))
+  const status = finalized.every((item) => item.status === "ok") ? "ok" : "degraded"
+  return { status, results: finalized }
 }
