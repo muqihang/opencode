@@ -158,8 +158,11 @@ const writeLifecycleEvidence = async (input: {
       summary: "worker lifecycle",
       data: {
         messageID: input.messageId,
+        messageId: input.messageId,
         planID: input.planId,
+        planId: input.planId,
         workerID: input.workerId,
+        workerId: input.workerId,
         phase: input.phase,
         attempt: input.attempt,
         cache: input.cache,
