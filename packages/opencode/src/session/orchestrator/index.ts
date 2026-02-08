@@ -5,6 +5,7 @@ import { LlmWorkerResult } from "@/protocol/llm-worker-result"
 import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import { WorkerRunner } from "./worker-runner"
+import { isPlannerWorker } from "./worker-spec"
 import { runDualPass } from "./dual-pass"
 import { runToolBroker } from "./tool-broker"
 
@@ -127,6 +128,7 @@ const runInjectionDualPass = async (input: {
   plan: OrchestratorPlan
   injected: string
   workerResults: LlmWorkerResult[]
+  plannerDegraded: boolean
 }) => {
   const policy = input.plan.dualPass
   if (!policy?.enabled) return { text: input.injected, degraded: false }
@@ -136,12 +138,13 @@ const runInjectionDualPass = async (input: {
     critic: async ({ draft }) => {
       const reason = criticReason({ workerResults: input.workerResults })
       if (reason) {
+        const fallback = input.plannerDegraded ? "unknown-first" : "draft"
         return {
           specVersion: "dual-pass/1.0",
           stage: "critic",
           verdict: "degrade",
           reason,
-          fallback: "draft",
+          fallback,
         }
       }
       return {
@@ -230,10 +233,21 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
           messageId: input.messageId,
           workerId: worker.id,
           rolePack,
-        }),
+        }).then((run) => ({ workerId: worker.id, run })),
       ),
     )
-    const workerResults = runs.map((run) => run.result)
+    const plannerDegraded = runs.some((item) => isPlannerWorker(item.workerId) && item.run.result.status !== "ok")
+    const hasCritic = runs.some((item) => item.workerId === "evidence_critic")
+    const criticRun = plannerDegraded && !hasCritic
+      ? await WorkerRunner.run({
+          sessionId: input.sessionId,
+          messageId: input.messageId,
+          workerId: "evidence_critic",
+          rolePack,
+        })
+      : undefined
+    const allRuns = criticRun ? [...runs, { workerId: "evidence_critic", run: criticRun }] : runs
+    const workerResults = allRuns.map((item) => item.run.result)
     const toolRequests = workerResults.flatMap((result) => result.toolRequests ?? [])
     const broker = toolRequests.length
       ? await runToolBroker({
@@ -259,7 +273,22 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
       plan: input.plan,
       injected,
       workerResults,
+      plannerDegraded,
     })
+
+    if (plannerDegraded && !dualPass.degraded) {
+      await writeOrchestratorDegraded({
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        stage: "planner",
+        reason: "planner_degraded_fallback",
+      })
+      return {
+        system: [...input.system, input.plan.dualPass?.unknownFirst ?? "unknown-first"],
+        tools: gatedTools,
+        degraded: true,
+      }
+    }
 
     return {
       system: [...input.system, dualPass.text],

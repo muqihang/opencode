@@ -38,8 +38,12 @@ const registry: Record<OrchestratorWorkerId, WorkerSpecItem> = {
 }
 
 const workerIds: OrchestratorWorkerId[] = ["evidence_critic", "retrieval_planner", "patch_planner"]
+const plannerIds: OrchestratorWorkerId[] = ["retrieval_planner", "patch_planner"]
 
 const isWorkerId = (workerId: string): workerId is OrchestratorWorkerId => workerIds.includes(workerId as OrchestratorWorkerId)
+
+export const isPlannerWorker = (workerId: string): workerId is Extract<OrchestratorWorkerId, "retrieval_planner" | "patch_planner"> =>
+  plannerIds.includes(workerId as OrchestratorWorkerId)
 
 const get = (workerId: string) => (isWorkerId(workerId) ? registry[workerId] : undefined)
 
