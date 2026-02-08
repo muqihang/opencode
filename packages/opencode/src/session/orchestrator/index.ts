@@ -5,6 +5,7 @@ import { LlmWorkerResult } from "@/protocol/llm-worker-result"
 import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import { WorkerRunner } from "./worker-runner"
+import { runDualPass } from "./dual-pass"
 import { runToolBroker } from "./tool-broker"
 
 type TurnInput = {
@@ -114,6 +115,57 @@ const buildRolePack = (input: {
   return rolePack
 }
 
+const criticReason = (input: { workerResults: LlmWorkerResult[] }) => {
+  const nonOk = input.workerResults.find((result) => result.status !== "ok")
+  if (!nonOk) return
+  return `worker status ${nonOk.status}`
+}
+
+const runInjectionDualPass = async (input: {
+  sessionId: string
+  messageId: string
+  plan: OrchestratorPlan
+  injected: string
+  workerResults: LlmWorkerResult[]
+}) => {
+  const policy = input.plan.dualPass
+  if (!policy?.enabled) return { text: input.injected, degraded: false }
+
+  const final = await runDualPass({
+    draft: async () => input.injected,
+    critic: async ({ draft }) => {
+      const reason = criticReason({ workerResults: input.workerResults })
+      if (reason) {
+        return {
+          specVersion: "dual-pass/1.0",
+          stage: "critic",
+          verdict: "degrade",
+          reason,
+          fallback: "draft",
+        }
+      }
+      return {
+        specVersion: "dual-pass/1.0",
+        stage: "critic",
+        verdict: "accept",
+        text: draft.text,
+      }
+    },
+    timeoutMs: policy.criticTimeoutMs,
+    unknownFirst: policy.unknownFirst,
+  })
+
+  if (final.stage === "final") return { text: final.text, degraded: false }
+
+  await writeOrchestratorDegraded({
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    stage: "dual_pass",
+    reason: `fallback=${final.degrade.fallback}; ${final.degrade.reason}`,
+  })
+  return { text: final.text, degraded: true }
+}
+
 const renderInjection = (input: {
   plan: OrchestratorPlan
   workerResults: LlmWorkerResult[]
@@ -200,10 +252,18 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
       pointers: extractPointers(broker),
     })
 
+    const dualPass = await runInjectionDualPass({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      plan: input.plan,
+      injected,
+      workerResults,
+    })
+
     return {
-      system: [...input.system, injected],
+      system: [...input.system, dualPass.text],
       tools: gatedTools,
-      degraded: false,
+      degraded: dualPass.degraded,
     }
   }
 

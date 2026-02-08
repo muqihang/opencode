@@ -33,6 +33,14 @@ const ToolPolicy = z
   })
   .strict()
 
+const DualPassPolicy = z
+  .object({
+    enabled: z.boolean(),
+    criticTimeoutMs: PositiveInt,
+    unknownFirst: z.string().min(1),
+  })
+  .strict()
+
 const Reason = z
   .object({
     code: z.string().min(1),
@@ -60,6 +68,7 @@ export const OrchestratorPlan = z
       .strict(),
     evidencePolicy: EvidencePolicy.optional(),
     toolPolicy: ToolPolicy,
+    dualPass: DualPassPolicy.optional(),
     reasons: z.array(Reason),
     inputsFingerprint: z
       .object({
