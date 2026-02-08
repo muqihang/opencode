@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
-import { extractA1Features, extractFeatures } from "../../src/session/orchestrator/features"
+import { extractA1Features, extractFeatures, extractScores } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
 import { defer } from "../../src/util/defer"
 
@@ -110,6 +110,71 @@ describe("orchestrator plan", () => {
         expect(withoutFileResult.plan.orchestratorMode).not.toBe("fork")
         expect(withFileResult.plan.orchestratorMode).toBe("fork")
         expect(withFile.features.hasWriteIntent || withFile.features.hasExecIntent).toBe(true)
+      },
+    })
+  })
+
+  test("score mode routing prefers scorer output over legacy thresholds", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const intentText = `请深度分析并制定完整方案 ${"context ".repeat(640)}`
+        const features = extractFeatures({
+          uxMode: "deep",
+          intentText,
+          hasFileParts: false,
+        })
+
+        const result = await buildPlan({
+          sessionId: "s-score-routing-priority",
+          messageId: "m-score-routing-priority",
+          features,
+          scores: {
+            complexity_score: 0.4,
+            risk_score: 0.2,
+            tool_need_score: 0.2,
+          },
+          toolsetFingerprint: "toolset-score-routing-priority",
+        })
+
+        expect(result.plan.orchestratorMode).toBe("assist")
+      },
+    })
+  })
+
+  test("score mode routing falls back to legacy mode when scores are missing", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const intentText = `请深度分析并制定完整方案 ${"context ".repeat(640)}`
+        const features = extractFeatures({
+          uxMode: "deep",
+          intentText,
+          hasFileParts: false,
+        })
+
+        const scored = await buildPlan({
+          sessionId: "s-score-routing-scored",
+          messageId: "m-score-routing-scored",
+          features,
+          scores: extractScores({
+            uxMode: "deep",
+            intentText,
+            hasFileParts: false,
+          }),
+          toolsetFingerprint: "toolset-score-routing-scored",
+        })
+        const legacy = await buildPlan({
+          sessionId: "s-score-routing-legacy",
+          messageId: "m-score-routing-legacy",
+          features,
+          toolsetFingerprint: "toolset-score-routing-legacy",
+        })
+
+        expect(scored.plan.orchestratorMode).toBe("heavy")
+        expect(legacy.plan.orchestratorMode).toBe("heavy")
       },
     })
   })

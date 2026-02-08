@@ -2,16 +2,23 @@ import { ulid } from "ulid"
 import { CachePolicy } from "@/cache/policy"
 import { CacheStore } from "@/cache/store"
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
-import { OrchestratorPlan, OrchestratorUxMode, OrchestratorMode } from "@/protocol/orchestrator-plan"
+import {
+  OrchestratorPlan,
+  OrchestratorUxMode,
+  OrchestratorMode,
+  type OrchestratorPlanScores,
+} from "@/protocol/orchestrator-plan"
 import { Instance } from "@/project/instance"
 import { sha256Text } from "@/routing/cache"
 import { stableJson } from "@/util/stable-json"
 import type { A1Features } from "./features"
+import { modeFromScores } from "./scorer"
 
 type BuildInput = {
   sessionId: string
   messageId: string
   features: OrchestratorFeatures
+  scores?: OrchestratorPlanScores
   toolsetFingerprint: string
   a1?: A1Features
   dualPassSynthesis?: boolean
@@ -81,18 +88,32 @@ const worker = (id: string): PlanWorker => ({
   budget: { timeoutMs: 1500 },
 })
 
+const resolveModeLegacy = (input: {
+  uxMode: OrchestratorUxMode
+  hasVerificationIntent: boolean
+  intentTokensEstimate: number
+}): OrchestratorMode => {
+  if (input.uxMode === "deep" && input.intentTokensEstimate >= HeavyIntentTokens) return "heavy"
+  if (input.hasVerificationIntent) return "assist"
+  if (input.uxMode === "deep" && input.intentTokensEstimate >= LargeIntentTokens) return "assist"
+  return "chat"
+}
+
 const resolveMode = (input: {
   uxMode: OrchestratorUxMode
   hasWriteIntent: boolean
   hasExecIntent: boolean
   hasVerificationIntent: boolean
   intentTokensEstimate: number
+  scores?: OrchestratorPlanScores
 }): OrchestratorMode => {
   if (input.hasWriteIntent || input.hasExecIntent) return "fork"
-  if (input.uxMode === "deep" && input.intentTokensEstimate >= HeavyIntentTokens) return "heavy"
-  if (input.hasVerificationIntent) return "assist"
-  if (input.uxMode === "deep" && input.intentTokensEstimate >= LargeIntentTokens) return "assist"
-  return "chat"
+  if (input.scores) return modeFromScores({ uxMode: input.uxMode, scores: input.scores })
+  return resolveModeLegacy({
+    uxMode: input.uxMode,
+    hasVerificationIntent: input.hasVerificationIntent,
+    intentTokensEstimate: input.intentTokensEstimate,
+  })
 }
 
 const resolveEvidencePolicy = (input: { uxMode: OrchestratorUxMode; hasVerificationIntent: boolean }) => {
@@ -175,8 +196,20 @@ const adaptiveWorkers = (input: {
     ...(over
       ? [
           {
+            code: "adaptive.ttc.guard.budget",
+            message: `budget guard active load=${load} cap=${cap}`,
+          },
+          {
             code: "adaptive.ttc.budget_overrun",
             message: `budget overrun load=${load} cap=${cap}`,
+          },
+        ]
+      : []),
+    ...(over && workers.length < scaled.length
+      ? [
+          {
+            code: "adaptive.ttc.early_stop",
+            message: "budget guard triggered early-stop on worker fanout",
           },
         ]
       : []),
@@ -198,6 +231,10 @@ const adaptiveWorkers = (input: {
       : []),
     ...(trip
       ? [
+          {
+            code: "adaptive.ttc.breaker.active",
+            message: `budget breaker active after ${trips} consecutive overruns`,
+          },
           {
             code: "adaptive.ttc.breaker.trip",
             message: `budget breaker tripped after ${trips} consecutive overruns`,
@@ -290,6 +327,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
       toolsetFingerprint: input.toolsetFingerprint,
       uxMode: feat.uxMode,
       evidencePolicy: evidencePolicy ?? null,
+      scores: input.scores ?? null,
       a1,
       dualPassSynthesis,
       versions: { stableJson: "v1" },
@@ -308,6 +346,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
       toolsetFingerprint: input.toolsetFingerprint,
       uxMode: feat.uxMode,
       evidencePolicy: evidencePolicy ?? null,
+      scores: input.scores ?? null,
       a1,
       dualPassSynthesis,
     },
@@ -326,6 +365,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
         hasExecIntent: feat.hasExecIntent,
         hasVerificationIntent: feat.hasVerificationIntent,
         intentTokensEstimate: feat.intentTokensEstimate,
+        scores: input.scores,
       })
 
       const budgets = {
@@ -380,6 +420,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
         evidencePolicy,
         toolPolicy,
         dualPass,
+        scores: input.scores,
         reasons: allReasons,
         inputsFingerprint: { sha256: inputsFingerprint },
       })

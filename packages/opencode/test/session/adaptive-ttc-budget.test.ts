@@ -28,6 +28,8 @@ describe("adaptive ttc budget gate", () => {
         expect(out.plan.orchestratorMode).toBe("heavy")
         expect(out.plan.workers.length).toBe(2)
         expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.degrade_3_to_2")).toBe(true)
+        expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.early_stop")).toBe(true)
+        expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.guard.budget")).toBe(true)
       },
     })
   })
@@ -60,7 +62,9 @@ describe("adaptive ttc budget gate", () => {
         expect(out.plan.orchestratorMode).toBe("heavy")
         expect(out.plan.workers.length).toBe(1)
         expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.degrade_2_to_1")).toBe(true)
+        expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.breaker.active")).toBe(true)
         expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.breaker.trip")).toBe(true)
+        expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.early_stop")).toBe(true)
       },
     })
   })
