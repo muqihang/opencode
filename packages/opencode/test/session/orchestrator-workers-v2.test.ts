@@ -74,11 +74,28 @@ describe("orchestrator workers v2", () => {
 
   test("patch_planner output is valid", async () => {
     const rolePack = pack({ pointers: ["ptr-a"], planPointer: "orchestrator/patch-planner/plan.json" })
-    const out = await patchPlanner({ rolePack })
+    const out = await patchPlanner(
+      { rolePack, model },
+      {
+        run: async () => ({
+          status: "ok",
+          object: {
+            status: "ok",
+            steps: ["Analyze target files and define edit order."],
+            risks: ["Policy drift might invalidate the planned patch scope."],
+            prerequisites: ["Role pack pointers are available before drafting edits."],
+          },
+        }),
+      },
+    )
     const result = LlmWorkerResult.parse(out)
 
     expect(result.status).toBe("ok")
-    expect(result.notes?.length ?? 0).toBeGreaterThan(0)
+    expect(result.notes?.some((item) => item.startsWith("steps:"))).toBe(true)
+    expect(result.notes?.some((item) => item.startsWith("risks:"))).toBe(true)
+    expect(result.notes?.some((item) => item.startsWith("prerequisites:"))).toBe(true)
+    expect(result.notes?.some((item) => item.includes("```"))).toBe(false)
+    expect(result.notes?.some((item) => /\b(?:bun|npm|pnpm|yarn|git)\b/i.test(item))).toBe(false)
   })
 
   test("planner workers do not perform direct side effects", async () => {
@@ -100,7 +117,20 @@ describe("orchestrator workers v2", () => {
         }),
       },
     )
-    await patchPlanner({ rolePack })
+    await patchPlanner(
+      { rolePack, model },
+      {
+        run: async () => ({
+          status: "ok",
+          object: {
+            status: "ok",
+            steps: ["Outline file-level patch strategy without execution details."],
+            risks: ["Scope ambiguity can impact patch precision."],
+            prerequisites: ["Policy and evidence pointers are loaded before planning."],
+          },
+        }),
+      },
+    )
 
     const after = await Bun.file(marker).text()
     expect(after).toBe("keep")

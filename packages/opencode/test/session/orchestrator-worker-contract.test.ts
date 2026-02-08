@@ -3,6 +3,7 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { WorkerRunner } from "../../src/session/orchestrator/worker-runner"
 import { evidenceCritic } from "../../src/session/orchestrator/workers/evidence-critic"
+import { patchPlanner } from "../../src/session/orchestrator/workers/patch-planner"
 import { LlmWorkerRolePack } from "../../src/protocol/llm-worker-role-pack"
 
 const pack = (input: { pointers: string[]; planPointer?: string }) =>
@@ -15,6 +16,34 @@ const pack = (input: { pointers: string[]; planPointer?: string }) =>
   })
 
 describe("orchestrator worker runner", () => {
+  test("patch planner no executable output degrades command style guidance", async () => {
+    const rolePack = pack({ pointers: ["p-strategy"], planPointer: "orchestrator/patch/no-exec-plan.json" })
+    const model = { providerID: "opencode", modelID: "gpt-5-nano" }
+
+    const out = await patchPlanner(
+      { rolePack, model },
+      {
+        run: async () => ({
+          status: "ok",
+          object: {
+            status: "ok",
+            steps: ["Run bun test --bail to verify patch"],
+            risks: ["No rollback coverage"],
+            prerequisites: ["Plan artifacts are available"],
+          },
+        }),
+        resolveModel: async () => model,
+      },
+    )
+
+    expect(out.status).toBe("degraded")
+    expect(out.notes?.some((note) => note.includes("```"))).toBe(false)
+    expect(out.notes?.some((note) => note.startsWith("steps:"))).toBe(true)
+    expect(out.notes?.some((note) => note.startsWith("risks:"))).toBe(true)
+    expect(out.notes?.some((note) => note.startsWith("prerequisites:"))).toBe(true)
+    expect(out.notes?.some((note) => /\b(?:bun|npm|pnpm|yarn|git|cd)\b/i.test(note))).toBe(false)
+  })
+
   test("cache hit avoids recompute", async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({
