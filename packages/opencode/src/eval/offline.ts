@@ -18,6 +18,8 @@ import { buildPlan } from "@/session/orchestrator/plan"
 import { runToolBroker } from "@/session/orchestrator/tool-broker"
 import { ToolRequest } from "@/protocol/llm-worker-result"
 import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
+import { z } from "zod"
+import { evaluateOfflineGate, OFFLINE_EVAL_SPEC, type OfflineGateResult } from "./offline-gate"
 
 type Status = "pass" | "fail" | "skip"
 
@@ -649,4 +651,246 @@ export const runOfflineEval = async (input: {
       } satisfies OfflineEvalResult
     },
   })
+}
+
+const OfflineEvalTotals = z
+  .object({
+    claims: z.number().int().nonnegative(),
+    unsupportedClaims: z.number().int().nonnegative(),
+    unknownPredictions: z.number().int().nonnegative(),
+    correctUnknownPredictions: z.number().int().nonnegative(),
+    citationChecks: z.number().int().nonnegative(),
+    validCitations: z.number().int().nonnegative(),
+    tasks: z.number().int().nonnegative(),
+    completedTasks: z.number().int().nonnegative(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.unsupportedClaims > value.claims) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unsupportedClaims cannot exceed claims",
+        path: ["unsupportedClaims"],
+      })
+    }
+    if (value.correctUnknownPredictions > value.unknownPredictions) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "correctUnknownPredictions cannot exceed unknownPredictions",
+        path: ["correctUnknownPredictions"],
+      })
+    }
+    if (value.validCitations > value.citationChecks) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "validCitations cannot exceed citationChecks",
+        path: ["validCitations"],
+      })
+    }
+    if (value.completedTasks > value.tasks) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "completedTasks cannot exceed tasks",
+        path: ["completedTasks"],
+      })
+    }
+  })
+
+export const OfflineEvalSuiteSchema = z.object({
+  specVersion: z.literal(OFFLINE_EVAL_SPEC),
+  id: z.string().min(1),
+  baselineTaskCompletion: z.number().min(0).max(1),
+  totals: OfflineEvalTotals,
+})
+
+export type OfflineEvalSuite = z.infer<typeof OfflineEvalSuiteSchema>
+
+export type OfflineEvalMetrics = {
+  unsupportedClaimRate: number
+  unknownPrecision: number
+  citationIntegrity: number
+  taskCompletion: number
+}
+
+export type OfflineEvalSuiteResult = {
+  id: string
+  baselineTaskCompletion: number
+  totals: OfflineEvalSuite["totals"]
+  metrics: OfflineEvalMetrics
+  gate: OfflineGateResult
+}
+
+export type OfflineEvalReport = {
+  specVersion: typeof OFFLINE_EVAL_SPEC
+  generatedAt: string
+  suiteDir: string
+  suites: OfflineEvalSuiteResult[]
+  aggregate: {
+    baselineTaskCompletion: number
+    totals: OfflineEvalSuite["totals"]
+    metrics: OfflineEvalMetrics
+  }
+  gate: OfflineGateResult
+  passed: boolean
+}
+
+const ratio = (numerator: number, denominator: number, fallback: number) =>
+  denominator === 0 ? fallback : Math.round((numerator / denominator) * 1_000_000) / 1_000_000
+
+const calcMetrics = (totals: OfflineEvalSuite["totals"]): OfflineEvalMetrics => ({
+  unsupportedClaimRate: ratio(totals.unsupportedClaims, totals.claims, 0),
+  unknownPrecision: ratio(totals.correctUnknownPredictions, totals.unknownPredictions, 1),
+  citationIntegrity: ratio(totals.validCitations, totals.citationChecks, 1),
+  taskCompletion: ratio(totals.completedTasks, totals.tasks, 0),
+})
+
+const reduceTotals = (items: OfflineEvalSuite[]): OfflineEvalSuite["totals"] =>
+  items.reduce(
+    (sum, item) => ({
+      claims: sum.claims + item.totals.claims,
+      unsupportedClaims: sum.unsupportedClaims + item.totals.unsupportedClaims,
+      unknownPredictions: sum.unknownPredictions + item.totals.unknownPredictions,
+      correctUnknownPredictions: sum.correctUnknownPredictions + item.totals.correctUnknownPredictions,
+      citationChecks: sum.citationChecks + item.totals.citationChecks,
+      validCitations: sum.validCitations + item.totals.validCitations,
+      tasks: sum.tasks + item.totals.tasks,
+      completedTasks: sum.completedTasks + item.totals.completedTasks,
+    }),
+    {
+      claims: 0,
+      unsupportedClaims: 0,
+      unknownPredictions: 0,
+      correctUnknownPredictions: 0,
+      citationChecks: 0,
+      validCitations: 0,
+      tasks: 0,
+      completedTasks: 0,
+    },
+  )
+
+const weightedBaseline = (items: OfflineEvalSuite[]) => {
+  const taskCount = items.reduce((sum, item) => sum + item.totals.tasks, 0)
+  if (taskCount > 0) {
+    const weighted = items.reduce((sum, item) => sum + item.baselineTaskCompletion * item.totals.tasks, 0)
+    return ratio(weighted, taskCount, 0)
+  }
+  const count = items.length
+  if (count === 0) return 0
+  const average = items.reduce((sum, item) => sum + item.baselineTaskCompletion, 0)
+  return ratio(average, count, 0)
+}
+
+export const loadOfflineEvalSuites = async (input: { suiteDir: string }) => {
+  const suiteDir = path.resolve(input.suiteDir)
+  const names = (await fs.readdir(suiteDir)).filter((name) => name.endsWith(".json")).toSorted()
+  if (names.length === 0) {
+    throw new Error(`offline eval suites not found: ${suiteDir}`)
+  }
+  return Promise.all(
+    names.map(async (name) => {
+      const abs = path.join(suiteDir, name)
+      const json = (await Bun.file(abs).json()) as unknown
+      const suite = OfflineEvalSuiteSchema.parse(json)
+      return suite
+    }),
+  )
+}
+
+const fmt = (value: number) => value.toFixed(4)
+
+const checkRow = (input: {
+  metric: string
+  check: {
+    cmp: "<=" | ">="
+    actual: number
+    threshold: number
+    ok: boolean
+  }
+}) => {
+  const mark = input.check.ok ? "pass" : "fail"
+  return `| ${input.metric} | ${fmt(input.check.actual)} | ${input.check.cmp} ${fmt(input.check.threshold)} | ${mark} |`
+}
+
+export const renderOfflineEvalSummary = (report: OfflineEvalReport) => {
+  const lines = [
+    "# Offline Eval Summary",
+    "",
+    `- specVersion: ${report.specVersion}`,
+    `- generatedAt: ${report.generatedAt}`,
+    `- suiteDir: ${report.suiteDir}`,
+    `- suites: ${report.suites.length}`,
+    `- gate: ${report.gate.passed ? "pass" : "fail"}`,
+    "",
+    "## Aggregate Metrics",
+    "",
+    `- unsupportedClaimRate: ${fmt(report.aggregate.metrics.unsupportedClaimRate)}`,
+    `- unknownPrecision: ${fmt(report.aggregate.metrics.unknownPrecision)}`,
+    `- citationIntegrity: ${fmt(report.aggregate.metrics.citationIntegrity)}`,
+    `- taskCompletion: ${fmt(report.aggregate.metrics.taskCompletion)} (baseline ${fmt(report.aggregate.baselineTaskCompletion)})`,
+    "",
+    "## Gate Checks",
+    "",
+    "| metric | actual | threshold | status |",
+    "| --- | ---: | ---: | --- |",
+    checkRow({ metric: "unsupportedClaimRate", check: report.gate.checks.unsupportedClaimRate }),
+    checkRow({ metric: "unknownPrecision", check: report.gate.checks.unknownPrecision }),
+    checkRow({ metric: "citationIntegrity", check: report.gate.checks.citationIntegrity }),
+    checkRow({ metric: "taskCompletion", check: report.gate.checks.taskCompletion }),
+  ]
+  return `${lines.join("\n")}\n`
+}
+
+export const runOfflineGateEval = async (input: {
+  suiteDir: string
+  reportPath: string
+  summaryPath: string
+}) => {
+  const suites = await loadOfflineEvalSuites({ suiteDir: input.suiteDir })
+  const suiteResults = suites.map((suite) => {
+    const metrics = calcMetrics(suite.totals)
+    const gate = evaluateOfflineGate({
+      unsupportedClaimRate: metrics.unsupportedClaimRate,
+      unknownPrecision: metrics.unknownPrecision,
+      citationIntegrity: metrics.citationIntegrity,
+      taskCompletion: metrics.taskCompletion,
+      baselineTaskCompletion: suite.baselineTaskCompletion,
+    })
+    return {
+      id: suite.id,
+      baselineTaskCompletion: suite.baselineTaskCompletion,
+      totals: suite.totals,
+      metrics,
+      gate,
+    } satisfies OfflineEvalSuiteResult
+  })
+
+  const totals = reduceTotals(suites)
+  const baselineTaskCompletion = weightedBaseline(suites)
+  const aggregateMetrics = calcMetrics(totals)
+  const gate = evaluateOfflineGate({
+    unsupportedClaimRate: aggregateMetrics.unsupportedClaimRate,
+    unknownPrecision: aggregateMetrics.unknownPrecision,
+    citationIntegrity: aggregateMetrics.citationIntegrity,
+    taskCompletion: aggregateMetrics.taskCompletion,
+    baselineTaskCompletion,
+  })
+
+  const report = {
+    specVersion: OFFLINE_EVAL_SPEC,
+    generatedAt: new Date().toISOString(),
+    suiteDir: path.resolve(input.suiteDir),
+    suites: suiteResults,
+    aggregate: {
+      baselineTaskCompletion,
+      totals,
+      metrics: aggregateMetrics,
+    },
+    gate,
+    passed: gate.passed,
+  } satisfies OfflineEvalReport
+
+  await fs.mkdir(path.dirname(input.reportPath), { recursive: true })
+  await fs.mkdir(path.dirname(input.summaryPath), { recursive: true })
+  await Bun.write(input.reportPath, stableJson(report))
+  await Bun.write(input.summaryPath, renderOfflineEvalSummary(report))
+  return report
 }

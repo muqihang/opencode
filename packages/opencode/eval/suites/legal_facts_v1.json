@@ -1,0 +1,15 @@
+{
+  "specVersion": "offline-eval/1.0",
+  "id": "legal_facts_v1",
+  "baselineTaskCompletion": 0.9,
+  "totals": {
+    "claims": 400,
+    "unsupportedClaims": 12,
+    "unknownPredictions": 120,
+    "correctUnknownPredictions": 108,
+    "citationChecks": 500,
+    "validCitations": 490,
+    "tasks": 300,
+    "completedTasks": 264
+  }
+}
