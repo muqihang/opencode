@@ -16,59 +16,69 @@ type EvidencePointers = {
   topK: Array<{ path: string; sha256: string }>
 }
 
+type Hydration = "pointer" | "full"
+
 type BlockTemplate = {
   id: string
   kind: ContextPackType["segments"][number]["kind"]
   priority: ContextPackType["segments"][number]["priority"]
   tokenEstimate: number
-  preview: string
+  preview?: string
 }
 
 const preview = (text: string) => text.trim().slice(0, 200)
 
-const buildBlockTemplates = (blocks: ContextBlocks.Result): BlockTemplate[] => {
+const buildBlockTemplates = (blocks: ContextBlocks.Result, hydration: Hydration = "pointer"): BlockTemplate[] => {
   ContextPackStats.segmentsBuilt += 1
   return blocks.blocks.map((block) => ({
     id: block.id,
     kind: block.kind,
     priority: block.priority,
     tokenEstimate: Token.estimate(block.text),
-    preview: preview(block.text),
+    preview: hydration === "full" ? preview(block.text) : undefined,
   }))
 }
 
 const buildSegmentsFromTemplates = (input: { blocks: ContextBlocks.Result; templates: BlockTemplate[] }) => {
   return input.templates.map((t, index) => {
     const source = input.blocks.blocks[index]?.source
-    return {
+    const segment = {
       id: t.id,
       kind: t.kind,
       priority: t.priority,
       tokenEstimate: t.tokenEstimate,
       sources: source ? [source] : [],
-      preview: t.preview,
     } satisfies ContextPackType["segments"][number]
+    return t.preview ? { ...segment, preview: t.preview } : segment
   })
 }
 
-const buildBlockSegments = (blocks: ContextBlocks.Result): ContextPackType["segments"] => {
-  const templates = buildBlockTemplates(blocks)
+const buildBlockSegments = (blocks: ContextBlocks.Result, hydration: Hydration = "pointer"): ContextPackType["segments"] => {
+  const templates = buildBlockTemplates(blocks, hydration)
   return buildSegmentsFromTemplates({ blocks, templates })
 }
 
-const buildEvidenceSegment = (evidence: EvidencePointers) => {
+const buildEvidenceSegment = (evidence: EvidencePointers, hydration: Hydration = "pointer") => {
   const artifactLines = evidence.artifacts.map((item) => `- ${item.path} (${item.sha256})`)
   const topLines = evidence.topK.map((item) => `- ${item.path} (${item.sha256})`)
-  const lines = [
-    "retrieval",
-    `cacheKey: ${evidence.retrievalCacheKey}`,
-    `summary: total=${evidence.summary.total} code=${evidence.summary.code} workbench=${evidence.summary.workbench}`,
-    "artifacts:",
-    ...artifactLines,
-    "topK:",
-    ...topLines,
-  ]
-  const text = lines.join("\n")
+  const text =
+    hydration === "full"
+      ? [
+          "retrieval",
+          `cacheKey: ${evidence.retrievalCacheKey}`,
+          `summary: total=${evidence.summary.total} code=${evidence.summary.code} workbench=${evidence.summary.workbench}`,
+          "artifacts:",
+          ...artifactLines,
+          "topK:",
+          ...topLines,
+        ].join("\n")
+      : [
+          "retrieval pointers",
+          `cacheKey: ${evidence.retrievalCacheKey}`,
+          `summary: total=${evidence.summary.total} code=${evidence.summary.code} workbench=${evidence.summary.workbench}`,
+          `artifacts: ${evidence.artifacts.length}`,
+          `topK: ${evidence.topK.length}`,
+        ].join("\n")
   return {
     id: "seg:evidence",
     kind: "evidence_pointers" as const,
@@ -135,6 +145,7 @@ export const ContextPackBuilder = {
     previousContextPackId?: string
     ledgerNotes?: string
     createdAtUtc?: string
+    hydration?: Hydration
     evidencePointers?: {
       retrievalId: string
       retrievalCacheKey: string
@@ -149,8 +160,9 @@ export const ContextPackBuilder = {
     const output = input.maxOutputTokens ?? input.model.limit.output
     const rawBudget = input.model.limit.input ?? maxTokens - output
     const budgetTokens = Math.max(1, Math.min(maxTokens, rawBudget))
-    const segments = buildBlockSegments(input.blocks)
-    if (input.evidencePointers) segments.push(buildEvidenceSegment(input.evidencePointers))
+    const hydration = input.hydration ?? "pointer"
+    const segments = buildBlockSegments(input.blocks, hydration)
+    if (input.evidencePointers) segments.push(buildEvidenceSegment(input.evidencePointers, hydration))
     const total = segments.reduce((sum, segment) => sum + segment.tokenEstimate, 0)
     return ContextPack.parse({
       specVersion: "context-pack/1.0",
