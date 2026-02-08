@@ -1,0 +1,15 @@
+{
+  "specVersion": "offline-eval/1.0",
+  "id": "sales_reasoning_v1",
+  "baselineTaskCompletion": 0.88,
+  "totals": {
+    "claims": 250,
+    "unsupportedClaims": 10,
+    "unknownPredictions": 80,
+    "correctUnknownPredictions": 70,
+    "citationChecks": 300,
+    "validCitations": 288,
+    "tasks": 200,
+    "completedTasks": 172
+  }
+}
