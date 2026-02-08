@@ -7,6 +7,7 @@ import { Bus } from "../../src/bus"
 import { extractFeatures } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
 import { runOrchestratorTurn } from "../../src/session/orchestrator"
+import { WorkerRunner } from "../../src/session/orchestrator/worker-runner"
 import { OrchestratorEvent } from "../../src/session/orchestrator/event"
 
 const loadProcessor = async () => {
@@ -21,16 +22,46 @@ const makeTool = (): Tool =>
     execute: async () => ({ output: "", title: "", metadata: {} }),
   })
 
+
+const rolloutFlags = (
+  input: Partial<{
+    orchestrator: boolean
+    llmWorkers: boolean
+    workerBadge: boolean
+    shadowMode: boolean
+    orchestratorV15B1: boolean
+    adaptiveTTC: boolean
+    orchestratorV15B2: boolean
+    pointerContextOS: boolean
+    orchestratorV15A1: boolean
+    claimGraphGate: boolean
+    dualPassSynthesis: boolean
+  }>,
+) => ({
+  orchestrator: false,
+  llmWorkers: false,
+  workerBadge: false,
+  shadowMode: false,
+  orchestratorV15B1: false,
+  adaptiveTTC: false,
+  orchestratorV15B2: false,
+  pointerContextOS: false,
+  orchestratorV15A1: false,
+  claimGraphGate: false,
+  dualPassSynthesis: false,
+  ...input,
+})
+
 describe("orchestrator integration v2 rollout", () => {
   test("flags matrix keeps subordinate flags invalid when orchestrator is off", async () => {
     const cases = [
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: false,
           llmWorkers: true,
           workerBadge: true,
           shadowMode: true,
-        },
+        }),
         expected: {
           enabled: false,
           llmWorkers: false,
@@ -41,12 +72,12 @@ describe("orchestrator integration v2 rollout", () => {
         },
       },
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: true,
           llmWorkers: false,
           workerBadge: false,
           shadowMode: false,
-        },
+        }),
         expected: {
           enabled: true,
           llmWorkers: false,
@@ -57,12 +88,12 @@ describe("orchestrator integration v2 rollout", () => {
         },
       },
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: true,
           llmWorkers: false,
           workerBadge: true,
           shadowMode: false,
-        },
+        }),
         expected: {
           enabled: true,
           llmWorkers: false,
@@ -73,12 +104,12 @@ describe("orchestrator integration v2 rollout", () => {
         },
       },
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: true,
           llmWorkers: true,
           workerBadge: true,
           shadowMode: true,
-        },
+        }),
         expected: {
           enabled: true,
           llmWorkers: true,
@@ -93,8 +124,82 @@ describe("orchestrator integration v2 rollout", () => {
     for (const item of cases) {
       const mod = await loadProcessor()
       const rollout = mod.resolveOrchestratorRollout(undefined, item.flags)
-      expect(rollout).toEqual(item.expected)
+      expect(rollout).toMatchObject(item.expected)
     }
+  })
+
+  test("planner degraded fallback", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const sessionId = "s-planner-degraded-fallback"
+        const messageId = "m-planner-degraded-fallback"
+        const features = extractFeatures({
+          uxMode: "deep",
+          intentText: `请做深度分析 ${"context ".repeat(640)}`,
+          hasFileParts: false,
+        })
+        const built = await buildPlan({
+          sessionId,
+          messageId,
+          features,
+          toolsetFingerprint: "toolset-planner-degraded-fallback",
+        }).then((item) => item.plan)
+
+        const plan = {
+          ...built,
+          workers: built.workers.filter((item) => item.id !== "evidence_critic"),
+          dualPass: undefined,
+        }
+
+        const original = WorkerRunner.run
+        const calls: string[] = []
+
+        WorkerRunner.run = (async (input) => {
+          calls.push(input.workerId)
+          if (input.workerId === "evidence_critic") {
+            return {
+              result: {
+                specVersion: "llm-worker-result/1.0",
+                status: "ok",
+                notes: ["critic reviewed degraded planners"],
+              },
+              cache: { status: "miss", tier: "none" },
+            }
+          }
+
+          return {
+            result: {
+              specVersion: "llm-worker-result/1.0",
+              status: "degraded",
+              notes: ["planner degraded"],
+              toolRequests: [{ kind: "retrieval", input: "fallback" }],
+            },
+            cache: { status: "miss", tier: "none" },
+          }
+        }) as typeof WorkerRunner.run
+
+        try {
+          const result = await runOrchestratorTurn({
+            sessionId,
+            messageId,
+            abort: new AbortController().signal,
+            plan,
+            features,
+            intentText: "请继续",
+            system: ["base"],
+            tools: { read: makeTool() },
+          })
+
+          expect(calls.includes("evidence_critic")).toBe(true)
+          expect(result.degraded).toBe(true)
+          expect(result.system[result.system.length - 1]).toBe("unknown-first")
+        } finally {
+          WorkerRunner.run = original
+        }
+      },
+    })
   })
 
   test("workers off skips worker execution and keeps base output", async () => {

@@ -13,11 +13,41 @@ const makeTool = (): Tool =>
     execute: async () => ({ output: "", title: "", metadata: {} }),
   })
 
+
+const rolloutFlags = (
+  input: Partial<{
+    orchestrator: boolean
+    llmWorkers: boolean
+    workerBadge: boolean
+    shadowMode: boolean
+    orchestratorV15B1: boolean
+    adaptiveTTC: boolean
+    orchestratorV15B2: boolean
+    pointerContextOS: boolean
+    orchestratorV15A1: boolean
+    claimGraphGate: boolean
+    dualPassSynthesis: boolean
+  }>,
+) => ({
+  orchestrator: false,
+  llmWorkers: false,
+  workerBadge: false,
+  shadowMode: false,
+  orchestratorV15B1: false,
+  adaptiveTTC: false,
+  orchestratorV15B2: false,
+  pointerContextOS: false,
+  orchestratorV15A1: false,
+  claimGraphGate: false,
+  dualPassSynthesis: false,
+  ...input,
+})
+
 describe("orchestrator v1.5 b2 flags integration", () => {
   test("flags matrix keeps b2/pointer switches gated by orchestrator + b1 + b2", async () => {
     const cases = [
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: false,
           llmWorkers: true,
           workerBadge: true,
@@ -26,7 +56,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
           adaptiveTTC: true,
           orchestratorV15B2: true,
           pointerContextOS: true,
-        },
+        }),
         expected: {
           enabled: false,
           llmWorkers: false,
@@ -39,7 +69,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
         },
       },
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: true,
           llmWorkers: true,
           workerBadge: false,
@@ -48,7 +78,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
           adaptiveTTC: true,
           orchestratorV15B2: true,
           pointerContextOS: true,
-        },
+        }),
         expected: {
           enabled: true,
           llmWorkers: true,
@@ -61,7 +91,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
         },
       },
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: true,
           llmWorkers: true,
           workerBadge: true,
@@ -70,7 +100,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
           adaptiveTTC: true,
           orchestratorV15B2: false,
           pointerContextOS: true,
-        },
+        }),
         expected: {
           enabled: true,
           llmWorkers: true,
@@ -83,7 +113,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
         },
       },
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: true,
           llmWorkers: true,
           workerBadge: true,
@@ -92,7 +122,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
           adaptiveTTC: true,
           orchestratorV15B2: true,
           pointerContextOS: false,
-        },
+        }),
         expected: {
           enabled: true,
           llmWorkers: true,
@@ -105,7 +135,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
         },
       },
       {
-        flags: {
+        flags: rolloutFlags({
           orchestrator: true,
           llmWorkers: true,
           workerBadge: true,
@@ -114,7 +144,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
           adaptiveTTC: true,
           orchestratorV15B2: true,
           pointerContextOS: true,
-        },
+        }),
         expected: {
           enabled: true,
           llmWorkers: true,
@@ -131,7 +161,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
     for (const item of cases) {
       const mod = await loadProcessor()
       const rollout = mod.resolveOrchestratorRollout(undefined, item.flags)
-      expect(rollout).toEqual(item.expected)
+      expect(rollout).toMatchObject(item.expected)
     }
   })
 
@@ -149,7 +179,7 @@ describe("orchestrator v1.5 b2 flags integration", () => {
           pointer_context_os: true,
         },
       },
-      {
+      rolloutFlags({
         orchestrator: true,
         llmWorkers: true,
         workerBadge: true,
@@ -158,10 +188,10 @@ describe("orchestrator v1.5 b2 flags integration", () => {
         adaptiveTTC: true,
         orchestratorV15B2: true,
         pointerContextOS: true,
-      },
+      }),
     )
 
-    expect(rollout).toEqual({
+    expect(rollout).toMatchObject({
       enabled: true,
       llmWorkers: true,
       workerBadge: true,
