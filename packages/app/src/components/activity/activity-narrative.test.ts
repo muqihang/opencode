@@ -176,6 +176,62 @@ describe("activity-narrative", () => {
       expect(result.titleZh).toContain("新任务接管")
     })
   })
+
+  describe("worker lifecycle narrative", () => {
+    it("maps lifecycle phase + worker role to user semantics", () => {
+      const cases = [
+        { workerID: "unknown_worker", phase: "running", text: "分析中" },
+        { workerID: "retrieval_planner", phase: "running", text: "检索中" },
+        { workerID: "patch_planner", phase: "running", text: "规划中" },
+        { workerID: "evidence_critic", phase: "running", text: "验证中" },
+        { workerID: "evidence_critic", phase: "degraded", text: "已降级" },
+      ] as const
+
+      for (const c of cases) {
+        const item = mockItem({
+          category: "other",
+          status: "done",
+          events: [
+            mockEvent({
+              type: "orchestrator.worker.lifecycle",
+              summary: "worker lifecycle",
+              data: { workerID: c.workerID, phase: c.phase, reason: "worker_degraded" },
+            }),
+          ],
+        })
+
+        const result = mapActivityItem(item)
+        expect(result.titleZh).toContain(c.text)
+      }
+    })
+
+    it("keeps summary + reason code only, hides stack/reasoning raw text", () => {
+      const item = mockItem({
+        category: "other",
+        status: "done",
+        summary: "worker lifecycle",
+        events: [
+          mockEvent({
+            type: "orchestrator.worker.lifecycle",
+            summary: "worker lifecycle",
+            data: {
+              workerID: "retrieval_planner",
+              phase: "degraded",
+              reason: "worker_degraded",
+              stack: "Error: boom\\n at worker.ts:10:2",
+              reasoning: "hidden chain of thought text",
+            },
+          }),
+        ],
+      })
+
+      const result = mapActivityItem(item)
+      expect(result.subtitleZh).toContain("worker lifecycle")
+      expect(result.subtitleZh).toContain("worker_degraded")
+      expect(result.subtitleZh).not.toContain("Error: boom")
+      expect(result.subtitleZh).not.toContain("hidden chain of thought")
+    })
+  })
   
   describe("context narrative", () => {
     it("maps context.pack_built", () => {
