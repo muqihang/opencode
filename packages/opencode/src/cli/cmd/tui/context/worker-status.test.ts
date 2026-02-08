@@ -120,9 +120,24 @@ describe("worker status", () => {
   })
 
   test("formats hint for each visible phase", () => {
-    expect(formatWorkerHint({ triggered: true, phase: "running", workers: {} })).toBe("本轮 worker 已触发 · 运行中")
-    expect(formatWorkerHint({ triggered: true, phase: "completed", workers: {} })).toBe("本轮 worker 已触发 · 已完成")
-    expect(formatWorkerHint({ triggered: true, phase: "degraded", workers: {} })).toBe("本轮 worker 已触发 · 已降级")
+    expect(formatWorkerHint({ triggered: true, phase: "running", workers: {} })).toContain("协助过程")
+    expect(formatWorkerHint({ triggered: true, phase: "running", workers: {} })).toContain("进行中")
+    expect(formatWorkerHint({ triggered: true, phase: "completed", workers: {} })).toContain("协助过程")
+    expect(formatWorkerHint({ triggered: true, phase: "completed", workers: {} })).toContain("已完成")
+    expect(formatWorkerHint({ triggered: true, phase: "degraded", workers: {} })).toContain("协助过程")
+    expect(formatWorkerHint({ triggered: true, phase: "degraded", workers: {} })).toContain("已降级")
+  })
+
+  test("formats role level progress with user friendly labels", () => {
+    const turn = mergeWorkerTurn(undefined, {
+      sessionID: "ses_1",
+      messageID: "msg_1",
+      workerID: "retrieval_planner",
+      phase: "running",
+    })
+    const text = formatWorkerHint(turn)
+    expect(text).toContain("检索规划")
+    expect(text).toContain("进行中")
   })
 
   test("formats no hint when turn has no worker events", () => {

@@ -110,11 +110,47 @@ describe("worker-lifecycle", () => {
     expect(summary).toBeDefined()
 
     const badge = workerBadge(summary!)
-    expect(badge.text.includes("本轮 worker 已触发")).toBe(true)
-    expect(badge.phase).toBe("已降级")
-    expect(badge.counts).toContain("运行 1")
-    expect(badge.counts).toContain("完成 1")
-    expect(badge.counts).toContain("降级 1")
+    expect(badge.text.includes("协助过程")).toBe(true)
+    expect(badge.phase).toBe("已降级（继续回答）")
+    expect(badge.counts).toContain("进行中 1")
+    expect(badge.counts).toContain("已完成 1")
+    expect(badge.counts).toContain("已降级 1")
+  })
+
+  test("workerBadge exposes user friendly role progress", () => {
+    const summary = groupWorkerLifecycleByMessage([
+      event({ ts: "2026-02-01T00:00:00.000Z", messageId: "m6", workerId: "retrieval_planner", phase: "running" }),
+      event({ ts: "2026-02-01T00:00:01.000Z", messageId: "m6", workerId: "patch_planner", phase: "completed" }),
+      event({ ts: "2026-02-01T00:00:02.000Z", messageId: "m6", workerId: "evidence_critic", phase: "planned" }),
+    ]).get("m6")
+
+    expect(summary).toBeDefined()
+    const badge = workerBadge(summary!)
+    expect(badge.roles).toContain("检索规划：进行中")
+    expect(badge.roles).toContain("修改规划：已完成")
+    expect(badge.roles).toContain("证据审查：已启动")
+  })
+
+  test("readWorkerLifecycle keeps safe reason code and no model routing fields", () => {
+    const parsed = readWorkerLifecycle({
+      type: "orchestrator.worker.lifecycle",
+      properties: {
+        sessionID: "s3",
+        messageID: "m3",
+        workerID: "w3",
+        phase: "degraded",
+        reason: "worker_degraded",
+      },
+    })
+
+    expect(parsed).toEqual({
+      sessionID: "s3",
+      messageID: "m3",
+      workerID: "w3",
+      phase: "degraded",
+      attempt: 1,
+      reason: "worker_degraded",
+    })
   })
 
   test("readWorkerLifecycle parses canonical and legacy payloads", () => {

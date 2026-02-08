@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Bus } from "../../src/bus"
+import { EvidenceReader } from "../../src/evidence/reader"
 import { Instance } from "../../src/project/instance"
 import { LlmWorkerRolePack } from "../../src/protocol/llm-worker-role-pack"
 import { OrchestratorEvent } from "../../src/session/orchestrator/event"
@@ -89,7 +90,7 @@ describe("orchestrator worker runner lifecycle events", () => {
 
         expect(output.result.status).toBe("degraded")
         expect(events.map((item) => item.phase)).toEqual(["planned", "running", "degraded"])
-        expect(events[2]?.reason?.includes("compute boom")).toBe(true)
+        expect(events[2]?.reason).toBe("worker_compute_failed")
       },
     })
   })
@@ -141,6 +142,37 @@ describe("orchestrator worker runner lifecycle events", () => {
         const completed = events.filter((item) => item.phase === "completed")
         const hit = completed.find((item) => item.cache?.status === "hit")
         expect(hit?.cache?.tier === "memory" || hit?.cache?.tier === "disk").toBe(true)
+      },
+    })
+  })
+
+  test("writes lifecycle events into evidence for replay", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const sessionID = "s-events-evidence"
+        const workerID = "evidence_critic"
+        const messageID = "m-events-evidence"
+        const rolePack = pack({ pointers: ["ptr-1"], planPointer: "orchestrator/plan-events-evidence/plan.json" })
+
+        await WorkerRunner.run({
+          sessionId: sessionID,
+          messageId: messageID,
+          workerId: workerID,
+          rolePack,
+          compute: async () => ({
+            specVersion: "llm-worker-result/1.0",
+            status: "ok",
+            notes: ["ok"],
+          }),
+        })
+
+        const evidence = await EvidenceReader.readEvents(sessionID, { cursor: 0, limit: 200 })
+        const lifecycle = evidence.events.filter((item) => item.type === "orchestrator.worker.lifecycle")
+
+        expect(lifecycle.length).toBeGreaterThanOrEqual(3)
+        expect(lifecycle.every((item) => item.data?.messageID === messageID)).toBe(true)
       },
     })
   })
@@ -208,7 +240,7 @@ describe("orchestrator worker runner lifecycle events", () => {
     })
   })
 
-  test("degraded lifecycle carries model gate observability fields", async () => {
+  test("degraded lifecycle uses safe reason code and omits model debug routing", async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({
       directory: fixture.path,
@@ -250,9 +282,10 @@ describe("orchestrator worker runner lifecycle events", () => {
 
         expect(output.result.status).toBe("degraded")
         const degraded = events.find((item) => item.phase === "degraded")
-        expect(degraded?.fromModel).toBe("openai/gpt-5")
-        expect(degraded?.toModel).toBe("opencode/gpt-5-nano")
-        expect(degraded?.gateReason).toBe("error_degraded")
+        expect(degraded?.reason).toBe("worker_degraded")
+        expect(degraded?.fromModel).toBeUndefined()
+        expect(degraded?.toModel).toBeUndefined()
+        expect(degraded?.gateReason).toBeUndefined()
       },
     })
   })

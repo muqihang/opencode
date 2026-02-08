@@ -7,6 +7,7 @@ import { EvidenceReader } from "../../src/evidence/reader"
 import { extractFeatures } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
 import { runOrchestratorTurn } from "../../src/session/orchestrator"
+import { WorkerRunner } from "../../src/session/orchestrator/worker-runner"
 import type { Tool } from "ai"
 import { tool, jsonSchema } from "ai"
 
@@ -112,6 +113,57 @@ describe("orchestrator turn runner", () => {
         const rolePack = await Bun.file(rolePackPath).json()
         expect(String(rolePack.planPointer).includes("intent:")).toBe(true)
         expect(String(rolePack.planPointer).includes(keyword)).toBe(true)
+      },
+    })
+  })
+
+  test("assist mode binds worker lifecycle to current message", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "session-orch-bind"
+        const messageId = "msg-orch-bind"
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText: "请先做高风险证据核验再回答",
+          hasFileParts: false,
+        })
+        const plan = await buildPlan({
+          sessionId,
+          messageId,
+          features,
+          toolsetFingerprint: "toolset-bind",
+        }).then((res) => res.plan)
+
+        const captured: Array<Parameters<typeof WorkerRunner.run>[0]> = []
+        const original = WorkerRunner.run
+        WorkerRunner.run = (async (input) => {
+          captured.push(input)
+          return {
+            result: {
+              specVersion: "llm-worker-result/1.0",
+              status: "ok",
+            },
+            cache: { status: "miss", tier: "none" },
+          }
+        }) as typeof WorkerRunner.run
+
+        await runOrchestratorTurn({
+          sessionId,
+          messageId,
+          abort: new AbortController().signal,
+          plan,
+          features,
+          intentText: "请先做高风险证据核验再回答",
+          system: [],
+          tools: { read: makeTool() },
+        })
+
+        WorkerRunner.run = original
+
+        expect(captured.length).toBeGreaterThan(0)
+        expect(captured[0]?.messageId).toBe(messageId)
       },
     })
   })
