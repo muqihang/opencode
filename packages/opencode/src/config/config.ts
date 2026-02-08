@@ -448,6 +448,16 @@ export namespace Config {
     }
   }
 
+  const PluginPolicyAction = z.enum(["allow", "ask", "deny"])
+  const PluginPolicyMap = z.record(z.string(), PluginPolicyAction)
+  const PluginPolicy = z
+    .object({
+      core: PluginPolicyMap.optional(),
+      tenant: PluginPolicyMap.optional(),
+      runtimeHint: PluginPolicyMap.optional(),
+    })
+    .strict()
+
   export function filterPlugins(plugins: string[], product?: ProductConfig): string[] {
     const mode = product?.mode
     if (!mode) return plugins
@@ -975,6 +985,9 @@ export namespace Config {
         })
         .optional(),
       plugin: z.string().array().optional(),
+      pluginPolicy: PluginPolicy.optional().describe(
+        "Plugin policy overlays used for manifest policy patch governance (core > tenant > plugin > runtime hint)",
+      ),
       product: z
         .object({
           mode: z.enum(["base", "programming", "legal", "marxism"]).optional().describe("User-facing product mode selector"),

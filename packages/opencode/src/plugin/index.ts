@@ -11,6 +11,8 @@ import { CodexAuthPlugin } from "./codex"
 import { Session } from "../session"
 import { NamedError } from "@opencode-ai/util/error"
 import { CopilotAuthPlugin } from "./copilot"
+import { Installation } from "@/installation"
+import { validatePluginContract } from "./contract"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
@@ -19,6 +21,62 @@ export namespace Plugin {
 
   // Built-in plugins that are directly imported (not installed from npm)
   const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, CopilotAuthPlugin]
+
+  const normalizePolicy = <T extends Record<string, unknown>>(value?: T): T | undefined => {
+    if (!value) return undefined
+    if (Object.keys(value).length === 0) return undefined
+    return value
+  }
+
+  const publishContractError = (input: {
+    specifier: string
+    resolved: string
+    reason: string
+    detail?: string
+    conflicts: unknown
+  }) => {
+    log.warn("plugin disabled by contract", {
+      plugin: input.specifier,
+      resolved: input.resolved,
+      reason: input.reason,
+      detail: input.detail,
+      conflicts: input.conflicts,
+    })
+
+    const detail = input.detail ? ` detail=${input.detail}` : ""
+    const message = `Plugin ${input.specifier} disabled: ${input.reason}.${detail}`
+    Bus.publish(Session.Event.Error, {
+      error: new NamedError.Unknown({
+        message,
+      }).toObject(),
+    })
+  }
+
+  const loadPlugin = async (input: { plugin: string; builtin: boolean }) => {
+    if (input.plugin.startsWith("file://")) return input.plugin
+
+    const lastAtIndex = input.plugin.lastIndexOf("@")
+    const pkg = lastAtIndex > 0 ? input.plugin.substring(0, lastAtIndex) : input.plugin
+    const version = lastAtIndex > 0 ? input.plugin.substring(lastAtIndex + 1) : "latest"
+
+    return BunProc.install(pkg, version).catch((err) => {
+      if (!input.builtin) throw err
+
+      const message = err instanceof Error ? err.message : String(err)
+      log.error("failed to install builtin plugin", {
+        pkg,
+        version,
+        error: message,
+      })
+      Bus.publish(Session.Event.Error, {
+        error: new NamedError.Unknown({
+          message: `Failed to install built-in plugin ${pkg}@${version}: ${message}`,
+        }).toObject(),
+      })
+
+      return ""
+    })
+  }
 
   const state = Instance.state(async () => {
     const client = createOpencodeClient({
@@ -48,48 +106,64 @@ export namespace Plugin {
       plugins.push(...BUILTIN)
     }
 
-    for (let plugin of plugins) {
+    const corePolicy = normalizePolicy({
+      ...(config.pluginPolicy?.core ?? {}),
+      ...(Flag.OPENCODE_PLUGIN_POLICY_CORE ?? {}),
+    })
+    const runtimeHint = normalizePolicy({
+      ...(config.pluginPolicy?.runtimeHint ?? {}),
+      ...(Flag.OPENCODE_PLUGIN_POLICY_RUNTIME_HINT ?? {}),
+    })
+
+    for (const specifier of plugins) {
       // Ignore legacy auth plugins (first-party now).
       if (
-        !plugin.startsWith("file://") &&
-        (plugin === "opencode-openai-codex-auth" ||
-          plugin.startsWith("opencode-openai-codex-auth@") ||
-          plugin === "opencode-copilot-auth" ||
-          plugin.startsWith("opencode-copilot-auth@"))
+        !specifier.startsWith("file://") &&
+        (specifier === "opencode-openai-codex-auth" ||
+          specifier.startsWith("opencode-openai-codex-auth@") ||
+          specifier === "opencode-copilot-auth" ||
+          specifier.startsWith("opencode-copilot-auth@"))
       ) {
         continue
       }
-      log.info("loading plugin", { path: plugin })
-      if (!plugin.startsWith("file://")) {
-        const lastAtIndex = plugin.lastIndexOf("@")
-        const pkg = lastAtIndex > 0 ? plugin.substring(0, lastAtIndex) : plugin
-        const version = lastAtIndex > 0 ? plugin.substring(lastAtIndex + 1) : "latest"
-        const builtin = BUILTIN.some((x) => x.startsWith(pkg + "@"))
-        plugin = await BunProc.install(pkg, version).catch((err) => {
-          if (!builtin) throw err
+      log.info("loading plugin", { path: specifier })
 
-          const message = err instanceof Error ? err.message : String(err)
-          log.error("failed to install builtin plugin", {
-            pkg,
-            version,
-            error: message,
-          })
-          Bus.publish(Session.Event.Error, {
-            error: new NamedError.Unknown({
-              message: `Failed to install built-in plugin ${pkg}@${version}: ${message}`,
-            }).toObject(),
-          })
+      const lastAtIndex = specifier.lastIndexOf("@")
+      const pkg = lastAtIndex > 0 ? specifier.substring(0, lastAtIndex) : specifier
+      const builtin = BUILTIN.some((x) => x.startsWith(pkg + "@"))
+      const plugin = await loadPlugin({ plugin: specifier, builtin })
+      if (!plugin) continue
 
-          return ""
+      const mod = (await import(plugin)) as Record<string, unknown>
+      const contract = validatePluginContract({
+        specifier,
+        module: mod,
+        coreVersion: Flag.OPENCODE_PLUGIN_CORE_VERSION ?? Installation.VERSION,
+        policy: {
+          core: corePolicy,
+          tenant: normalizePolicy(config.pluginPolicy?.tenant),
+          runtimeHint,
+        },
+      })
+
+      if (!contract.ok) {
+        publishContractError({
+          specifier,
+          resolved: plugin,
+          reason: contract.reason ?? "plugin_contract_error",
+          detail: contract.detail,
+          conflicts: contract.conflicts,
         })
-        if (!plugin) continue
+        continue
       }
-      const mod = await import(plugin)
+
       // Prevent duplicate initialization when plugins export the same function
       // as both a named export and default export (e.g., `export const X` and `export default X`).
       // Object.entries(mod) would return both entries pointing to the same function reference.
       const seen = new Set<PluginInstance>()
-      for (const [_name, fn] of Object.entries<PluginInstance>(mod)) {
+      for (const value of Object.values(mod)) {
+        if (typeof value !== "function") continue
+        const fn = value as PluginInstance
         if (seen.has(fn)) continue
         seen.add(fn)
         const init = await fn(input)
