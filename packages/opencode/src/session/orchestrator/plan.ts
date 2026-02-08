@@ -6,12 +6,15 @@ import { OrchestratorPlan, OrchestratorUxMode, OrchestratorMode } from "@/protoc
 import { Instance } from "@/project/instance"
 import { sha256Text } from "@/routing/cache"
 import { stableJson } from "@/util/stable-json"
+import type { A1Features } from "./features"
 
 type BuildInput = {
   sessionId: string
   messageId: string
   features: OrchestratorFeatures
   toolsetFingerprint: string
+  a1?: A1Features
+  dualPassSynthesis?: boolean
 }
 
 type CacheStatus = "hit" | "miss" | "expired" | "disabled" | "forced_rebuild"
@@ -56,6 +59,10 @@ const AdaptiveBudgetDivisor = 8
 
 const AdaptiveBreakerTrips = 2
 
+const DualPassCriticTimeoutMs = 1200
+
+const DualPassUnknownFirst = "unknown-first"
+
 const breaker = new Map<string, Breaker>()
 
 const readTrips = (sessionId: string) => breaker.get(sessionId)?.trips ?? 0
@@ -92,6 +99,16 @@ const resolveEvidencePolicy = (input: { uxMode: OrchestratorUxMode; hasVerificat
   if (input.hasVerificationIntent) return { enabled: true, mode: "balanced" as const }
   if (input.uxMode === "deep") return { enabled: true, mode: "balanced" as const }
   return undefined
+}
+
+const resolveDualPass = (input: { a1?: A1Features; dualPassSynthesis: boolean }) => {
+  if (!input.dualPassSynthesis) return undefined
+  if (!input.a1?.dualPassCandidate) return undefined
+  return {
+    enabled: true,
+    criticTimeoutMs: DualPassCriticTimeoutMs,
+    unknownFirst: DualPassUnknownFirst,
+  }
 }
 
 const resolveWorkers = (input: { orchestratorMode: OrchestratorMode }): PlanWorker[] => {
@@ -254,6 +271,14 @@ const workspaceFingerprint = () =>
 
 export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
   const feat = input.features.features
+  const dualPassSynthesis = input.dualPassSynthesis === true
+  const a1 =
+    input.a1 ??
+    ({
+      highRisk: false,
+      requiresCitation: false,
+      dualPassCandidate: false,
+    } satisfies A1Features)
   const wsFingerprint = workspaceFingerprint()
   const evidencePolicy = resolveEvidencePolicy({ uxMode: feat.uxMode, hasVerificationIntent: feat.hasVerificationIntent })
   const inputsFingerprint = sha256Text(
@@ -265,6 +290,8 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
       toolsetFingerprint: input.toolsetFingerprint,
       uxMode: feat.uxMode,
       evidencePolicy: evidencePolicy ?? null,
+      a1,
+      dualPassSynthesis,
       versions: { stableJson: "v1" },
     }),
   )
@@ -281,6 +308,8 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
       toolsetFingerprint: input.toolsetFingerprint,
       uxMode: feat.uxMode,
       evidencePolicy: evidencePolicy ?? null,
+      a1,
+      dualPassSynthesis,
     },
   })
 
@@ -316,6 +345,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
       })
 
       const toolPolicy = { allowed: ["retrieval"], bounceMax: 1 as const }
+      const dualPass = resolveDualPass({ a1, dualPassSynthesis })
       const reasons = resolveReasons({
         uxMode: feat.uxMode,
         hasWriteIntent: feat.hasWriteIntent,
@@ -323,7 +353,20 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
         hasVerificationIntent: feat.hasVerificationIntent,
         intentTokensEstimate: feat.intentTokensEstimate,
       })
-      const allReasons = mergeReasons({ reasons, adaptive: adaptive.reasons })
+      const allReasons = mergeReasons({
+        reasons: [
+          ...reasons,
+          ...(dualPass
+            ? [
+                {
+                  code: "a1.dual_pass.default_on",
+                  message: "A1 dual-pass candidate enabled by synthesis gate",
+                },
+              ]
+            : []),
+        ],
+        adaptive: adaptive.reasons,
+      })
 
       return OrchestratorPlan.parse({
         specVersion: "orchestrator-plan/1.0",
@@ -336,6 +379,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
         budgets,
         evidencePolicy,
         toolPolicy,
+        dualPass,
         reasons: allReasons,
         inputsFingerprint: { sha256: inputsFingerprint },
       })

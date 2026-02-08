@@ -2,7 +2,8 @@ import { OrchestratorUxMode } from "@/protocol/orchestrator-plan"
 import { stableJson } from "@/util/stable-json"
 import { sha256Text } from "@/routing/cache"
 import type { ModelMessage, Tool } from "ai"
-import { extractFeatures } from "./features"
+import { Flag } from "@/flag/flag"
+import { extractA1Features, extractFeatures } from "./features"
 import { buildPlan } from "./plan"
 import { writeOrchestratorArtifacts } from "./writer"
 
@@ -81,18 +82,22 @@ const toolsetFingerprint = (tools: Record<string, Tool>) => {
 
 export const prepareOrchestratorPlan = async (input: PrepareInput): Promise<PrepareResult> => {
   const intentText = extractIntentText(input.messages)
+  const hasFiles = hasFileParts(input.messages)
   const features = extractFeatures({
     uxMode: input.uxMode,
     intentText,
-    hasFileParts: hasFileParts(input.messages),
+    hasFileParts: hasFiles,
     parentSessionId: input.parentSessionId,
   })
+  const a1 = extractA1Features({ intentText, hasFileParts: hasFiles })
   const fingerprint = toolsetFingerprint(input.tools)
   const result = await buildPlan({
     sessionId: input.sessionId,
     messageId: input.messageId,
     features,
     toolsetFingerprint: fingerprint,
+    a1,
+    dualPassSynthesis: Flag.OPENCODE_EXPERIMENTAL_DUAL_PASS_SYNTHESIS === true,
   })
   await writeOrchestratorArtifacts({
     sessionId: input.sessionId,
