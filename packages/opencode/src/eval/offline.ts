@@ -55,7 +55,7 @@ const baseline = {
   orchestratorPlanChatHash: "0844c28fe130faf00de6ce8e9e6e2d69474e9bc6483ecb9e4232378feb57083f",
   orchestratorPlanAssistHash: "5c703f8dc3c099d6fe7a1057820ba7bc724353c015237e6209a69109c6dcef98",
   orchestratorPlanForkHash: "86282fe6b138c7b857ec002521ffe3f37c9a234aaf867ca17cb7f596816951bd",
-  toolBrokerContractHash: "d44938c8bedf21ad339e3aea36ec1750d722413baa8a9b7369b7124ebede0ae2",
+  toolBrokerContractHash: "d8cfa578753c0dd35feb72057e483c4062f8feea2d86c5196b8fd071afc7b28b",
 } as const
 
 const asPath = (value: unknown) => (typeof value === "string" ? value : "")
@@ -168,11 +168,37 @@ const planShape = (plan: OrchestratorPlan) => {
 const planHash = (shape: ReturnType<typeof planShape>) =>
   sha256Text(stableJson({ specVersion: "eval-orchestrator-plan/1.0", shape }))
 
-const pointerPrefix = (input: { prefix: string; pointers?: { artifacts: { path: string }[]; topK: { path: string }[] } }) => {
-  const artifacts = input.pointers ? input.pointers.artifacts.map((item) => item.path.startsWith(input.prefix)) : []
-  const topK = input.pointers ? input.pointers.topK.map((item) => item.path.startsWith(input.prefix)) : []
-  const ok = input.pointers ? artifacts.every(Boolean) && topK.every(Boolean) : false
-  return { ok, artifacts, topK }
+const pointerScope = (input: {
+  sessionId: string
+  pointers?: {
+    artifacts: { path: string; kind?: string }[]
+    topK: { path: string }[]
+  }
+}) => {
+  if (!input.pointers) {
+    return {
+      ok: false,
+      artifacts: [] as Array<"retrieval" | "tool-broker" | "other">,
+      topK: [] as boolean[],
+      counts: { retrieval: 0, toolBroker: 0, other: 0 },
+    }
+  }
+
+  const retrievalPrefix = `.opencode/artifacts/${input.sessionId}/retrieval/`
+  const toolBrokerPrefix = `.opencode/artifacts/${input.sessionId}/tool-broker/`
+  const artifacts = input.pointers.artifacts.map((item) => {
+    if (item.path.startsWith(retrievalPrefix)) return "retrieval" as const
+    if (item.path.startsWith(toolBrokerPrefix) && item.kind === "tool-broker-pointer") return "tool-broker" as const
+    return "other" as const
+  })
+  const topK = input.pointers.topK.map((item) => item.path.startsWith(retrievalPrefix))
+  const counts = {
+    retrieval: artifacts.filter((item) => item === "retrieval").length,
+    toolBroker: artifacts.filter((item) => item === "tool-broker").length,
+    other: artifacts.filter((item) => item === "other").length,
+  }
+  const ok = topK.every(Boolean) && counts.other === 0
+  return { ok, artifacts, topK, counts }
 }
 
 const fixtureFiles = () => [
@@ -392,18 +418,20 @@ export const runOfflineEval = async (input: {
         toolPolicy: { allowed: ["retrieval"], bounceMax: 1 },
         abort,
       })
-      const toolPrefix = `.opencode/artifacts/${sessionId}/retrieval/`
-
       const brokerResults = broker.results.map((item) => {
         const summaryTotal = typeof item.summary?.total === "number" ? item.summary.total : null
-        const prefix = pointerPrefix({ prefix: toolPrefix, pointers: item.pointers })
+        const scope = pointerScope({ sessionId, pointers: item.pointers })
         return {
           kind: item.kind,
           status: item.status,
           reason: item.reason ?? null,
           summary: { total: summaryTotal },
-          pointers: { artifacts: prefix.artifacts, topK: prefix.topK },
-          pointerOk: prefix.ok,
+          pointers: {
+            artifacts: scope.artifacts,
+            topK: scope.topK,
+            counts: scope.counts,
+          },
+          pointerOk: scope.ok,
         }
       })
 
@@ -420,14 +448,26 @@ export const runOfflineEval = async (input: {
       })
 
       const rejected = broker.results.find((item) => item.kind === "verification")
-      const rejectedOk = rejected?.status === "rejected" && rejected.reason === "unsupported_kind_v0"
+      const rejectedScope = pointerScope({ sessionId, pointers: rejected?.pointers })
+      const rejectedOk =
+        rejected?.status === "rejected" &&
+        rejected.reason === "unsupported_kind_v0" &&
+        rejectedScope.ok &&
+        rejectedScope.counts.toolBroker >= 1 &&
+        rejectedScope.counts.retrieval === 0
       const retrieval = broker.results.find((item) => item.kind === "retrieval")
-      const retrievalPrefix = pointerPrefix({ prefix: toolPrefix, pointers: retrieval?.pointers })
+      const retrievalScope = pointerScope({ sessionId, pointers: retrieval?.pointers })
       const brokerSummaryOk = typeof retrieval?.summary?.total === "number"
       const brokerRetrievalOk =
-        retrieval?.status === "ok" && brokerSummaryOk && retrievalPrefix.ok && Boolean(retrieval?.pointers)
+        retrieval?.status === "ok" &&
+        brokerSummaryOk &&
+        retrievalScope.ok &&
+        retrievalScope.counts.retrieval >= 1 &&
+        retrievalScope.counts.toolBroker >= 1 &&
+        Boolean(retrieval?.pointers)
 
-      const toolOk = rejectedOk && brokerRetrievalOk && toolHash === baseline.toolBrokerContractHash
+      const toolSemanticOk = rejectedOk && brokerRetrievalOk
+      const toolOk = toolSemanticOk && toolHash === baseline.toolBrokerContractHash
       await writer.check({
         id: "eval:tool-broker.contract",
         command: "runToolBroker (offline) -> canonicalized contract",
@@ -579,7 +619,13 @@ export const runOfflineEval = async (input: {
           toolBrokerNonInteractive: {
             ...check(toolOk),
             artifact: toolEntry.path,
-            detail: { hash: toolHash, expected: baseline.toolBrokerContractHash },
+            detail: {
+              hash: toolHash,
+              expected: baseline.toolBrokerContractHash,
+              semanticOk: toolSemanticOk,
+              rejectedOk,
+              brokerRetrievalOk,
+            },
           },
           compactionPointers: {
             ...check(compactionOk),
