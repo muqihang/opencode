@@ -67,3 +67,47 @@ test("tool broker returns retrieval pointers", async () => {
     },
   })
 })
+
+test("tool broker persists pointer artifact for each tool result", async () => {
+  const keyword = await readKeyword()
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      await fs.mkdir(path.join(dir, "src"), { recursive: true })
+      await Bun.write(path.join(dir, "src", "keyword.ts"), `export const keyword = "${keyword}"\n`)
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const sessionId = "session_tb_pointer_pack"
+      const result = await runToolBroker({
+        sessionId,
+        messageId: "msg_tb_pointer_pack",
+        toolRequests: [{ kind: "retrieval", input: keyword }],
+        toolPolicy: { allowed: ["retrieval"], bounceMax: 1 },
+        abort: new AbortController().signal,
+      })
+
+      const entry = result.results[0]!
+      const pointer = entry.pointers?.artifacts.find((item) => item.kind === "tool-broker-pointer")
+      expect(Boolean(pointer)).toBe(true)
+      expect(pointer?.path.includes(`.opencode/artifacts/${sessionId}/tool-broker/`)).toBe(true)
+
+      const pointerData = await Bun.file(path.join(tmp.path, pointer!.path)).json()
+      expect(pointerData).toMatchObject({
+        specVersion: "tool-broker-pointer/1.0",
+        sessionId,
+        messageId: "msg_tb_pointer_pack",
+        kind: "retrieval",
+        status: "ok",
+      })
+
+      const manifestPath = path.join(tmp.path, ".opencode", "evidence", sessionId, "manifest.json")
+      const manifestRaw = await Bun.file(manifestPath).json()
+      const manifest = manifestRaw as { entries: Array<{ path: string }> }
+      expect(manifest.entries.some((item) => item.path === pointer?.path)).toBe(true)
+    },
+  })
+})

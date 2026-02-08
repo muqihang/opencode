@@ -8,6 +8,7 @@ import { defer } from "@/util/defer"
 import { CacheStore } from "@/cache/store"
 import { CachePolicy } from "@/cache/policy"
 import { sha256Text } from "@/routing/cache"
+import { verifyEvidenceChain } from "@/evidence/chain"
 import { runCodeRetrieval } from "./code"
 import { runWorkbenchRetrieval } from "./workbench"
 import { resolveWorkspaceFingerprint } from "./workspace"
@@ -214,6 +215,51 @@ const pointerFromHit = (value: unknown) => {
   return { path, sha256, anchor: mapped }
 }
 
+const shaBytes = (bytes: Uint8Array) => {
+  const hash = new Bun.CryptoHasher("sha256")
+  hash.update(Buffer.from(bytes))
+  return hash.digest("hex")
+}
+
+const pointerFile = (input: { cacheSessionId: string; ref: string }) => {
+  const rel = normalizePath(input.ref).replace(/^\/+/, "")
+  if (rel.startsWith(".opencode/")) return path.join(baseDir(), ...rel.split("/"))
+  return path.join(baseDir(), ".opencode", "artifacts", input.cacheSessionId, ...rel.split("/"))
+}
+
+const cacheHitPointers = (hits: unknown[]) =>
+  hits
+    .map((item) => pointerFromHit(item))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .map((item) => ({ kind: "artifact", ref: item.path, sha256: item.sha256 }))
+
+const verifyCacheIntegrity = async (input: { hits: unknown[]; cacheSessionId: string }) => {
+  const pointers = cacheHitPointers(input.hits)
+  const refs = [...new Set(pointers.map((item) => item.ref))]
+  const observed = await Promise.all(
+    refs.map(async (ref) => {
+      const file = Bun.file(pointerFile({ cacheSessionId: input.cacheSessionId, ref }))
+      const exists = await file.exists()
+      if (!exists) return { ref, exists: false as const, sha256: "" }
+      const bytes = await file.bytes().catch(() => new Uint8Array())
+      return { ref, exists: true as const, sha256: shaBytes(bytes) }
+    }),
+  )
+  const existing = observed.filter((item) => item.exists).map((item) => item.ref)
+  const hashes = Object.fromEntries(
+    observed
+      .filter((item) => item.exists)
+      .map((item) => [item.ref, item.sha256] as const),
+  )
+  return verifyEvidenceChain({
+    entries: refs.map((ref) => ({ path: ref, sha256: hashes[ref] })),
+    existing,
+    pointers,
+    hashes,
+    headerZh: "缓存污染：retrieval pointer 校验失败",
+  })
+}
+
 const retrievalBudget = () => ({
   maxHits: 40,
   topK: 20,
@@ -387,33 +433,34 @@ export const RetrievalRunner = {
     })
     const errors: Array<{ stage: string; error: string }> = []
     const policy = CachePolicy.policy("retrieval")
+    const computeCode = async () => {
+      if (signal.aborted) return { specVersion: "retrieval-code-cache/1.0", sessionId: input.sessionId, hits: [] }
+      const code = await runCodeRetrieval({
+        sessionId: input.sessionId,
+        retrievalId,
+        root: baseDir(),
+        queries: plan.queries,
+        budget,
+        abort: signal,
+      })
+        .then((value) => ({ ok: true as const, value }))
+        .catch((error) => ({ ok: false as const, error: errorText(error) }))
+      if (!code.ok) {
+        errors.push({ stage: "code", error: code.error })
+        return { specVersion: "retrieval-code-cache/1.0", sessionId: input.sessionId, hits: [] }
+      }
+      const normalized = code.value.hits.map((item) => normalizeHit(item, strip))
+      return {
+        specVersion: "retrieval-code-cache/1.0",
+        sessionId: input.sessionId,
+        hits: normalized,
+      }
+    }
     const cached = await store.getOrCompute({
       key,
       ttlMs: storeTtlMs(),
       policy: { enabled: policy.enabled, force: false },
-      compute: async () => {
-        if (signal.aborted) return { specVersion: "retrieval-code-cache/1.0", sessionId: input.sessionId, hits: [] }
-        const code = await runCodeRetrieval({
-          sessionId: input.sessionId,
-          retrievalId,
-          root: baseDir(),
-          queries: plan.queries,
-          budget,
-          abort: signal,
-        })
-          .then((value) => ({ ok: true as const, value }))
-          .catch((error) => ({ ok: false as const, error: errorText(error) }))
-        if (!code.ok) {
-          errors.push({ stage: "code", error: code.error })
-          return { specVersion: "retrieval-code-cache/1.0", sessionId: input.sessionId, hits: [] }
-        }
-        const normalized = code.value.hits.map((item) => normalizeHit(item, strip))
-        return {
-          specVersion: "retrieval-code-cache/1.0",
-          sessionId: input.sessionId,
-          hits: normalized,
-        }
-      },
+      compute: computeCode,
     })
 
     // Re-open writer after code retrieval: runCodeRetrieval writes artifacts with its own EvidenceWriter.
@@ -441,7 +488,24 @@ export const RetrievalRunner = {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    if (cached.status === "hit") {
+    const cacheView = cached.value as Record<string, unknown>
+    const cachedHits = Array.isArray(cacheView.hits) ? cacheView.hits : []
+    const cacheSessionId = typeof cacheView.sessionId === "string" ? cacheView.sessionId : input.sessionId
+    const integrity =
+      cached.status === "hit"
+        ? await verifyCacheIntegrity({ hits: cachedHits, cacheSessionId })
+        : { ok: true as const }
+    const cold = cached.status === "hit" && !integrity.ok
+    const recovered = cold
+      ? await store.getOrCompute({
+          key,
+          ttlMs: storeTtlMs(),
+          policy: { enabled: policy.enabled, force: true },
+          compute: computeCode,
+        })
+      : cached
+
+    if (cached.status === "hit" && !cold) {
       await writer.event({
         specVersion: "event/1.0",
         ts: new Date().toISOString(),
@@ -462,7 +526,46 @@ export const RetrievalRunner = {
       })
     }
 
-    if (cached.status !== "hit") {
+    if (cold) {
+      const issue = integrity.ok
+        ? await writer.artifact({
+            kind: "cache-integrity",
+            path: `retrieval/${retrievalId}/cache.integrity.json`,
+            data: stableJson({ specVersion: "cache-integrity/1.0", ok: true }),
+          })
+        : await writer.artifact({
+            kind: "cache-integrity",
+            path: `retrieval/${retrievalId}/cache.integrity.json`,
+            data: stableJson({ specVersion: "cache-integrity/1.0", ...integrity }),
+          })
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionId,
+        severity: "warn",
+        actor: "cache:store",
+        type: "cache.coldstart",
+        summary: "cache coldstart",
+        data: {
+          namespace: "retrieval",
+          key,
+          scope,
+          sourceKey: cacheKey,
+          reason: "pointer_integrity_failed",
+          integrity: integrity.ok
+            ? { missing: [], contaminated: [], errorZh: "" }
+            : {
+                missing: integrity.missing,
+                contaminated: integrity.contaminated,
+                errorZh: integrity.errorZh,
+              },
+          artifact: issue,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
+
+    if (cached.status !== "hit" || cold) {
       await writer.event({
         specVersion: "event/1.0",
         ts: new Date().toISOString(),
@@ -476,7 +579,7 @@ export const RetrievalRunner = {
           key,
           scope,
           sourceKey: cacheKey,
-          decision: cached.status,
+          decision: cold ? "forced_rebuild" : cached.status,
           tier: cached.tier,
           artifact,
         },
@@ -484,7 +587,7 @@ export const RetrievalRunner = {
       })
     }
 
-    if (cached.status === "miss" || cached.status === "expired") {
+    if (cached.status === "miss" || cached.status === "expired" || cold) {
       const stored = await storeArtifact(key)
       await writer.event({
         specVersion: "event/1.0",
@@ -499,7 +602,7 @@ export const RetrievalRunner = {
           key,
           scope,
           sourceKey: cacheKey,
-          decision: cached.status,
+          decision: cold ? "forced_rebuild" : cached.status,
           tier: "disk",
           artifact: stored,
         },
@@ -538,16 +641,15 @@ export const RetrievalRunner = {
         return item.value
       })
 
-      const view = cached.value as Record<string, unknown>
-      const cachedHits = Array.isArray(view.hits) ? view.hits : []
+      const view = recovered.value as Record<string, unknown>
+      const codeHits = Array.isArray(view.hits) ? view.hits : []
       const cacheSessionId = typeof view.sessionId === "string" ? view.sessionId : input.sessionId
-      const hits = [...cachedHits, ...workbenchHits]
       return {
-        hits,
+        hits: [...codeHits, ...workbenchHits],
         dedupe: undefined,
-        cacheHit: cached.status === "hit",
+        cacheHit: recovered.status === "hit" && !cold,
         cacheSessionId,
-        code: cachedHits,
+        code: codeHits,
         workbench: workbenchHits,
       }
     })()
