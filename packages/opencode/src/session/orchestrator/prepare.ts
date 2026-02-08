@@ -3,7 +3,7 @@ import { stableJson } from "@/util/stable-json"
 import { sha256Text } from "@/routing/cache"
 import type { ModelMessage, Tool } from "ai"
 import { Flag } from "@/flag/flag"
-import { extractA1Features, extractFeatures } from "./features"
+import { extractA1Features, extractFeatures, extractScores } from "./features"
 import { buildPlan } from "./plan"
 import { writeOrchestratorArtifacts } from "./writer"
 
@@ -90,11 +90,18 @@ export const prepareOrchestratorPlan = async (input: PrepareInput): Promise<Prep
     parentSessionId: input.parentSessionId,
   })
   const a1 = extractA1Features({ intentText, hasFileParts: hasFiles })
+  const scores = extractScores({
+    uxMode: input.uxMode,
+    intentText,
+    hasFileParts: hasFiles,
+    parentSessionId: input.parentSessionId,
+  })
   const fingerprint = toolsetFingerprint(input.tools)
   const result = await buildPlan({
     sessionId: input.sessionId,
     messageId: input.messageId,
     features,
+    scores,
     toolsetFingerprint: fingerprint,
     a1,
     dualPassSynthesis: Flag.OPENCODE_EXPERIMENTAL_DUAL_PASS_SYNTHESIS === true,
