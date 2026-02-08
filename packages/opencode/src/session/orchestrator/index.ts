@@ -227,6 +227,7 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
       workers.map((worker) =>
         WorkerRunner.run({
           sessionId: input.sessionId,
+          messageId: input.messageId,
           workerId: worker.id,
           rolePack,
         }),

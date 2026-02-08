@@ -109,6 +109,21 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       path: { state: "", config: "", worktree: "", directory: "" },
     })
 
+    const hydrateWorker = (input: { sessionID: string; events: unknown[] }) => {
+      const next: Record<string, WorkerTurn> = {}
+      for (const event of input.events) {
+        if (typeof event !== "object" || event === null) continue
+        const item = event as { type?: unknown; data?: unknown }
+        if (item.type !== "orchestrator.worker.lifecycle") continue
+        if (!item.data || typeof item.data !== "object") continue
+        const parsed = readWorkerLifecycle({ type: "orchestrator.worker.lifecycle", properties: item.data })
+        if (!parsed) continue
+        next[parsed.messageID] = mergeWorkerTurn(next[parsed.messageID], parsed)
+      }
+      if (Object.keys(next).length === 0) return
+      setStore("worker", input.sessionID, reconcile(next))
+    }
+
     const sdk = useSDK()
 
     sdk.event.listen((e) => {
@@ -486,11 +501,12 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         async sync(sessionID: string) {
           if (fullSyncedSessions.has(sessionID)) return
-          const [session, messages, todo, diff] = await Promise.all([
+          const [session, messages, todo, diff, evidenceEvents] = await Promise.all([
             sdk.client.session.get({ sessionID }, { throwOnError: true }),
             sdk.client.session.messages({ sessionID, limit: 100 }),
             sdk.client.session.todo({ sessionID }),
             sdk.client.session.diff({ sessionID }),
+            sdk.client.session.evidenceEvents({ sessionID, cursor: 0, limit: 500 }).then((x) => x.data?.events ?? []),
           ])
           setStore(
             produce((draft) => {
@@ -505,6 +521,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               draft.session_diff[sessionID] = diff.data ?? []
             }),
           )
+          hydrateWorker({ sessionID, events: evidenceEvents })
           fullSyncedSessions.add(sessionID)
         },
       },
