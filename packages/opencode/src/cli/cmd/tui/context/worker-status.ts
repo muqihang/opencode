@@ -5,12 +5,29 @@ export type WorkerLifecycle = {
   messageID: string
   workerID: string
   phase: WorkerPhase
+  reason?: string
 }
 
 export type WorkerTurn = {
   triggered: boolean
   phase: "running" | "completed" | "degraded"
   workers: Record<string, WorkerPhase>
+  reason?: string
+}
+
+const roleLabel = (workerID: string) => {
+  if (workerID === "evidence_critic") return "证据审查"
+  if (workerID === "retrieval_planner") return "检索规划"
+  if (workerID === "patch_planner") return "修改规划"
+  return "协助任务"
+}
+
+const phaseLabel = (phase: WorkerPhase) => {
+  if (phase === "planned") return "已启动"
+  if (phase === "running") return "进行中"
+  if (phase === "completed") return "已完成"
+  if (phase === "degraded") return "已降级（继续回答）"
+  return "未启用"
 }
 
 function isRecord(input: unknown): input is Record<string, unknown> {
@@ -53,11 +70,13 @@ export function readWorkerLifecycle(input: { type: string; properties?: unknown 
   if (messageID === "unknown") return
   if (!workerID) return
   if (!isWorkerPhase(input.properties.phase)) return
+  const reason = typeof input.properties.reason === "string" ? input.properties.reason : undefined
   return {
     sessionID,
     messageID,
     workerID,
     phase: input.properties.phase,
+    reason,
   }
 }
 
@@ -73,16 +92,29 @@ export function mergeWorkerTurn(current: WorkerTurn | undefined, event: WorkerLi
     ...(current?.workers ?? {}),
     [event.workerID]: event.phase,
   }
+
+  const reason = event.phase === "degraded" && event.reason ? event.reason : current?.reason
+
   return {
     triggered: true,
     phase: phase(workers),
     workers,
+    reason,
   }
 }
 
 export function formatWorkerHint(turn: WorkerTurn | undefined): string | undefined {
   if (!turn?.triggered) return
-  if (turn.phase === "running") return "本轮 worker 已触发 · 运行中"
-  if (turn.phase === "degraded") return "本轮 worker 已触发 · 已降级"
-  return "本轮 worker 已触发 · 已完成"
+  const workers = Object.entries(turn.workers)
+  if (workers.length === 0) {
+    if (turn.phase === "running") return "协助过程：进行中"
+    if (turn.phase === "degraded") return "协助过程：已降级（继续回答）"
+    return "协助过程：已完成"
+  }
+
+  const labels = workers
+    .slice(0, 3)
+    .map(([workerID, workerPhase]) => `${roleLabel(workerID)}：${phaseLabel(workerPhase)}`)
+  const body = labels.join(" · ")
+  return `协助过程：${body}`
 }

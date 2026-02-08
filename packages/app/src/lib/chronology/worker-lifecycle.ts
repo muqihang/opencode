@@ -16,6 +16,14 @@ export type WorkerLifecycleSummary = {
   total: number
   workers: number
   latestTs: string
+  details: WorkerLifecycleDetail[]
+}
+
+export type WorkerLifecycleDetail = {
+  worker: string
+  phase: WorkerLifecyclePhase
+  attempt: number
+  reason?: string
 }
 
 export type WorkerLifecycleEvent = {
@@ -24,6 +32,7 @@ export type WorkerLifecycleEvent = {
   workerID: string
   phase: WorkerLifecyclePhase
   attempt: number
+  reason?: string
 }
 
 type WorkerState = {
@@ -31,6 +40,7 @@ type WorkerState = {
   attempt: number
   phase: WorkerLifecyclePhase
   ts: string
+  reason?: string
 }
 
 type WorkerBadgeTone = "info" | "success" | "warning"
@@ -40,6 +50,7 @@ export type WorkerBadge = {
   phase: string
   text: string
   counts: string
+  roles: string[]
 }
 
 const emptyCounts = (): WorkerLifecycleCounts => ({
@@ -125,11 +136,18 @@ function summaryPhase(counts: WorkerLifecycleCounts): WorkerLifecyclePhase {
 }
 
 function phaseLabel(phase: WorkerLifecyclePhase) {
-  if (phase === "degraded") return "已降级"
-  if (phase === "running") return "执行中"
-  if (phase === "planned") return "已规划"
+  if (phase === "degraded") return "已降级（继续回答）"
+  if (phase === "running") return "进行中"
+  if (phase === "planned") return "已启动"
   if (phase === "completed") return "已完成"
-  return "已跳过"
+  return "未启用"
+}
+
+function roleLabel(worker: string) {
+  if (worker === "evidence_critic") return "证据审查"
+  if (worker === "retrieval_planner") return "检索规划"
+  if (worker === "patch_planner") return "修改规划"
+  return "协助任务"
 }
 
 function phaseTone(phase: WorkerLifecyclePhase): WorkerBadgeTone {
@@ -150,11 +168,14 @@ function state(event: EventV1): WorkerState | undefined {
   const next = phase(event)
   if (!next) return
 
+  const data = lifecycleData(event)
+
   return {
     worker,
     attempt: attempt(event),
     phase: next,
     ts: event.ts,
+    reason: typeof data?.reason === "string" ? String(data.reason) : undefined,
   }
 }
 
@@ -181,9 +202,11 @@ export function readWorkerLifecycle(input: { type: string; properties?: unknown 
         ? input.properties.workerId
         : undefined
   const phase = lifecyclePhase(input.properties.phase)
+  const reason = typeof input.properties.reason === "string" ? input.properties.reason : undefined
 
   if (!sessionID) return
   if (!messageID) return
+  if (messageID === "unknown") return
   if (!workerID) return
   if (!phase) return
 
@@ -201,6 +224,7 @@ export function readWorkerLifecycle(input: { type: string; properties?: unknown 
     workerID,
     phase,
     attempt,
+    reason,
   }
 }
 
@@ -218,6 +242,7 @@ export function lifecycleEventV1(event: WorkerLifecycleEvent, ts: string): Event
       workerID: event.workerID,
       phase: event.phase,
       attempt: event.attempt,
+      reason: event.reason,
     },
     redaction: { applied: true, policyVersion: "v1" },
   }
@@ -272,6 +297,18 @@ export function groupWorkerLifecycleByMessage(events: EventV1[]) {
 
     const latest = values.reduce((prev, item) => (item.ts > prev.ts ? item : prev))
     const workers = new Set(values.map((item) => item.worker)).size
+    const details = values
+      .toSorted((a, b) => {
+        const byWorker = a.worker.localeCompare(b.worker)
+        if (byWorker !== 0) return byWorker
+        return a.attempt - b.attempt
+      })
+      .map((item) => ({
+        worker: item.worker,
+        phase: item.phase,
+        attempt: item.attempt,
+        reason: item.reason,
+      }))
 
     result.set(message, {
       phase: summaryPhase(counts),
@@ -279,6 +316,7 @@ export function groupWorkerLifecycleByMessage(events: EventV1[]) {
       total: values.length,
       workers,
       latestTs: latest.ts,
+      details,
     })
   }
 
@@ -288,17 +326,19 @@ export function groupWorkerLifecycleByMessage(events: EventV1[]) {
 export function workerBadge(summary: WorkerLifecycleSummary): WorkerBadge {
   const phase = phaseLabel(summary.phase)
   const tone = phaseTone(summary.phase)
-  const text = `本轮 worker 已触发 · ${phase}`
+  const text = `协助过程：${phase}`
+
+  const roles = summary.details.slice(0, 3).map((item) => `${roleLabel(item.worker)}：${phaseLabel(item.phase)}`)
 
   const extra = [
-    summary.counts.planned > 0 ? `规划 ${summary.counts.planned}` : "",
-    summary.counts.skipped > 0 ? `跳过 ${summary.counts.skipped}` : "",
+    summary.counts.planned > 0 ? `已启动 ${summary.counts.planned}` : "",
+    summary.counts.skipped > 0 ? `未启用 ${summary.counts.skipped}` : "",
   ]
     .filter(Boolean)
     .join(" · ")
 
-  const base = `运行 ${summary.counts.running} · 完成 ${summary.counts.completed} · 降级 ${summary.counts.degraded}`
+  const base = `进行中 ${summary.counts.running} · 已完成 ${summary.counts.completed} · 已降级 ${summary.counts.degraded}`
   const counts = extra ? `${base} · ${extra}` : base
 
-  return { tone, phase, text, counts }
+  return { tone, phase, text, counts, roles }
 }

@@ -15,11 +15,15 @@ type WorkerCache = {
   tier: "memory" | "disk" | "none"
 }
 
-type Route = {
-  fromModel?: string
-  toModel?: string
-  gateReason?: string
-}
+type LifecycleReason =
+  | "role_pack_invalid"
+  | "evidence_unavailable"
+  | "role_pack_artifact_failed"
+  | "worker_unknown"
+  | "worker_compute_failed"
+  | "worker_result_invalid"
+  | "worker_degraded"
+  | "worker_output_invalid"
 
 type WorkerCompute = (input: {
   rolePack: LlmWorkerRolePack
@@ -46,35 +50,14 @@ const trimNote = (value: string) => (value.length > 380 ? `${value.slice(0, 380)
 
 const safeNote = (value: string) => trimNote(value.replace(/```/g, "''"))
 
+const routeDebug = (value: string) => {
+  const text = value.trim().toLowerCase()
+  return text.startsWith("from_model=") || text.startsWith("to_model=") || text.startsWith("gate_reason=")
+}
+
 const errorText = (error: unknown) => {
   if (error instanceof Error) return error.message
   return String(error)
-}
-
-const modelFrom = (value: string) => {
-  const text = value.trim()
-  const idx = text.indexOf("=")
-  if (idx <= 0) return
-  const key = text.slice(0, idx).trim().toLowerCase()
-  const item = text.slice(idx + 1).trim()
-  if (!item) return
-  if (key === "from_model") return { key: "fromModel" as const, value: item }
-  if (key === "to_model") return { key: "toModel" as const, value: item }
-  if (key === "gate_reason") return { key: "gateReason" as const, value: item }
-}
-
-const routeFrom = (result: LlmWorkerResult): Route | undefined => {
-  const notes = result.notes ?? []
-  if (notes.length === 0) return
-  const parsed = notes.map((item) => modelFrom(item)).filter((item): item is { key: keyof Route; value: string } => !!item)
-  if (parsed.length === 0) return
-  const base: Route = {}
-  for (const item of parsed) {
-    if (item.key === "fromModel") base.fromModel = item.value
-    if (item.key === "toModel") base.toModel = item.value
-    if (item.key === "gateReason") base.gateReason = item.value
-  }
-  return base
 }
 
 const planIdFromPointer = (value: string) => {
@@ -118,7 +101,7 @@ const degraded = (reason: string, tools?: LlmWorkerResult["toolRequests"]) =>
   })
 
 const verify = (value: LlmWorkerResult) => {
-  const notes = value.notes ?? []
+  const notes = (value.notes ?? []).filter((note) => !routeDebug(note))
   const tools = value.toolRequests ?? []
   const issues: string[] = []
 
@@ -139,6 +122,55 @@ const verify = (value: LlmWorkerResult) => {
 
 const emptyCache = { status: "miss", tier: "none" } as const
 
+const toLifecycleReason = (input: {
+  type: LifecycleReason
+  detail?: string
+  safeDetail?: boolean
+}) => {
+  if (input.safeDetail && input.detail) {
+    const text = safeNote(input.detail)
+    if (text.length > 0) return `${input.type}:${text}`
+  }
+  return input.type
+}
+
+const writeLifecycleEvidence = async (input: {
+  sessionId: string
+  messageId?: string
+  planId: string
+  workerId: string
+  phase: "planned" | "running" | "completed" | "degraded" | "skipped"
+  attempt: number
+  cache?: WorkerCache
+  reason?: string
+  latencyMs?: number
+}) => {
+  const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
+  if (!writer) return
+  await writer
+    .event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: input.sessionId,
+      severity: input.phase === "degraded" ? "warn" : "info",
+      actor: "orchestrator:worker",
+      type: "orchestrator.worker.lifecycle",
+      summary: "worker lifecycle",
+      data: {
+        messageID: input.messageId,
+        planID: input.planId,
+        workerID: input.workerId,
+        phase: input.phase,
+        attempt: input.attempt,
+        cache: input.cache,
+        reason: input.reason,
+        latencyMs: input.latencyMs,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    .catch(() => {})
+}
+
 const emitLifecycle = async (input: {
   sessionId: string
   messageId?: string
@@ -149,13 +181,15 @@ const emitLifecycle = async (input: {
   cache?: WorkerCache
   reason?: string
   latencyMs?: number
-  route?: Route
 }) => {
+  const messageId = input.messageId
+  if (!messageId || messageId === "unknown") return
+
   await Bus.publish(OrchestratorEvent.WorkerLifecycle, {
     sessionID: input.sessionId,
     sessionId: input.sessionId,
-    messageID: input.messageId ?? "unknown",
-    messageId: input.messageId,
+    messageID: messageId,
+    messageId,
     planID: input.planId,
     planId: input.planId,
     workerID: input.workerId,
@@ -165,10 +199,19 @@ const emitLifecycle = async (input: {
     cache: input.cache,
     reason: input.reason,
     latencyMs: input.latencyMs,
-    fromModel: input.route?.fromModel,
-    toModel: input.route?.toModel,
-    gateReason: input.route?.gateReason,
   }).catch(() => {})
+
+  await writeLifecycleEvidence({
+    sessionId: input.sessionId,
+    messageId,
+    planId: input.planId,
+    workerId: input.workerId,
+    phase: input.phase,
+    attempt: input.attempt,
+    cache: input.cache,
+    reason: input.reason,
+    latencyMs: input.latencyMs,
+  })
 }
 
 export const WorkerRunner = {
@@ -194,7 +237,7 @@ export const WorkerRunner = {
         workerId: input.workerId,
         phase: "degraded",
         attempt: 1,
-        reason: "role pack invalid",
+        reason: toLifecycleReason({ type: "role_pack_invalid" }),
       })
       return { result: degraded("role pack invalid"), cache: emptyCache }
     }
@@ -210,7 +253,7 @@ export const WorkerRunner = {
         workerId: input.workerId,
         phase: "skipped",
         attempt: 1,
-        reason: "evidence writer unavailable",
+        reason: toLifecycleReason({ type: "evidence_unavailable" }),
       })
       return { result: degraded("evidence writer unavailable"), cache: emptyCache }
     }
@@ -235,7 +278,11 @@ export const WorkerRunner = {
         workerId: input.workerId,
         phase: "degraded",
         attempt: 1,
-        reason: `role pack artifact failed: ${reason}`,
+        reason: toLifecycleReason({
+          type: "role_pack_artifact_failed",
+          detail: reason,
+          safeDetail: true,
+        }),
       })
       return { result: degraded(`role pack artifact failed: ${reason}`), cache: emptyCache }
     }
@@ -249,7 +296,7 @@ export const WorkerRunner = {
         workerId: input.workerId,
         phase: "skipped",
         attempt: 1,
-        reason: `unknown worker: ${input.workerId}`,
+        reason: toLifecycleReason({ type: "worker_unknown", safeDetail: true, detail: input.workerId }),
       })
       return { result: degraded(`unknown worker: ${input.workerId}`), cache: emptyCache }
     }
@@ -293,7 +340,11 @@ export const WorkerRunner = {
         workerId: input.workerId,
         phase: "degraded",
         attempt: 1,
-        reason: `worker compute failed: ${reason}`,
+        reason: toLifecycleReason({
+          type: "worker_compute_failed",
+          detail: reason,
+          safeDetail: false,
+        }),
       })
       return { result: degraded(`worker compute failed: ${reason}`), cache: emptyCache }
     }
@@ -309,13 +360,12 @@ export const WorkerRunner = {
         phase: "degraded",
         attempt: 1,
         cache,
-        reason: "worker result schema invalid",
+        reason: toLifecycleReason({ type: "worker_result_invalid" }),
       })
       return { result: degraded("worker result schema invalid"), cache }
     }
 
     const verified = verify(result.data)
-    const route = routeFrom(verified.result)
     const ended = typeof input.now === "number" ? input.now : Date.now()
     const phase = verified.result.status === "degraded" ? "degraded" : "completed"
     await emitLifecycle({
@@ -327,8 +377,7 @@ export const WorkerRunner = {
       attempt: 1,
       cache,
       latencyMs: Math.max(0, ended - started),
-      reason: verified.result.status === "degraded" ? (verified.result.notes ?? []).join("; ") : undefined,
-      route,
+      reason: verified.result.status === "degraded" ? toLifecycleReason({ type: "worker_degraded" }) : undefined,
     })
     return { result: verified.result, cache }
   },
