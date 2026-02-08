@@ -5,10 +5,20 @@ import { EvidenceManifest } from "@/protocol/evidence-manifest"
 import { Instance } from "@/project/instance"
 import { Filesystem } from "@/util/filesystem"
 import { EvidenceWriter } from "@/evidence/writer"
+import {
+  artifactCandidates,
+  artifactSessionPrefix,
+  evidenceCandidates,
+  evidenceSessionPrefix,
+  isA2TenantNamespaceEnabled,
+  resolveTenantScope,
+} from "@/util/tenant-context"
 
 const ExportInput = z
   .object({
     sessionId: z.string().min(1),
+    tenantId: z.string().min(1).optional(),
+    orgId: z.string().min(1).optional(),
     outDir: z.string().min(1),
   })
   .strict()
@@ -91,10 +101,6 @@ async function copyChecked(options: {
   await fs.copyFile(options.sourcePath, options.destinationPath)
 }
 
-function evidenceEntryPath(sessionId: string, filename: string) {
-  return `.opencode/evidence/${sessionId}/${filename}`
-}
-
 async function writeExportEvent(
   writer: Awaited<ReturnType<typeof EvidenceWriter.open>>,
   sessionId: string,
@@ -117,45 +123,117 @@ async function writeExportEvent(
   }
 }
 
-function classifyEntry(entry: { path: string; sessionId: string }) {
-  const normalized = normalizeRel(entry.path)
+function classifyEntry(input: {
+  path: string
+  evidencePrefixes: string[]
+  artifactPrefixes: string[]
+}) {
+  const normalized = normalizeRel(input.path)
+
+  for (const prefix of input.evidencePrefixes) {
+    if (normalized.startsWith(prefix)) {
+      const rel = normalized.slice(prefix.length)
+      const parts = rel.split("/").filter(Boolean)
+      if (parts.length !== 1) return null
+      const filename = parts[0]
+      if (filename && EVIDENCE_FILES.has(filename)) {
+        return { kind: "evidence" as const, rel: filename }
+      }
+      return null
+    }
+  }
+
+  for (const prefix of input.artifactPrefixes) {
+    if (normalized.startsWith(prefix)) {
+      const rel = normalized.slice(prefix.length)
+      if (!rel) return null
+      if (rel.startsWith("policy/") || rel.startsWith("worktree/")) {
+        return { kind: "artifact" as const, rel }
+      }
+      if (rel.startsWith("orchestrator/")) {
+        return { kind: "artifact" as const, rel }
+      }
+      if (
+        rel.startsWith("compaction/") &&
+        (rel.endsWith("/capsule.assisted.md") || rel.endsWith("/capsule.assisted.json") || rel.endsWith("/capsule.assisted.verify.json"))
+      ) {
+        return { kind: "artifact" as const, rel }
+      }
+      return null
+    }
+  }
+
   const parts = normalized.split("/")
-  if (parts[0] === ".opencode" && parts[1] === "evidence" && parts[2] === entry.sessionId) {
-    const filename = parts[parts.length - 1]
-    if (EVIDENCE_FILES.has(filename)) {
-      return { kind: "evidence", rel: filename }
-    }
-  }
-  if (parts[0] === ".opencode" && parts[1] === "artifacts" && parts[2] === entry.sessionId) {
-    const rel = parts.slice(3).join("/")
-    if (rel.startsWith("policy/") || rel.startsWith("worktree/")) {
-      return { kind: "artifact", rel }
-    }
-    if (rel.startsWith("orchestrator/")) {
-      return { kind: "artifact", rel }
-    }
-    if (
-      rel.startsWith("compaction/") &&
-      (rel.endsWith("/capsule.assisted.md") || rel.endsWith("/capsule.assisted.json") || rel.endsWith("/capsule.assisted.verify.json"))
-    ) {
-      return { kind: "artifact", rel }
-    }
-    return null
-  }
   if (parts[0] === "policy" || parts[0] === "worktree") {
-    return { kind: "artifact", rel: normalized }
+    return { kind: "artifact" as const, rel: normalized }
   }
+
   return null
+}
+
+async function firstExisting(files: string[]) {
+  for (const file of files) {
+    const stat = await fs.stat(file).catch(() => null)
+    if (stat?.isFile()) return file
+  }
+  return files[0]
 }
 
 export async function exportEvidence(input: z.infer<typeof ExportInput>) {
   const data = ExportInput.parse(input)
-  const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
+  const scope = resolveTenantScope({ tenantId: data.tenantId, orgId: data.orgId })
+  const namespaced = isA2TenantNamespaceEnabled()
+  const writer = await EvidenceWriter.open({
+    sessionId: data.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
 
   const base = Instance.worktree === "/" ? Instance.directory : Instance.worktree
-  const evidenceDir = path.join(base, ".opencode", "evidence", data.sessionId)
-  const manifestPath = path.join(evidenceDir, "manifest.json")
+  const evidenceDirs = evidenceCandidates({
+    base,
+    sessionId: data.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  const manifestPath = await firstExisting(evidenceDirs.map((dir) => path.join(dir, "manifest.json")))
+  const evidenceDir = path.dirname(manifestPath)
+  const artifactDirs = artifactCandidates({
+    base,
+    sessionId: data.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
   const outDir = path.resolve(base, data.outDir)
+
+  const evidencePrefixes = [
+    evidenceSessionPrefix({
+      sessionId: data.sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced,
+    }),
+    evidenceSessionPrefix({
+      sessionId: data.sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced: false,
+    }),
+  ]
+  const artifactPrefixes = [
+    artifactSessionPrefix({
+      sessionId: data.sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced,
+    }),
+    artifactSessionPrefix({
+      sessionId: data.sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced: false,
+    }),
+  ]
 
   await writeExportEvent(writer, data.sessionId, {
     type: "evidence.export_started",
@@ -176,7 +254,11 @@ export async function exportEvidence(input: z.infer<typeof ExportInput>) {
     for (const entry of manifest.entries) {
       if (!ALLOWLIST_KINDS.has(entry.kind)) continue
       const normalized = normalizeRel(entry.path)
-      const classification = classifyEntry({ path: normalized, sessionId: data.sessionId })
+      const classification = classifyEntry({
+        path: normalized,
+        evidencePrefixes,
+        artifactPrefixes,
+      })
       if (!classification) continue
 
       let sourcePath: string
@@ -186,7 +268,7 @@ export async function exportEvidence(input: z.infer<typeof ExportInput>) {
         destinationPath = path.join(outDir, classification.rel)
         exportedEvidence.add(classification.rel)
       } else {
-        sourcePath = path.join(base, ".opencode", "artifacts", data.sessionId, classification.rel)
+        sourcePath = await firstExisting(artifactDirs.map((dir) => path.join(dir, classification.rel)))
         destinationPath = path.join(outDir, "artifacts", classification.rel)
       }
 

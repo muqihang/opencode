@@ -1,5 +1,6 @@
 import fs from "fs/promises"
 import { EventV1 } from "@/protocol/event"
+import { resolveTenantScope } from "@/util/tenant-context"
 
 type RecordData = Record<string, unknown>
 
@@ -255,7 +256,13 @@ export const extractCitationPointersFromEvents = (events: unknown[]) => {
 
 export async function appendEvent(file: string, input: unknown) {
   const parsed = EventV1.parse(input)
-  const data = normalizeTurnGateEvent(parsed)
+  const scope = resolveTenantScope({ tenantId: parsed.tenantId, orgId: parsed.orgId })
+  const scoped = EventV1.parse({
+    ...parsed,
+    tenantId: parsed.tenantId ?? scope.tenantId,
+    orgId: parsed.orgId ?? scope.orgId,
+  })
+  const data = normalizeTurnGateEvent(scoped)
   await fs.appendFile(file, JSON.stringify(data) + "\n")
   return data
 }

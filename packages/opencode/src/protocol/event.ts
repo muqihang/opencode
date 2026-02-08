@@ -39,6 +39,8 @@ export const EventV1 = z
     specVersion: z.literal("event/1.0"),
     ts: IsoDateTimeUtc,
     sessionId: z.string().min(1),
+    tenantId: z.string().min(1).optional(),
+    orgId: z.string().min(1).optional(),
     traceId: TraceId.optional(),
     spanId: SpanId.optional(),
     severity: EventSeverity,
@@ -51,4 +53,3 @@ export const EventV1 = z
   .strict()
 
 export type EventV1 = z.infer<typeof EventV1>
-
