@@ -194,6 +194,16 @@ export function TurnActivity(props: {
                   }}>
                     · {b().counts}
                   </span>
+                  <Show when={b().roles.length > 0}>
+                    <span classList={{
+                      "text-11-regular": true,
+                      "text-text-subtle": b().tone === "info",
+                      "text-text-on-success-base": b().tone === "success",
+                      "text-text-on-warning-base": b().tone === "warning",
+                    }}>
+                      · {b().roles.join(" · ")}
+                    </span>
+                  </Show>
                 </span>
               )}
             </Show>

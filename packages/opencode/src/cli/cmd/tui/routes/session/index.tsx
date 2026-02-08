@@ -1157,7 +1157,7 @@ function UserMessage(props: {
     if (!turn?.triggered) return theme.textMuted
     if (turn.phase === "degraded") return theme.warning
     if (turn.phase === "running") return theme.accent
-    return theme.textMuted
+    return theme.success
   })
 
   return (

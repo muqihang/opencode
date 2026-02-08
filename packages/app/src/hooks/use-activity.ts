@@ -23,7 +23,19 @@ export function useActivity(props: { sessionID: string }) {
         if (batch.nextCursor === state.cursor && batch.events.length === 0) return
         setState("cursor", batch.nextCursor)
         if (batch.events.length === 0) return
-        setState("events", (prev) => [...prev, ...batch.events])
+        setState("events", (prev) => {
+          const merged = [...prev, ...batch.events]
+          const seen = new Set<string>()
+          const deduped: EventV1[] = []
+          for (const item of merged) {
+            const data = item.data ? JSON.stringify(item.data) : ""
+            const key = `${item.ts}|${item.type}|${item.actor}|${data}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            deduped.push(item)
+          }
+          return deduped
+        })
       })
       .catch(() => {})
 
@@ -35,7 +47,17 @@ export function useActivity(props: { sessionID: string }) {
       const event = readWorkerLifecycle(evt.details)
       if (!event) return
       if (event.sessionID !== sessionID()) return
-      setState("events", (prev) => [...prev, lifecycleEventV1(event, new Date().toISOString())])
+      setState("events", (prev) => {
+        const synthetic = lifecycleEventV1(event, new Date().toISOString())
+        const data = synthetic.data ? JSON.stringify(synthetic.data) : ""
+        const key = `${synthetic.type}|${synthetic.actor}|${data}`
+        const found = prev.some((item) => {
+          const itemData = item.data ? JSON.stringify(item.data) : ""
+          return `${item.type}|${item.actor}|${itemData}` === key
+        })
+        if (found) return prev
+        return [...prev, synthetic]
+      })
     })
     onCleanup(() => {
       clearInterval(timer)
