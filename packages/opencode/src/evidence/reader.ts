@@ -4,11 +4,21 @@ import z from "zod"
 import { Instance } from "@/project/instance"
 import { EvidenceManifest } from "@/protocol/evidence-manifest"
 import { EventV1 } from "@/protocol/event"
+import { evidenceCandidates, resolveTenantScope } from "@/util/tenant-context"
 
 const ReadEventsInput = z
   .object({
     cursor: z.number().int().nonnegative(),
     limit: z.number().int().positive().max(1000).optional(),
+    tenantId: z.string().min(1).optional(),
+    orgId: z.string().min(1).optional(),
+  })
+  .strict()
+
+const ReadManifestInput = z
+  .object({
+    tenantId: z.string().min(1).optional(),
+    orgId: z.string().min(1).optional(),
   })
   .strict()
 
@@ -16,16 +26,36 @@ function baseDir() {
   return Instance.worktree === "/" ? Instance.directory : Instance.worktree
 }
 
-function evidenceDir(sessionId: string) {
-  return path.join(baseDir(), ".opencode", "evidence", sessionId)
+async function firstExisting(files: string[]) {
+  for (const file of files) {
+    const stat = await fs.stat(file).catch(() => null)
+    if (stat?.isFile()) return file
+  }
+  return files[0]
 }
 
-function eventsPath(sessionId: string) {
-  return path.join(evidenceDir(sessionId), "events.jsonl")
+async function eventsPath(sessionId: string, input?: { tenantId?: string; orgId?: string }) {
+  const scope = resolveTenantScope(input)
+  const dirs = evidenceCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  const files = dirs.map((dir) => path.join(dir, "events.jsonl"))
+  return firstExisting(files)
 }
 
-function manifestPath(sessionId: string) {
-  return path.join(evidenceDir(sessionId), "manifest.json")
+async function manifestPath(sessionId: string, input?: { tenantId?: string; orgId?: string }) {
+  const scope = resolveTenantScope(input)
+  const dirs = evidenceCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  const files = dirs.map((dir) => path.join(dir, "manifest.json"))
+  return firstExisting(files)
 }
 
 type EventsResult = {
@@ -36,7 +66,8 @@ type EventsResult = {
 async function readEvents(sessionId: string, opts: z.infer<typeof ReadEventsInput>): Promise<EventsResult> {
   const input = ReadEventsInput.parse(opts)
   const limit = input.limit ?? 200
-  const handle = await fs.open(eventsPath(sessionId), "r").catch(() => null)
+  const file = await eventsPath(sessionId, { tenantId: input.tenantId, orgId: input.orgId })
+  const handle = await fs.open(file, "r").catch(() => null)
   if (!handle) return { events: [], nextCursor: 0 }
 
   try {
@@ -88,8 +119,9 @@ async function readEvents(sessionId: string, opts: z.infer<typeof ReadEventsInpu
   }
 }
 
-async function readManifest(sessionId: string) {
-  const file = manifestPath(sessionId)
+async function readManifest(sessionId: string, input?: z.infer<typeof ReadManifestInput>) {
+  const parsed = ReadManifestInput.parse(input ?? {})
+  const file = await manifestPath(sessionId, { tenantId: parsed.tenantId, orgId: parsed.orgId })
   const text = await Bun.file(file).text().catch(() => "")
   if (!text) {
     return EvidenceManifest.parse({
@@ -106,4 +138,3 @@ export const EvidenceReader = {
   readEvents,
   readManifest,
 }
-

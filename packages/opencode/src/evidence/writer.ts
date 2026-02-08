@@ -12,10 +12,20 @@ import { EvidenceMicroPack } from "@/protocol/evidence-micro-pack"
 import { renderEvidencePackViewMarkdown } from "@/evidence/pack-view"
 import { stableJson } from "@/util/stable-json"
 import { TurnTraceContext } from "@/util/turn-trace"
+import {
+  artifactSessionDir,
+  artifactSessionPrefix,
+  evidenceSessionDir,
+  evidenceSessionPrefix,
+  isA2TenantNamespaceEnabled,
+  resolveTenantScope,
+} from "@/util/tenant-context"
 
 const OpenInput = z
   .object({
     sessionId: z.string().min(1),
+    tenantId: z.string().min(1).optional(),
+    orgId: z.string().min(1).optional(),
   })
   .strict()
 
@@ -164,12 +174,12 @@ function toRelativePath(raw: string) {
   return path.relative(root, raw)
 }
 
-function pointerPath(sessionId: string, entryPath: string) {
+function pointerPath(sessionPrefix: string, entryPath: string) {
   if (entryPath.startsWith(".opencode/") || entryPath.startsWith(".opencode\\")) {
     return entryPath
   }
   const normalized = entryPath.replace(/\\/g, "/")
-  return `.opencode/artifacts/${sessionId}/${normalized}`
+  return `${sessionPrefix}${normalized}`
 }
 
 function isTraversal(rel: string) {
@@ -278,15 +288,42 @@ export const EvidenceWriter = {
   async open(input: z.infer<typeof OpenInput>) {
     OpenInput.parse(input)
     const sessionId = input.sessionId
+    const scope = resolveTenantScope({ tenantId: input.tenantId, orgId: input.orgId })
+    const namespaced = isA2TenantNamespaceEnabled()
     const base = Instance.worktree === "/" ? Instance.directory : Instance.worktree
     const root = path.join(base, ".opencode")
-    const evidence = path.join(root, "evidence", sessionId)
-    const artifacts = path.join(root, "artifacts", sessionId)
+    const evidence = evidenceSessionDir({
+      base,
+      sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced,
+    })
+    const artifacts = artifactSessionDir({
+      base,
+      sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced,
+    })
+    const evidencePrefix = evidenceSessionPrefix({
+      sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced,
+    })
+    const artifactPrefix = artifactSessionPrefix({
+      sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced,
+    })
     const eventsPath = path.join(evidence, "events.jsonl")
     const manifestPath = path.join(evidence, "manifest.json")
     const packPath = path.join(evidence, "pack.json")
     const packViewPath = path.join(evidence, "pack.md")
 
+    await fs.mkdir(root, { recursive: true })
     await fs.mkdir(evidence, { recursive: true })
     await fs.mkdir(artifacts, { recursive: true })
 
@@ -347,6 +384,8 @@ export const EvidenceWriter = {
         const hasMessageId = Object.prototype.hasOwnProperty.call(data, "messageId")
         const eventData = EventV1.parse({
           ...inputEvent,
+          tenantId: inputEvent.tenantId ?? scope.tenantId,
+          orgId: inputEvent.orgId ?? scope.orgId,
           traceId: inputEvent.traceId ?? context?.traceId,
           data: context?.messageId && !hasMessageId ? { ...data, messageId: context.messageId } : inputEvent.data,
         })
@@ -383,6 +422,8 @@ export const EvidenceWriter = {
           specVersion: "event/1.0",
           ts: new Date().toISOString(),
           sessionId,
+          tenantId: scope.tenantId,
+          orgId: scope.orgId,
           severity: "error",
           actor: "evidence:writer",
           type: "protocol.violation",
@@ -453,6 +494,8 @@ export const EvidenceWriter = {
           specVersion: "event/1.0",
           ts: new Date().toISOString(),
           sessionId,
+          tenantId: scope.tenantId,
+          orgId: scope.orgId,
           severity: "error",
           actor: "evidence:writer",
           type: "evidence.write_failed",
@@ -508,6 +551,8 @@ export const EvidenceWriter = {
         specVersion: "event/1.0",
         ts: new Date().toISOString(),
         sessionId,
+        tenantId: scope.tenantId,
+        orgId: scope.orgId,
         severity: "info",
         actor: "evidence:writer",
         type: "evidence.upstream_lock_attached",
@@ -529,7 +574,7 @@ export const EvidenceWriter = {
       await attachUpstreamLock()
       const eventsFromDisk = await readEventsFromDisk()
       const artifactEntries = entries.filter((entry) =>
-        entry.path.replace(/\\/g, "/").startsWith(`.opencode/artifacts/${sessionId}/`),
+        entry.path.replace(/\\/g, "/").startsWith(artifactPrefix),
       )
       const artifacts = sortArtifacts(
         artifactEntries.map((entry) => ({
@@ -586,7 +631,7 @@ export const EvidenceWriter = {
         )
         .map((entry) => ({
           kind: entry.kind,
-          path: pointerPath(sessionId, entry.path),
+          path: pointerPath(artifactPrefix, entry.path),
           sha256: entry.sha256,
         }))
       const packView = renderEvidencePackViewMarkdown({

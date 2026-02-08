@@ -20,6 +20,22 @@ export type EvidenceChainResult =
 
 const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/+/g, "/")
 
+const canonical = (value: string) => {
+  const normalized = norm(value)
+  const parts = normalized.split("/").filter(Boolean)
+  if (parts[0] !== ".opencode") return normalized
+  if (parts[1] !== "artifacts" && parts[1] !== "evidence") return normalized
+  if (parts.length >= 6) {
+    const head = [parts[0], parts[1], parts[4]]
+    const tail = parts.slice(5)
+    return `/${[...head, ...tail].join("/")}`.replace(/^\//, "")
+  }
+  if (parts.length >= 4) {
+    return normalized
+  }
+  return normalized
+}
+
 const pointerRef = (pointer: Pointer) => {
   if (typeof pointer === "string") return pointer
   return pointer.ref
@@ -32,6 +48,32 @@ const pointerSha = (pointer: Pointer) => {
 
 const lower = (value: string) => value.trim().toLowerCase()
 
+const hasPath = (raw: Set<string>, canonicalSet: Set<string>, value: string) => {
+  const normalized = norm(value)
+  if (raw.has(normalized)) return true
+  return canonicalSet.has(canonical(normalized))
+}
+
+const mapSha = (input: Array<readonly [string, string]>) => {
+  const raw = new Map<string, string>()
+  const canon = new Map<string, string>()
+  for (const [key, value] of input) {
+    raw.set(key, value)
+    const alias = canonical(key)
+    if (!canon.has(alias)) {
+      canon.set(alias, value)
+    }
+  }
+  return { raw, canon }
+}
+
+const readSha = (input: { raw: Map<string, string>; canon: Map<string, string> }, key: string) => {
+  const normalized = norm(key)
+  const direct = input.raw.get(normalized)
+  if (direct) return direct
+  return input.canon.get(canonical(normalized)) ?? ""
+}
+
 export const verifyEvidenceChain = (input: {
   entries: Entry[]
   existing: string[]
@@ -40,14 +82,17 @@ export const verifyEvidenceChain = (input: {
   hashes?: Record<string, string>
   headerZh?: string
 }): EvidenceChainResult => {
-  const have = new Set(input.existing.map((p) => norm(p)))
+  const existingRaw = new Set(input.existing.map((p) => norm(p)))
+  const existingCanonical = new Set(input.existing.map((p) => canonical(p)))
+
   const fromEvents = extractCitationPointersFromEvents(input.events ?? []).map((item) => ({
     kind: "artifact",
     ref: item.ref,
     sha256: item.sha256,
   }))
   const pointers = [...(input.pointers ?? []), ...fromEvents]
-  const entrySha = new Map(
+
+  const entrySha = mapSha(
     input.entries
       .map((item) => {
         if (!item.sha256) return undefined
@@ -56,25 +101,27 @@ export const verifyEvidenceChain = (input: {
       })
       .filter((item): item is readonly [string, string] => Boolean(item)),
   )
-  const hashSha = new Map(
+
+  const hashSha = mapSha(
     Object.entries(input.hashes ?? {}).map(([key, value]) => [norm(key), lower(value)] as const),
   )
 
   const miss = input.entries
     .map((item) => norm(item.path))
     .filter((p) => p.length > 0)
-    .filter((p) => !have.has(p))
+    .filter((p) => !hasPath(existingRaw, existingCanonical, p))
+
   const pointerMiss = pointers
     .map((item) => norm(pointerRef(item)))
     .filter((p) => p.length > 0)
-    .filter((p) => !have.has(p))
+    .filter((p) => !hasPath(existingRaw, existingCanonical, p))
 
   const contaminated = pointers
     .map((item) => {
       const ref = norm(pointerRef(item))
       const expected = lower(pointerSha(item))
       if (!ref || !expected) return ""
-      const actual = hashSha.get(ref) ?? entrySha.get(ref) ?? ""
+      const actual = readSha(hashSha, ref) || readSha(entrySha, ref)
       if (!actual) return ""
       if (actual === expected) return ""
       return ref
