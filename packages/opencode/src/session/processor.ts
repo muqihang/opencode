@@ -32,6 +32,8 @@ export type OrchestratorRollout = {
   shadowMode: boolean
   v15B1: boolean
   adaptiveTTC: boolean
+  v15B2?: boolean
+  pointerContextOS?: boolean
 }
 
 type OrchestratorRolloutFlags = {
@@ -41,11 +43,15 @@ type OrchestratorRolloutFlags = {
   shadowMode: boolean
   orchestratorV15B1: boolean
   adaptiveTTC: boolean
+  orchestratorV15B2: boolean
+  pointerContextOS: boolean
 }
 
 export type OrchestratorRunGate = {
   v15B1: boolean
   adaptiveTTC: boolean
+  v15B2?: boolean
+  pointerContextOS?: boolean
 }
 
 type OrchestratorTurnShape = {
@@ -65,18 +71,33 @@ export const resolveOrchestratorRollout = (
     shadowMode: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_SHADOW_MODE === true,
     orchestratorV15B1: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_B1 === true,
     adaptiveTTC: Flag.OPENCODE_EXPERIMENTAL_ADAPTIVE_TTC === true,
+    orchestratorV15B2: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_B2 === true,
+    pointerContextOS: Flag.OPENCODE_EXPERIMENTAL_POINTER_CONTEXT_OS === true,
     ...flags,
   }
+  const b2 =
+    flags?.orchestratorV15B2 !== undefined ||
+    flags?.pointerContextOS !== undefined ||
+    config?.experimental?.orchestrator_v15_b2 !== undefined ||
+    config?.experimental?.pointer_context_os !== undefined ||
+    resolved.orchestratorV15B2 === true ||
+    resolved.pointerContextOS === true
 
   const enabled = resolved.orchestrator === true
   if (!enabled) {
-    return {
+    const base = {
       enabled: false,
       llmWorkers: false,
       workerBadge: false,
       shadowMode: false,
       v15B1: false,
       adaptiveTTC: false,
+    }
+    if (!b2) return base
+    return {
+      ...base,
+      v15B2: false,
+      pointerContextOS: false,
     }
   }
 
@@ -85,7 +106,7 @@ export const resolveOrchestratorRollout = (
   const shadowMode = config?.experimental?.orchestrator_shadow_mode ?? resolved.shadowMode
   const v15B1 = config?.experimental?.orchestrator_v15_b1 ?? resolved.orchestratorV15B1
   if (!v15B1) {
-    return {
+    const base = {
       enabled,
       llmWorkers,
       workerBadge,
@@ -93,9 +114,45 @@ export const resolveOrchestratorRollout = (
       v15B1: false,
       adaptiveTTC: false,
     }
+    if (!b2) return base
+    return {
+      ...base,
+      v15B2: false,
+      pointerContextOS: false,
+    }
   }
 
   const adaptiveTTC = config?.experimental?.adaptive_ttc ?? resolved.adaptiveTTC
+  const v15B2 = config?.experimental?.orchestrator_v15_b2 ?? resolved.orchestratorV15B2
+  if (!v15B2) {
+    const base = {
+      enabled,
+      llmWorkers,
+      workerBadge,
+      shadowMode,
+      v15B1,
+      adaptiveTTC,
+    }
+    if (!b2) return base
+    return {
+      ...base,
+      v15B2: false,
+      pointerContextOS: false,
+    }
+  }
+
+  const pointerContextOS = config?.experimental?.pointer_context_os ?? resolved.pointerContextOS
+
+  if (!b2) {
+    return {
+      enabled,
+      llmWorkers,
+      workerBadge,
+      shadowMode,
+      v15B1,
+      adaptiveTTC,
+    }
+  }
 
   return {
     enabled,
@@ -104,6 +161,8 @@ export const resolveOrchestratorRollout = (
     shadowMode,
     v15B1,
     adaptiveTTC,
+    v15B2,
+    pointerContextOS,
   }
 }
 
@@ -128,10 +187,22 @@ export const executeOrchestratorTurnByRollout = async (input: {
     }
   }
 
-  const result = await input.run({
-    v15B1: input.rollout.v15B1,
-    adaptiveTTC: input.rollout.v15B1 && input.rollout.adaptiveTTC,
-  })
+  const v15B2 = input.rollout.v15B1 && input.rollout.v15B2 === true
+  const pointerContextOS = v15B2 && input.rollout.pointerContextOS === true
+  const gate =
+    input.rollout.v15B2 === undefined && input.rollout.pointerContextOS === undefined
+      ? {
+          v15B1: input.rollout.v15B1,
+          adaptiveTTC: input.rollout.v15B1 && input.rollout.adaptiveTTC,
+        }
+      : {
+          v15B1: input.rollout.v15B1,
+          adaptiveTTC: input.rollout.v15B1 && input.rollout.adaptiveTTC,
+          v15B2,
+          pointerContextOS,
+        }
+
+  const result = await input.run(gate)
   if (!input.rollout.shadowMode) return result
 
   return {
@@ -241,7 +312,7 @@ export namespace SessionProcessor {
           return executeOrchestratorTurnByRollout({
             rollout,
             base,
-            run: async () =>
+            run: async (gate) =>
               runOrchestratorTurn({
                 sessionId: input.sessionID,
                 messageId: streamInput.user.id,
@@ -251,6 +322,7 @@ export namespace SessionProcessor {
                 intentText: orchestrator.intentText,
                 system: streamInput.system,
                 tools: streamInput.tools,
+                workingSetPointers: gate.pointerContextOS ? undefined : [],
               }),
           })
         })().catch(async (error) => {
