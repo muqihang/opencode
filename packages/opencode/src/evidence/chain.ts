@@ -1,3 +1,5 @@
+import { extractCitationPointersFromEvents } from "@/evidence/events"
+
 type Entry = {
   path: string
   kind?: string
@@ -34,10 +36,17 @@ export const verifyEvidenceChain = (input: {
   entries: Entry[]
   existing: string[]
   pointers?: Pointer[]
+  events?: unknown[]
   hashes?: Record<string, string>
   headerZh?: string
 }): EvidenceChainResult => {
   const have = new Set(input.existing.map((p) => norm(p)))
+  const fromEvents = extractCitationPointersFromEvents(input.events ?? []).map((item) => ({
+    kind: "artifact",
+    ref: item.ref,
+    sha256: item.sha256,
+  }))
+  const pointers = [...(input.pointers ?? []), ...fromEvents]
   const entrySha = new Map(
     input.entries
       .map((item) => {
@@ -55,12 +64,12 @@ export const verifyEvidenceChain = (input: {
     .map((item) => norm(item.path))
     .filter((p) => p.length > 0)
     .filter((p) => !have.has(p))
-  const pointerMiss = (input.pointers ?? [])
+  const pointerMiss = pointers
     .map((item) => norm(pointerRef(item)))
     .filter((p) => p.length > 0)
     .filter((p) => !have.has(p))
 
-  const contaminated = (input.pointers ?? [])
+  const contaminated = pointers
     .map((item) => {
       const ref = norm(pointerRef(item))
       const expected = lower(pointerSha(item))

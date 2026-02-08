@@ -34,6 +34,9 @@ export type OrchestratorRollout = {
   adaptiveTTC: boolean
   v15B2?: boolean
   pointerContextOS?: boolean
+  v15A1?: boolean
+  claimGraphGate?: boolean
+  dualPassSynthesis?: boolean
 }
 
 type OrchestratorRolloutFlags = {
@@ -45,6 +48,9 @@ type OrchestratorRolloutFlags = {
   adaptiveTTC: boolean
   orchestratorV15B2: boolean
   pointerContextOS: boolean
+  orchestratorV15A1: boolean
+  claimGraphGate: boolean
+  dualPassSynthesis: boolean
 }
 
 export type OrchestratorRunGate = {
@@ -52,6 +58,9 @@ export type OrchestratorRunGate = {
   adaptiveTTC: boolean
   v15B2?: boolean
   pointerContextOS?: boolean
+  v15A1?: boolean
+  claimGraphGate?: boolean
+  dualPassSynthesis?: boolean
 }
 
 type OrchestratorTurnShape = {
@@ -73,6 +82,9 @@ export const resolveOrchestratorRollout = (
     adaptiveTTC: Flag.OPENCODE_EXPERIMENTAL_ADAPTIVE_TTC === true,
     orchestratorV15B2: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_B2 === true,
     pointerContextOS: Flag.OPENCODE_EXPERIMENTAL_POINTER_CONTEXT_OS === true,
+    orchestratorV15A1: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A1 === true,
+    claimGraphGate: Flag.OPENCODE_EXPERIMENTAL_CLAIM_GRAPH_GATE === true,
+    dualPassSynthesis: Flag.OPENCODE_EXPERIMENTAL_DUAL_PASS_SYNTHESIS === true,
     ...flags,
   }
   const b2 =
@@ -82,6 +94,13 @@ export const resolveOrchestratorRollout = (
     config?.experimental?.pointer_context_os !== undefined ||
     resolved.orchestratorV15B2 === true ||
     resolved.pointerContextOS === true
+  const a1 =
+    flags?.orchestratorV15A1 !== undefined ||
+    flags?.claimGraphGate !== undefined ||
+    flags?.dualPassSynthesis !== undefined ||
+    resolved.orchestratorV15A1 === true ||
+    resolved.claimGraphGate === true ||
+    resolved.dualPassSynthesis === true
 
   const enabled = resolved.orchestrator === true
   if (!enabled) {
@@ -94,10 +113,17 @@ export const resolveOrchestratorRollout = (
       adaptiveTTC: false,
     }
     if (!b2) return base
-    return {
+    const b2Base = {
       ...base,
       v15B2: false,
       pointerContextOS: false,
+    }
+    if (!a1) return b2Base
+    return {
+      ...b2Base,
+      v15A1: false,
+      claimGraphGate: false,
+      dualPassSynthesis: false,
     }
   }
 
@@ -115,10 +141,17 @@ export const resolveOrchestratorRollout = (
       adaptiveTTC: false,
     }
     if (!b2) return base
-    return {
+    const b2Base = {
       ...base,
       v15B2: false,
       pointerContextOS: false,
+    }
+    if (!a1) return b2Base
+    return {
+      ...b2Base,
+      v15A1: false,
+      claimGraphGate: false,
+      dualPassSynthesis: false,
     }
   }
 
@@ -134,16 +167,45 @@ export const resolveOrchestratorRollout = (
       adaptiveTTC,
     }
     if (!b2) return base
-    return {
+    const b2Base = {
       ...base,
       v15B2: false,
       pointerContextOS: false,
+    }
+    if (!a1) return b2Base
+    return {
+      ...b2Base,
+      v15A1: false,
+      claimGraphGate: false,
+      dualPassSynthesis: false,
     }
   }
 
   const pointerContextOS = config?.experimental?.pointer_context_os ?? resolved.pointerContextOS
 
   if (!b2) {
+    const base = {
+      enabled,
+      llmWorkers,
+      workerBadge,
+      shadowMode,
+      v15B1,
+      adaptiveTTC,
+    }
+    if (!a1) return base
+    return {
+      ...base,
+      v15A1: false,
+      claimGraphGate: false,
+      dualPassSynthesis: false,
+    }
+  }
+
+  const v15A1 = resolved.orchestratorV15A1
+  const claimGraphGate = v15A1 && resolved.claimGraphGate
+  const dualPassSynthesis = v15A1 && resolved.dualPassSynthesis
+
+  if (!a1) {
     return {
       enabled,
       llmWorkers,
@@ -151,6 +213,8 @@ export const resolveOrchestratorRollout = (
       shadowMode,
       v15B1,
       adaptiveTTC,
+      v15B2,
+      pointerContextOS,
     }
   }
 
@@ -163,6 +227,9 @@ export const resolveOrchestratorRollout = (
     adaptiveTTC,
     v15B2,
     pointerContextOS,
+    v15A1,
+    claimGraphGate,
+    dualPassSynthesis,
   }
 }
 
@@ -189,7 +256,14 @@ export const executeOrchestratorTurnByRollout = async (input: {
 
   const v15B2 = input.rollout.v15B1 && input.rollout.v15B2 === true
   const pointerContextOS = v15B2 && input.rollout.pointerContextOS === true
-  const gate =
+  const hasA1 =
+    input.rollout.v15A1 !== undefined ||
+    input.rollout.claimGraphGate !== undefined ||
+    input.rollout.dualPassSynthesis !== undefined
+  const v15A1 = v15B2 && input.rollout.v15A1 === true
+  const claimGraphGate = v15A1 && input.rollout.claimGraphGate === true
+  const dualPassSynthesis = v15A1 && input.rollout.dualPassSynthesis === true
+  const gateBase =
     input.rollout.v15B2 === undefined && input.rollout.pointerContextOS === undefined
       ? {
           v15B1: input.rollout.v15B1,
@@ -200,6 +274,15 @@ export const executeOrchestratorTurnByRollout = async (input: {
           adaptiveTTC: input.rollout.v15B1 && input.rollout.adaptiveTTC,
           v15B2,
           pointerContextOS,
+        }
+  const gate =
+    !hasA1
+      ? gateBase
+      : {
+          ...gateBase,
+          v15A1,
+          claimGraphGate,
+          dualPassSynthesis,
         }
 
   const result = await input.run(gate)
