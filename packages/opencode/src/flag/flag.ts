@@ -5,6 +5,13 @@ function truthy(key: string) {
   return value === "true" || value === "1"
 }
 
+function truthyDefaultTrue(key: string) {
+  const value = process.env[key]
+  if (value === undefined) return true
+  const normalized = value.trim().toLowerCase()
+  return normalized === "true" || normalized === "1"
+}
+
 export namespace Flag {
   type PluginPolicyAction = "allow" | "ask" | "deny"
   type PluginPolicyMap = Record<string, PluginPolicyAction>
@@ -30,6 +37,8 @@ export namespace Flag {
   export const OPENCODE_DISABLE_CLAUDE_CODE_SKILLS =
     OPENCODE_DISABLE_CLAUDE_CODE || truthy("OPENCODE_DISABLE_CLAUDE_CODE_SKILLS")
   export declare const OPENCODE_DISABLE_PROJECT_CONFIG: boolean
+  export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2: boolean
+  export declare const OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES: boolean
   export const OPENCODE_FAKE_VCS = process.env["OPENCODE_FAKE_VCS"]
   export const OPENCODE_CLIENT = process.env["OPENCODE_CLIENT"] ?? "cli"
   export const OPENCODE_SERVER_PASSWORD = process.env["OPENCODE_SERVER_PASSWORD"]
@@ -130,6 +139,26 @@ export namespace Flag {
     return value === "allow" || value === "ask" || value === "deny"
   }
 }
+
+// Dynamic getter for OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES
+// This must be evaluated at access time to support runtime env overrides in CLI/tests
+Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES", {
+  get() {
+    return truthyDefaultTrue("OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES")
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+// Dynamic getter for OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2
+// This must be evaluated at access time to support runtime env overrides in CLI/tests
+Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2", {
+  get() {
+    return truthy("OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2")
+  },
+  enumerable: true,
+  configurable: false,
+})
 
 // Dynamic getter for OPENCODE_DISABLE_PROJECT_CONFIG
 // This must be evaluated at access time, not module load time,
