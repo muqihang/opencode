@@ -11,6 +11,7 @@ const report = await runOfflineGateEval({
   suiteDir,
   reportPath,
   summaryPath,
+  enforceCacheHitRatio: Flag.OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES,
 })
 
 const lines = [
@@ -23,12 +24,11 @@ const lines = [
 ]
 console.log(lines.join("\n"))
 
-if (report.gate.passed) {
-  process.exit(0)
+if (report.gate.checks.cacheHitRatio.status === "warn") {
+  console.log("offline eval cache hit ratio below threshold (warning only: OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES=false)")
 }
 
-if (!Flag.OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES) {
-  console.log("offline eval gate failed but downgraded to warning (OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES=false)")
+if (report.gate.passed) {
   process.exit(0)
 }
 

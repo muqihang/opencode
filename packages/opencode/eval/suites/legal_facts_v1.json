@@ -9,6 +9,10 @@
     "correctUnknownPredictions": 108,
     "citationChecks": 500,
     "validCitations": 490,
+    "keyClaims": 80,
+    "keyClaimsWithEvidence": 80,
+    "cacheRequests": 150,
+    "cacheHits": 120,
     "tasks": 300,
     "completedTasks": 264
   }

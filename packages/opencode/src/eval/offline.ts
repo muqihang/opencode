@@ -661,6 +661,10 @@ const OfflineEvalTotals = z
     correctUnknownPredictions: z.number().int().nonnegative(),
     citationChecks: z.number().int().nonnegative(),
     validCitations: z.number().int().nonnegative(),
+    keyClaims: z.number().int().nonnegative(),
+    keyClaimsWithEvidence: z.number().int().nonnegative(),
+    cacheRequests: z.number().int().nonnegative(),
+    cacheHits: z.number().int().nonnegative(),
     tasks: z.number().int().nonnegative(),
     completedTasks: z.number().int().nonnegative(),
   })
@@ -686,6 +690,20 @@ const OfflineEvalTotals = z
         path: ["validCitations"],
       })
     }
+    if (value.keyClaimsWithEvidence > value.keyClaims) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "keyClaimsWithEvidence cannot exceed keyClaims",
+        path: ["keyClaimsWithEvidence"],
+      })
+    }
+    if (value.cacheHits > value.cacheRequests) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "cacheHits cannot exceed cacheRequests",
+        path: ["cacheHits"],
+      })
+    }
     if (value.completedTasks > value.tasks) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -706,9 +724,25 @@ export type OfflineEvalSuite = z.infer<typeof OfflineEvalSuiteSchema>
 
 export type OfflineEvalMetrics = {
   unsupportedClaimRate: number
+  keyClaimEvidenceIntegrity: number
   unknownPrecision: number
   citationIntegrity: number
+  cacheHitRatio: number
   taskCompletion: number
+}
+
+export type OfflineEvalDimensions = {
+  claim: {
+    unsupportedClaimRate: number
+    keyClaimEvidenceIntegrity: number
+  }
+  citation: {
+    unknownPrecision: number
+    citationIntegrity: number
+  }
+  cache: {
+    cacheHitRatio: number
+  }
 }
 
 export type OfflineEvalSuiteResult = {
@@ -716,6 +750,7 @@ export type OfflineEvalSuiteResult = {
   baselineTaskCompletion: number
   totals: OfflineEvalSuite["totals"]
   metrics: OfflineEvalMetrics
+  dimensions: OfflineEvalDimensions
   gate: OfflineGateResult
 }
 
@@ -728,6 +763,7 @@ export type OfflineEvalReport = {
     baselineTaskCompletion: number
     totals: OfflineEvalSuite["totals"]
     metrics: OfflineEvalMetrics
+    dimensions: OfflineEvalDimensions
   }
   gate: OfflineGateResult
   passed: boolean
@@ -738,9 +774,25 @@ const ratio = (numerator: number, denominator: number, fallback: number) =>
 
 const calcMetrics = (totals: OfflineEvalSuite["totals"]): OfflineEvalMetrics => ({
   unsupportedClaimRate: ratio(totals.unsupportedClaims, totals.claims, 0),
+  keyClaimEvidenceIntegrity: ratio(totals.keyClaimsWithEvidence, totals.keyClaims, 1),
   unknownPrecision: ratio(totals.correctUnknownPredictions, totals.unknownPredictions, 1),
   citationIntegrity: ratio(totals.validCitations, totals.citationChecks, 1),
+  cacheHitRatio: ratio(totals.cacheHits, totals.cacheRequests, 1),
   taskCompletion: ratio(totals.completedTasks, totals.tasks, 0),
+})
+
+const calcDimensions = (metrics: OfflineEvalMetrics): OfflineEvalDimensions => ({
+  claim: {
+    unsupportedClaimRate: metrics.unsupportedClaimRate,
+    keyClaimEvidenceIntegrity: metrics.keyClaimEvidenceIntegrity,
+  },
+  citation: {
+    unknownPrecision: metrics.unknownPrecision,
+    citationIntegrity: metrics.citationIntegrity,
+  },
+  cache: {
+    cacheHitRatio: metrics.cacheHitRatio,
+  },
 })
 
 const reduceTotals = (items: OfflineEvalSuite[]): OfflineEvalSuite["totals"] =>
@@ -752,6 +804,10 @@ const reduceTotals = (items: OfflineEvalSuite[]): OfflineEvalSuite["totals"] =>
       correctUnknownPredictions: sum.correctUnknownPredictions + item.totals.correctUnknownPredictions,
       citationChecks: sum.citationChecks + item.totals.citationChecks,
       validCitations: sum.validCitations + item.totals.validCitations,
+      keyClaims: sum.keyClaims + item.totals.keyClaims,
+      keyClaimsWithEvidence: sum.keyClaimsWithEvidence + item.totals.keyClaimsWithEvidence,
+      cacheRequests: sum.cacheRequests + item.totals.cacheRequests,
+      cacheHits: sum.cacheHits + item.totals.cacheHits,
       tasks: sum.tasks + item.totals.tasks,
       completedTasks: sum.completedTasks + item.totals.completedTasks,
     }),
@@ -762,6 +818,10 @@ const reduceTotals = (items: OfflineEvalSuite[]): OfflineEvalSuite["totals"] =>
       correctUnknownPredictions: 0,
       citationChecks: 0,
       validCitations: 0,
+      keyClaims: 0,
+      keyClaimsWithEvidence: 0,
+      cacheRequests: 0,
+      cacheHits: 0,
       tasks: 0,
       completedTasks: 0,
     },
@@ -803,12 +863,9 @@ const checkRow = (input: {
     cmp: "<=" | ">="
     actual: number
     threshold: number
-    ok: boolean
+    status: "pass" | "fail" | "warn"
   }
-}) => {
-  const mark = input.check.ok ? "pass" : "fail"
-  return `| ${input.metric} | ${fmt(input.check.actual)} | ${input.check.cmp} ${fmt(input.check.threshold)} | ${mark} |`
-}
+}) => `| ${input.metric} | ${fmt(input.check.actual)} | ${input.check.cmp} ${fmt(input.check.threshold)} | ${input.check.status} |`
 
 export const renderOfflineEvalSummary = (report: OfflineEvalReport) => {
   const lines = [
@@ -820,11 +877,22 @@ export const renderOfflineEvalSummary = (report: OfflineEvalReport) => {
     `- suites: ${report.suites.length}`,
     `- gate: ${report.gate.passed ? "pass" : "fail"}`,
     "",
-    "## Aggregate Metrics",
+    "## Claim Dimensions",
     "",
-    `- unsupportedClaimRate: ${fmt(report.aggregate.metrics.unsupportedClaimRate)}`,
-    `- unknownPrecision: ${fmt(report.aggregate.metrics.unknownPrecision)}`,
-    `- citationIntegrity: ${fmt(report.aggregate.metrics.citationIntegrity)}`,
+    `- unsupportedClaimRate: ${fmt(report.aggregate.dimensions.claim.unsupportedClaimRate)}`,
+    `- keyClaimEvidenceIntegrity: ${fmt(report.aggregate.dimensions.claim.keyClaimEvidenceIntegrity)}`,
+    "",
+    "## Citation Dimensions",
+    "",
+    `- unknownPrecision: ${fmt(report.aggregate.dimensions.citation.unknownPrecision)}`,
+    `- citationIntegrity: ${fmt(report.aggregate.dimensions.citation.citationIntegrity)}`,
+    "",
+    "## Cache Dimensions",
+    "",
+    `- cacheHitRatio: ${fmt(report.aggregate.dimensions.cache.cacheHitRatio)}`,
+    "",
+    "## Task Completion",
+    "",
     `- taskCompletion: ${fmt(report.aggregate.metrics.taskCompletion)} (baseline ${fmt(report.aggregate.baselineTaskCompletion)})`,
     "",
     "## Gate Checks",
@@ -832,8 +900,10 @@ export const renderOfflineEvalSummary = (report: OfflineEvalReport) => {
     "| metric | actual | threshold | status |",
     "| --- | ---: | ---: | --- |",
     checkRow({ metric: "unsupportedClaimRate", check: report.gate.checks.unsupportedClaimRate }),
+    checkRow({ metric: "keyClaimEvidenceIntegrity", check: report.gate.checks.keyClaimEvidenceIntegrity }),
     checkRow({ metric: "unknownPrecision", check: report.gate.checks.unknownPrecision }),
     checkRow({ metric: "citationIntegrity", check: report.gate.checks.citationIntegrity }),
+    checkRow({ metric: "cacheHitRatio", check: report.gate.checks.cacheHitRatio }),
     checkRow({ metric: "taskCompletion", check: report.gate.checks.taskCompletion }),
   ]
   return `${lines.join("\n")}\n`
@@ -843,22 +913,28 @@ export const runOfflineGateEval = async (input: {
   suiteDir: string
   reportPath: string
   summaryPath: string
+  enforceCacheHitRatio?: boolean
 }) => {
   const suites = await loadOfflineEvalSuites({ suiteDir: input.suiteDir })
   const suiteResults = suites.map((suite) => {
     const metrics = calcMetrics(suite.totals)
+    const dimensions = calcDimensions(metrics)
     const gate = evaluateOfflineGate({
       unsupportedClaimRate: metrics.unsupportedClaimRate,
+      keyClaimEvidenceIntegrity: metrics.keyClaimEvidenceIntegrity,
       unknownPrecision: metrics.unknownPrecision,
       citationIntegrity: metrics.citationIntegrity,
+      cacheHitRatio: metrics.cacheHitRatio,
       taskCompletion: metrics.taskCompletion,
       baselineTaskCompletion: suite.baselineTaskCompletion,
+      enforceCacheHitRatio: input.enforceCacheHitRatio,
     })
     return {
       id: suite.id,
       baselineTaskCompletion: suite.baselineTaskCompletion,
       totals: suite.totals,
       metrics,
+      dimensions,
       gate,
     } satisfies OfflineEvalSuiteResult
   })
@@ -866,12 +942,16 @@ export const runOfflineGateEval = async (input: {
   const totals = reduceTotals(suites)
   const baselineTaskCompletion = weightedBaseline(suites)
   const aggregateMetrics = calcMetrics(totals)
+  const aggregateDimensions = calcDimensions(aggregateMetrics)
   const gate = evaluateOfflineGate({
     unsupportedClaimRate: aggregateMetrics.unsupportedClaimRate,
+    keyClaimEvidenceIntegrity: aggregateMetrics.keyClaimEvidenceIntegrity,
     unknownPrecision: aggregateMetrics.unknownPrecision,
     citationIntegrity: aggregateMetrics.citationIntegrity,
+    cacheHitRatio: aggregateMetrics.cacheHitRatio,
     taskCompletion: aggregateMetrics.taskCompletion,
     baselineTaskCompletion,
+    enforceCacheHitRatio: input.enforceCacheHitRatio,
   })
 
   const report = {
@@ -883,6 +963,7 @@ export const runOfflineGateEval = async (input: {
       baselineTaskCompletion,
       totals,
       metrics: aggregateMetrics,
+      dimensions: aggregateDimensions,
     },
     gate,
     passed: gate.passed,
