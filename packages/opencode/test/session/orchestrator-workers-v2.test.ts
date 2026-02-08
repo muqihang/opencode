@@ -18,10 +18,27 @@ const pack = (input: { pointers: string[]; planPointer?: string }) =>
     workingSet: { pointers: input.pointers },
   })
 
+const model = {
+  providerID: "opencode",
+  modelID: "gpt-5-nano",
+}
+
 describe("orchestrator workers v2", () => {
   test("retrieval_planner output is valid", async () => {
     const rolePack = pack({ pointers: [], planPointer: "orchestrator/retrieval-planner/plan.json" })
-    const out = await retrievalPlanner({ rolePack })
+    const out = await retrievalPlanner(
+      { rolePack, model },
+      {
+        run: async () => ({
+          status: "ok",
+          object: {
+            status: "ok",
+            notes: ["retrieval planned"],
+            toolRequests: [{ kind: "retrieval", input: rolePack.planPointer }],
+          },
+        }),
+      },
+    )
     const result = LlmWorkerResult.parse(out)
 
     expect(result.status).toBe("ok")
@@ -29,6 +46,30 @@ describe("orchestrator workers v2", () => {
       kind: "retrieval",
       input: "orchestrator/retrieval-planner/plan.json",
     })
+  })
+
+  test("retrieval planner llm fallback", async () => {
+    const rolePack = pack({ pointers: [], planPointer: "orchestrator/retrieval-planner/fallback.json" })
+    const out = await retrievalPlanner(
+      { rolePack, model },
+      {
+        run: async () => ({
+          status: "degraded",
+          reason: "schema",
+          object: {
+            status: "degraded",
+            notes: ["worker degraded: schema"],
+          },
+        }),
+      },
+    )
+
+    expect(out.status).toBe("degraded")
+    expect(out.toolRequests?.[0]).toEqual({
+      kind: "retrieval",
+      input: "orchestrator/retrieval-planner/fallback.json",
+    })
+    expect(out.notes?.some((item) => item.includes("worker degraded: schema"))).toBe(true)
   })
 
   test("patch_planner output is valid", async () => {
@@ -46,7 +87,19 @@ describe("orchestrator workers v2", () => {
     await Bun.write(marker, "keep")
     const rolePack = pack({ pointers: [], planPointer: "orchestrator/no-side-effects/plan.json" })
 
-    await retrievalPlanner({ rolePack })
+    await retrievalPlanner(
+      { rolePack, model },
+      {
+        run: async () => ({
+          status: "ok",
+          object: {
+            status: "ok",
+            notes: ["retrieval planned"],
+            toolRequests: [{ kind: "retrieval", input: rolePack.planPointer }],
+          },
+        }),
+      },
+    )
     await patchPlanner({ rolePack })
 
     const after = await Bun.file(marker).text()
