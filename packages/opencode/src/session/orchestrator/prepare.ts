@@ -23,6 +23,39 @@ type PrepareResult = {
   intentText: string
 }
 
+export type PromptSection = {
+  id: string
+  text: string
+  stability: "stable" | "dynamic"
+}
+
+export type PromptPack = {
+  packed: string[]
+  ids: string[]
+  stable: Array<{ id: string; text: string }>
+  dynamic: Array<{ id: string; text: string }>
+}
+
+export const packPromptSections = (input: { sections: PromptSection[] }): PromptPack => {
+  const sections = input.sections
+    .map((section, index) => ({
+      id: section.id,
+      text: section.text.trim(),
+      stability: section.stability,
+      index,
+    }))
+    .filter((section) => section.text.length > 0)
+  const stable = sections.filter((section) => section.stability === "stable").toSorted((a, b) => a.index - b.index)
+  const dynamic = sections.filter((section) => section.stability === "dynamic").toSorted((a, b) => a.index - b.index)
+  const ordered = [...stable, ...dynamic]
+  return {
+    packed: ordered.map((section) => section.text),
+    ids: ordered.map((section) => section.id),
+    stable: stable.map((section) => ({ id: section.id, text: section.text })),
+    dynamic: dynamic.map((section) => ({ id: section.id, text: section.text })),
+  }
+}
+
 const extractText = (message: ModelMessage) => {
   if (typeof message.content === "string") return message.content
   if (Array.isArray(message.content)) {

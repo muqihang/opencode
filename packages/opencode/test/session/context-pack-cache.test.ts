@@ -6,8 +6,40 @@ import { ContextPackCache, ContextPackStats } from "../../src/session/context-pa
 import { ulid } from "ulid"
 import { CachePolicy } from "../../src/cache/policy"
 import { defer } from "../../src/util/defer"
+import { packPromptSections } from "../../src/session/orchestrator/prepare"
 
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
+
+describe("cache-aware prompt packing", () => {
+  test("stable prefix is packed before dynamic content", () => {
+    const packed = packPromptSections({
+      sections: [
+        { id: "dynamic-user", stability: "dynamic", text: "USER" },
+        { id: "stable-permission", stability: "stable", text: "PERMS" },
+        { id: "dynamic-env", stability: "dynamic", text: "ENV" },
+        { id: "stable-toolset", stability: "stable", text: "TOOLS" },
+      ],
+    })
+
+    expect(packed.ids).toEqual(["stable-permission", "stable-toolset", "dynamic-user", "dynamic-env"])
+    expect(packed.packed).toEqual(["PERMS", "TOOLS", "USER", "ENV"])
+    expect(packed.stable.map((item) => item.id)).toEqual(["stable-permission", "stable-toolset"])
+    expect(packed.dynamic.map((item) => item.id)).toEqual(["dynamic-user", "dynamic-env"])
+  })
+
+  test("empty sections are ignored before packing", () => {
+    const packed = packPromptSections({
+      sections: [
+        { id: "stable-empty", stability: "stable", text: "  " },
+        { id: "dynamic-user", stability: "dynamic", text: "USER" },
+        { id: "stable-policy", stability: "stable", text: "POLICY" },
+      ],
+    })
+
+    expect(packed.ids).toEqual(["stable-policy", "dynamic-user"])
+    expect(packed.packed).toEqual(["POLICY", "USER"])
+  })
+})
 
 describe("context-pack cache store", () => {
   test("cache hit skips segments rebuild and keeps block sources call-scoped", async () => {

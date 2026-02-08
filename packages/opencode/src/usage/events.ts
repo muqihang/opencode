@@ -34,6 +34,28 @@ function meta(input: ProviderMetadata | undefined, key: string): Record<string, 
   return value
 }
 
+function cacheHitRatio(input: { hit: number | null; miss: number | null }) {
+  if (input.hit === null || input.miss === null) {
+    return {
+      cache_hit_ratio: null,
+      cache_hit_ratio_source: null,
+    }
+  }
+
+  const denominator = input.hit + input.miss
+  if (denominator === 0) {
+    return {
+      cache_hit_ratio: 0,
+      cache_hit_ratio_source: "usage.prompt_cache_hit_tokens+usage.prompt_cache_miss_tokens:denominator_zero",
+    }
+  }
+
+  return {
+    cache_hit_ratio: input.hit / denominator,
+    cache_hit_ratio_source: "usage.prompt_cache_hit_tokens+usage.prompt_cache_miss_tokens",
+  }
+}
+
 export function providerUsageSummary(input: {
   model: {
     providerID: string
@@ -55,6 +77,7 @@ export function providerUsageSummary(input: {
 
   const details = input.usage["prompt_tokens_details"]
   const cachedDetails = isRecord(details) ? numberFrom(details["cached_tokens"]) : null
+  const ratio = cacheHitRatio({ hit, miss })
 
   return {
     specVersion: "provider-usage-summary/1.0",
@@ -74,7 +97,11 @@ export function providerUsageSummary(input: {
     },
     cache: {
       read: read.state === "known" ? read.value : null,
+      read_source: read.state === "known" ? read.source : null,
       write: write.state === "known" ? write.value : null,
+      write_source: write.state === "known" ? write.source : null,
+      cache_hit_ratio: ratio.cache_hit_ratio,
+      cache_hit_ratio_source: ratio.cache_hit_ratio_source,
     },
     ids: {
       openaiResponseId: responseId,
@@ -110,16 +137,15 @@ export async function writeUsageEvents(input: {
     tokens: input.tokens,
     flags: input.flags,
   })
+  const summary = providerUsageSummary({
+    model: input.model,
+    usage: input.usage,
+    metadata: input.metadata,
+    flags: input.flags,
+  })
 
   const withRaw = await (async () => {
     if (!input.providerRaw.enabled) return normalized
-
-    const summary = providerUsageSummary({
-      model: input.model,
-      usage: input.usage,
-      metadata: input.metadata,
-      flags: input.flags,
-    })
 
     const entry = await input.writer.artifact({
       kind: "usage-provider-summary",
@@ -135,7 +161,11 @@ export async function writeUsageEvents(input: {
         summary: {
           openaiResponseId: summary.ids.openaiResponseId,
           cacheReadTokens: summary.cache.read,
+          cacheReadTokensSource: summary.cache.read_source,
           cacheWriteTokens: summary.cache.write,
+          cacheWriteTokensSource: summary.cache.write_source,
+          cache_hit_ratio: summary.cache.cache_hit_ratio,
+          cache_hit_ratio_source: summary.cache.cache_hit_ratio_source,
         },
       },
     }
@@ -152,6 +182,10 @@ export async function writeUsageEvents(input: {
     data: {
       messageId: input.messageId,
       normalized: withRaw,
+      cache: {
+        cache_hit_ratio: summary.cache.cache_hit_ratio,
+        cache_hit_ratio_source: summary.cache.cache_hit_ratio_source,
+      },
     },
     redaction: { applied: true, policyVersion: "v1" },
   })
@@ -172,6 +206,10 @@ export async function writeUsageEvents(input: {
         },
         provider: withRaw.provider,
         providerRaw: withRaw.providerRaw,
+        cache: {
+          cache_hit_ratio: summary.cache.cache_hit_ratio,
+          cache_hit_ratio_source: summary.cache.cache_hit_ratio_source,
+        },
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
@@ -193,6 +231,10 @@ export async function writeUsageEvents(input: {
         },
         provider: withRaw.provider,
         providerRaw: withRaw.providerRaw,
+        cache: {
+          cache_hit_ratio: summary.cache.cache_hit_ratio,
+          cache_hit_ratio_source: summary.cache.cache_hit_ratio_source,
+        },
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
