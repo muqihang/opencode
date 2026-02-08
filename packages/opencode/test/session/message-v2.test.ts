@@ -678,6 +678,102 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("deepseek reasoning lifecycle keeps current tool-loop reasoning and clears previous turn reasoning", () => {
+    const reasoner: Provider.Model = {
+      ...model,
+      id: "deepseek-reasoner",
+      providerID: "deepseek",
+      api: { ...model.api, id: "deepseek-reasoner" },
+    }
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo("u1"),
+        parts: [
+          {
+            ...basePart("u1", "u1-p1"),
+            type: "text",
+            text: "first turn",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo("a1", "u1", undefined, {
+          providerID: "deepseek",
+          modelID: "deepseek-reasoner",
+        }),
+        parts: [
+          {
+            ...basePart("a1", "a1-p1"),
+            type: "reasoning",
+            text: "old thinking",
+            time: { start: 0 },
+          },
+          {
+            ...basePart("a1", "a1-p2"),
+            type: "tool",
+            callID: "call-1",
+            tool: "bash",
+            state: {
+              status: "completed",
+              input: { cmd: "pwd" },
+              output: "ok",
+              title: "Bash",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: userInfo("u2"),
+        parts: [
+          {
+            ...basePart("u2", "u2-p1"),
+            type: "text",
+            text: "second turn",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo("a2", "u2", undefined, {
+          providerID: "deepseek",
+          modelID: "deepseek-reasoner",
+        }),
+        parts: [
+          {
+            ...basePart("a2", "a2-p1"),
+            type: "reasoning",
+            text: "new thinking",
+            time: { start: 0 },
+          },
+          {
+            ...basePart("a2", "a2-p2"),
+            type: "tool",
+            callID: "call-2",
+            tool: "bash",
+            state: {
+              status: "completed",
+              input: { cmd: "ls" },
+              output: "ok",
+              title: "Bash",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const result = MessageV2.toModelMessages(input, reasoner) as any[]
+    const assistants = result.filter((item) => item.role === "assistant")
+
+    expect(assistants).toHaveLength(2)
+    expect(assistants[0].content.some((part: any) => part.type === "reasoning")).toBe(false)
+    expect(assistants[1].content.some((part: any) => part.type === "reasoning")).toBe(true)
+    expect(assistants[1].content.find((part: any) => part.type === "reasoning")?.text).toBe("new thinking")
+  })
+
   test("splits assistant messages on step-start boundaries", () => {
     const assistantID = "m-assistant"
 

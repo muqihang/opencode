@@ -442,8 +442,14 @@ export namespace MessageV2 {
   export function toModelMessages(input: WithParts[], model: Provider.Model): ModelMessage[] {
     const result: UIMessage[] = []
     const toolNames = new Set<string>()
-    const skipReasoning =
+    const deepseekReasoner =
       model.providerID === "deepseek" && (model.id === "deepseek-reasoner" || model.api.id === "deepseek-reasoner")
+    const reasoningStart = deepseekReasoner
+      ? iife(() => {
+          const index = input.findLastIndex((item) => item.info.role === "user")
+          return index === -1 ? input.length : index
+        })
+      : -1
 
     const toModelOutput = (output: unknown) => {
       if (typeof output === "string") {
@@ -478,7 +484,7 @@ export namespace MessageV2 {
       return { type: "json", value: output as never }
     }
 
-    for (const msg of input) {
+    for (const [index, msg] of input.entries()) {
       if (msg.parts.length === 0) continue
 
       if (msg.info.role === "user") {
@@ -589,7 +595,7 @@ export namespace MessageV2 {
                 ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
               })
           }
-          if (part.type === "reasoning" && !skipReasoning) {
+          if (part.type === "reasoning" && (!deepseekReasoner || index > reasoningStart)) {
             assistantMessage.parts.push({
               type: "reasoning",
               text: part.text,
