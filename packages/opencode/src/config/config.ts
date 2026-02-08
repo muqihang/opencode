@@ -1217,6 +1217,14 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Enable adaptive test-time compute when orchestrator v1.5 b1 is enabled"),
+          orchestrator_v15_b2: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator v1.5 b2 behaviors when orchestrator v1.5 b1 is enabled"),
+          pointer_context_os: z
+            .boolean()
+            .optional()
+            .describe("Enable pointer-first context OS when orchestrator v1.5 b2 is enabled"),
           mcp_timeout: z
             .number()
             .int()

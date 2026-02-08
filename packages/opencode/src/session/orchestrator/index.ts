@@ -69,6 +69,20 @@ const toPlanPointer = (input: { sessionId: string; plan: OrchestratorPlan; inten
   return `${pointer}\n\nintent:${clipped}`
 }
 
+const toWorkingSetPointers = (input?: string[]) => {
+  if (!input) return []
+  const seen = new Set<string>()
+  const list = input.filter((item) => {
+    const value = item.trim()
+    if (!value) return false
+    if (seen.has(value)) return false
+    seen.add(value)
+    return true
+  })
+  if (list.length <= 12) return list
+  return list.slice(0, 12)
+}
+
 const buildRolePack = (input: {
   sessionId: string
   plan: OrchestratorPlan
@@ -94,7 +108,7 @@ const buildRolePack = (input: {
     policy,
     budget,
     workingSet: {
-      pointers: input.workingSetPointers,
+      pointers: toWorkingSetPointers(input.workingSetPointers),
     },
   })
   return rolePack
