@@ -1,9 +1,14 @@
+import { parse as parseJsonc } from "jsonc-parser"
+
 function truthy(key: string) {
   const value = process.env[key]?.toLowerCase()
   return value === "true" || value === "1"
 }
 
 export namespace Flag {
+  type PluginPolicyAction = "allow" | "ask" | "deny"
+  type PluginPolicyMap = Record<string, PluginPolicyAction>
+
   export const OPENCODE_AUTO_SHARE = truthy("OPENCODE_AUTO_SHARE")
   export const OPENCODE_GIT_BASH_PATH = process.env["OPENCODE_GIT_BASH_PATH"]
   export const OPENCODE_CONFIG = process.env["OPENCODE_CONFIG"]
@@ -78,6 +83,9 @@ export namespace Flag {
     OPENCODE_EXPERIMENTAL_ORCHESTRATOR && truthy("OPENCODE_EXPERIMENTAL_ORCHESTRATOR_SHADOW_MODE")
   export const OPENCODE_ORCHESTRATOR_UX_MODE = uxMode()
   export const OPENCODE_ORCHESTRATOR_FORK_STRATEGY = forkStrategy()
+  export const OPENCODE_PLUGIN_CORE_VERSION = process.env["OPENCODE_PLUGIN_CORE_VERSION"]
+  export const OPENCODE_PLUGIN_POLICY_CORE = pluginPolicy("OPENCODE_PLUGIN_POLICY_CORE")
+  export const OPENCODE_PLUGIN_POLICY_RUNTIME_HINT = pluginPolicy("OPENCODE_PLUGIN_POLICY_RUNTIME_HINT")
 
   function number(key: string) {
     const value = process.env[key]
@@ -100,6 +108,26 @@ export namespace Flag {
     const normalized = value.toLowerCase()
     if (normalized === "auto" || normalized === "suggest" || normalized === "off") return normalized
     return undefined
+  }
+
+  function pluginPolicy(key: string): PluginPolicyMap | undefined {
+    const value = process.env[key]
+    if (!value) return undefined
+
+    const errors: NonNullable<Parameters<typeof parseJsonc>[1]> = []
+    const parsed = parseJsonc(value, errors, { allowTrailingComma: true })
+    if (errors.length > 0) return undefined
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
+
+    const entries = Object.entries(parsed)
+    const valid = entries.every((entry) => isPluginPolicyAction(entry[1]))
+    if (!valid) return undefined
+
+    return Object.fromEntries(entries) as PluginPolicyMap
+  }
+
+  function isPluginPolicyAction(value: unknown): value is PluginPolicyAction {
+    return value === "allow" || value === "ask" || value === "deny"
   }
 }
 
