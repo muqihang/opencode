@@ -203,7 +203,10 @@ describe("orchestrator integration v2 rollout", () => {
           const events = await EvidenceReader.readEvents(sessionId, { cursor: 0 })
           const broker = events.events.filter((event) => event.type === "tool_broker.requested")
           const dualPass = events.events.find(
-            (event) => event.type === "orchestrator.degraded" && event.data?.stage === "dual_pass",
+            (event) =>
+              event.type === "orchestrator.degraded" &&
+              event.data?.stage === "dual_pass" &&
+              String(event.data?.reason ?? "").includes("fallback=unknown-first"),
           )
           const planner = events.events.find(
             (event) =>
@@ -213,7 +216,7 @@ describe("orchestrator integration v2 rollout", () => {
           )
           expect(broker.length).toBeGreaterThan(0)
           expect(Boolean(dualPass)).toBe(true)
-          expect(Boolean(planner)).toBe(true)
+          expect(Boolean(planner)).toBe(false)
         } finally {
           WorkerRunner.run = original
         }

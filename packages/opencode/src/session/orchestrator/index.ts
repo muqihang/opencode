@@ -128,6 +128,7 @@ const runInjectionDualPass = async (input: {
   plan: OrchestratorPlan
   injected: string
   workerResults: LlmWorkerResult[]
+  plannerDegraded: boolean
 }) => {
   const policy = input.plan.dualPass
   if (!policy?.enabled) return { text: input.injected, degraded: false }
@@ -137,12 +138,13 @@ const runInjectionDualPass = async (input: {
     critic: async ({ draft }) => {
       const reason = criticReason({ workerResults: input.workerResults })
       if (reason) {
+        const fallback = input.plannerDegraded ? "unknown-first" : "draft"
         return {
           specVersion: "dual-pass/1.0",
           stage: "critic",
           verdict: "degrade",
           reason,
-          fallback: "draft",
+          fallback,
         }
       }
       return {
@@ -271,9 +273,10 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
       plan: input.plan,
       injected,
       workerResults,
+      plannerDegraded,
     })
 
-    if (plannerDegraded) {
+    if (plannerDegraded && !dualPass.degraded) {
       await writeOrchestratorDegraded({
         sessionId: input.sessionId,
         messageId: input.messageId,
