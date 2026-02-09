@@ -38,6 +38,7 @@ import { runRetrieval } from "@/retrieval/runner"
 import { ulid } from "ulid"
 import { ContextLedger } from "./context-ledger"
 import { GeminiCachedContent } from "@/provider/gemini-cached-content"
+import { packPromptSections } from "@/session/orchestrator/prepare"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -135,14 +136,17 @@ export namespace LLM {
       : systemItems
     ).join("\n\n")
     const userText = input.user.system ?? ""
-    const systemBase = [
-      providerPrompt,
-      permissionText,
-      DecisionBoundary.text,
-      environmentText,
-      capsuleText,
-      userText,
-    ].filter((item) => item.trim().length > 0)
+    const packedSystem = packPromptSections({
+      sections: [
+        { id: "stable:provider", stability: "stable", text: providerPrompt },
+        { id: "stable:permissions", stability: "stable", text: permissionText },
+        { id: "stable:decision", stability: "stable", text: DecisionBoundary.text },
+        { id: "dynamic:environment", stability: "dynamic", text: environmentText },
+        { id: "dynamic:capsule", stability: "dynamic", text: capsuleText },
+        { id: "dynamic:user", stability: "dynamic", text: userText },
+      ],
+    })
+    const systemBase = [...packedSystem.packed]
     if (systemBase.length === 0) systemBase.push("")
     const system = [...systemBase]
 

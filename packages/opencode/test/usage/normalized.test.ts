@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { extractCacheReadTokens, extractCacheWriteTokens, normalizeUsage } from "../../src/usage/normalized"
+import { providerUsageSummary } from "../../src/usage/events"
 
 describe("usage.normalized", () => {
   describe("extractCacheReadTokens()", () => {
@@ -209,6 +210,46 @@ describe("usage.normalized", () => {
 
       expect(normalized.tokens.cacheReadTokens.state).toBe("unknown")
       expect(normalized.tokens.cacheHit.state).toBe("unknown")
+    })
+
+    test("reports cache hit ratio with source from prompt cache hit/miss tokens", () => {
+      const summary = providerUsageSummary({
+        model: {
+          providerID: "deepseek",
+          api: { npm: "@ai-sdk/openai-compatible", id: "deepseek-chat" },
+          id: "deepseek-chat",
+        },
+        usage: {
+          prompt_cache_hit_tokens: 8,
+          prompt_cache_miss_tokens: 2,
+        },
+        metadata: {},
+        flags: {},
+      })
+
+      expect(summary.cache.cache_hit_ratio).toBe(0.8)
+      expect(summary.cache.cache_hit_ratio_source).toBe("usage.prompt_cache_hit_tokens+usage.prompt_cache_miss_tokens")
+    })
+
+    test("reports cache hit ratio as 0 when denominator is 0", () => {
+      const summary = providerUsageSummary({
+        model: {
+          providerID: "deepseek",
+          api: { npm: "@ai-sdk/openai-compatible", id: "deepseek-chat" },
+          id: "deepseek-chat",
+        },
+        usage: {
+          prompt_cache_hit_tokens: 0,
+          prompt_cache_miss_tokens: 0,
+        },
+        metadata: {},
+        flags: {},
+      })
+
+      expect(summary.cache.cache_hit_ratio).toBe(0)
+      expect(summary.cache.cache_hit_ratio_source).toBe(
+        "usage.prompt_cache_hit_tokens+usage.prompt_cache_miss_tokens:denominator_zero",
+      )
     })
   })
 })
