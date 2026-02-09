@@ -4,6 +4,7 @@ import { EvidenceWriter } from "../../src/evidence/writer"
 import { EvidencePack } from "../../src/protocol/evidence-pack"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 describe("evidence.pack artifacts", () => {
   test("pack.json derives artifacts from manifest deterministically", async () => {
@@ -25,13 +26,20 @@ describe("evidence.pack artifacts", () => {
 
         await writer.pack({ handoff: "ok" })
 
-        const packPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "pack_artifacts",
-          "pack.json",
-        )
+        const scope = resolveTenantScope()
+        const packPath = await (async () => {
+          const candidates = evidenceCandidates({
+            base: Instance.worktree,
+            sessionId: "pack_artifacts",
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "pack.json"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const pack = EvidencePack.parse(JSON.parse(await Bun.file(packPath).text()))
         expect(pack.artifacts.length).toBeGreaterThan(0)
         for (const artifact of pack.artifacts) {

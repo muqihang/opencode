@@ -8,6 +8,7 @@ import type { PermissionNext } from "../../src/permission/next"
 import { Truncate } from "../../src/tool/truncation"
 import { EventV1 } from "../../src/protocol/event"
 import { EvidenceManifest } from "../../src/protocol/evidence-manifest"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 const ctx = {
   sessionID: "test",
@@ -20,6 +21,21 @@ const ctx = {
 }
 
 const projectRoot = path.join(__dirname, "../..")
+
+async function evidenceRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 describe("tool.bash", () => {
   test("basic", async () => {
@@ -38,7 +54,20 @@ describe("tool.bash", () => {
         expect(result.metadata.output).toContain("test")
         expect(result.metadata.artifact).toBeDefined()
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", ctx.sessionID, "events.jsonl")
+        const eventsPath = await (async () => {
+          const scope = resolveTenantScope()
+          const candidates = evidenceCandidates({
+            base: Instance.worktree,
+            sessionId: ctx.sessionID,
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "events.jsonl"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const text = await Bun.file(eventsPath).text()
         const lines = text
           .split("\n")
@@ -388,19 +417,18 @@ describe("tool.bash pointers", () => {
           : path.join(Instance.worktree, artifactPath)
         expect(await Bun.file(absoluteArtifactPath).exists()).toBe(true)
 
-        const manifestPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          ctx.sessionID,
-          "manifest.json",
-        )
-        const manifestText = await Bun.file(manifestPath).text()
+        const evidenceDir = await evidenceRoot(ctx.sessionID)
+        const manifestText = await Bun.file(path.join(evidenceDir, "manifest.json")).text()
         const manifest = EvidenceManifest.parse(JSON.parse(manifestText))
         const artifactRel = path.isAbsolute(artifactPath)
           ? path.relative(Instance.worktree, artifactPath)
           : artifactPath
-        const stdoutEntry = manifest.entries.find((entry) => entry.path === artifactRel)
+        const stdoutEntry = manifest.entries.find(
+          (entry) =>
+            entry.path === artifactRel ||
+            artifactRel.endsWith(entry.path) ||
+            entry.path.endsWith(artifactRel),
+        )
         expect(stdoutEntry).toBeDefined()
         expect(result.output).toContain(stdoutEntry!.path)
         expect(result.output).toContain(stdoutEntry!.sha256)

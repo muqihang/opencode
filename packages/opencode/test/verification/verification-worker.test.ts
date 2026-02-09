@@ -6,6 +6,37 @@ import { runVerification, VerificationStats } from "../../src/verification"
 import { EvidenceWriter } from "../../src/evidence/writer"
 import { EventV1 } from "../../src/protocol/event"
 import { defer } from "../../src/util/defer"
+import { artifactCandidates, evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+async function artifactRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = artifactCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
+
+async function eventsPath(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, "events.jsonl"))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 const buildCtx = (sessionId: string) => ({
   sessionID: sessionId,
@@ -24,7 +55,7 @@ describe("verification.worker", () => {
       directory: tmp.path,
       fn: async () => {
         const sessionId = "verifier-test"
-        const base = path.join(Instance.worktree, ".opencode", "artifacts", sessionId)
+        const base = await artifactRoot(sessionId)
         const root = path.join(base, "derived", "input-1")
         await Bun.write(path.join(root, "note.txt"), "hello\nworld\n")
 
@@ -56,8 +87,8 @@ describe("verification.worker", () => {
         expect(viewText).toContain("断言统计:")
         expect(viewText).toContain("可验证 (supported)")
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-        const eventsText = await Bun.file(eventsPath).text()
+        const eventsPathValue = await eventsPath(sessionId)
+        const eventsText = await Bun.file(eventsPathValue).text()
         const types = eventsText
           .split("\n")
           .map((line) => line.trim())
@@ -75,7 +106,7 @@ describe("verification.worker", () => {
       directory: tmp.path,
       fn: async () => {
         const sessionId = "verifier-test-2"
-        const base = path.join(Instance.worktree, ".opencode", "artifacts", sessionId)
+        const base = await artifactRoot(sessionId)
         const root = path.join(base, "derived", "input-2")
         await Bun.write(path.join(root, "pii.txt"), "ssn 123-45-6789")
 
@@ -105,7 +136,7 @@ describe("verification.worker", () => {
       directory: tmp.path,
       fn: async () => {
         const sessionId = "verifier-cache"
-        const base = path.join(Instance.worktree, ".opencode", "artifacts", sessionId)
+        const base = await artifactRoot(sessionId)
         const root = path.join(base, "derived", "input-1")
         await Bun.write(path.join(root, "note.txt"), "hello\nworld\n")
 
@@ -146,8 +177,8 @@ describe("verification.worker", () => {
         expect(two.ok).toBe(true)
         expect(VerificationStats.scripts).toBe(firstScripts)
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-        const eventsText = await Bun.file(eventsPath).text()
+        const eventsPathValue = await eventsPath(sessionId)
+        const eventsText = await Bun.file(eventsPathValue).text()
         const events = eventsText
           .split("\n")
           .map((line) => line.trim())
@@ -168,7 +199,7 @@ describe("verification.worker", () => {
       directory: tmp.path,
       fn: async () => {
         const sessionId = "verifier-miss-once"
-        const base = path.join(Instance.worktree, ".opencode", "artifacts", sessionId)
+        const base = await artifactRoot(sessionId)
         const root = path.join(base, "derived", "input-1")
         await Bun.write(path.join(root, "note.txt"), "hello\nworld\n")
 
@@ -186,8 +217,8 @@ describe("verification.worker", () => {
           ctx: buildCtx(sessionId),
         })
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-        const eventsText = await Bun.file(eventsPath).text()
+        const eventsPathValue = await eventsPath(sessionId)
+        const eventsText = await Bun.file(eventsPathValue).text()
         const events = eventsText
           .split("\n")
           .map((line) => line.trim())
@@ -213,7 +244,7 @@ describe("verification.worker", () => {
         })
 
         const sessionId = "verifier-disabled"
-        const base = path.join(Instance.worktree, ".opencode", "artifacts", sessionId)
+        const base = await artifactRoot(sessionId)
         const root = path.join(base, "derived", "input-1")
         await Bun.write(path.join(root, "note.txt"), "hello\nworld\n")
 
@@ -252,8 +283,8 @@ describe("verification.worker", () => {
 
         expect(VerificationStats.scripts).toBeGreaterThan(afterOne)
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-        const eventsText = await Bun.file(eventsPath).text()
+        const eventsPathValue = await eventsPath(sessionId)
+        const eventsText = await Bun.file(eventsPathValue).text()
         const events = eventsText
           .split("\n")
           .map((line) => line.trim())

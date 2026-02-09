@@ -159,7 +159,7 @@ describe("structured compaction regression", () => {
 
         const manifest = await EvidenceReader.readManifest(sessionId)
         const capsule = manifest.entries.find(
-          (e) => e.path.includes(`/artifacts/${sessionId}/compaction/`) && e.path.endsWith("/capsule.md"),
+          (e) => e.path.includes("/artifacts/") && e.path.includes("/compaction/") && e.path.endsWith("/capsule.md"),
         )
         expect(capsule).toBeTruthy()
         if (!capsule) return

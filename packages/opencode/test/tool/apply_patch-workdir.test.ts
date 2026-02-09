@@ -5,6 +5,23 @@ import { Instance } from "../../src/project/instance"
 import { SessionWorktree } from "../../src/worktree/session"
 import { EvidenceManifest } from "../../src/protocol/evidence-manifest"
 import { tmpdir } from "../fixture/fixture"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+
+async function evidenceRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 const ctx = {
   sessionID: "s1",
@@ -37,14 +54,8 @@ describe("tool.apply_patch workdir", () => {
         expect(await Bun.file(isolatedPath).exists()).toBe(true)
         expect(await Bun.file(sharedPath).exists()).toBe(false)
 
-        const manifestPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          ctx.sessionID,
-          "manifest.json",
-        )
-        const manifest = EvidenceManifest.parse(JSON.parse(await Bun.file(manifestPath).text()))
+        const evidenceDir = await evidenceRoot(ctx.sessionID)
+        const manifest = EvidenceManifest.parse(JSON.parse(await Bun.file(path.join(evidenceDir, "manifest.json")).text()))
         const patchEntry = manifest.entries.find((entry) => entry.kind === "worktree-patch")
         const changesEntry = manifest.entries.find((entry) => entry.kind === "worktree-changeset")
         expect(patchEntry).toBeDefined()

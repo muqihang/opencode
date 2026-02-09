@@ -8,6 +8,22 @@ import { exportEvidence } from "../../src/evidence/export"
 import { OrchestratorFeatures } from "../../src/protocol/orchestrator-features"
 import { OrchestratorPlan } from "../../src/protocol/orchestrator-plan"
 import { writeOrchestratorArtifacts } from "../../src/session/orchestrator/writer"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+const resolveEvidencePackPath = async (input: { worktree: string; sessionId: string }) => {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: input.worktree,
+    sessionId: input.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, "pack.json"))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 describe("evidence export", () => {
   test("exports allowlisted evidence + safe artifacts and verifies sha256", async () => {
@@ -141,13 +157,10 @@ describe("evidence export", () => {
         })
 
         // Tamper with pack.json AFTER manifest was written by the runner.
-        const packPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "tamper",
-          "pack.json",
-        )
+        const packPath = await resolveEvidencePackPath({
+          worktree: Instance.worktree,
+          sessionId: "tamper",
+        })
         await Bun.write(packPath, "tampered")
 
         const outDir = path.join(tmp.path, "exported", "tamper")

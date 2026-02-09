@@ -5,6 +5,7 @@ import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Workbench } from "../../src/file/workbench"
+import { artifactPaths, evidencePaths, firstPath } from "./workbench-paths"
 
 function sha(bytes: Uint8Array) {
   const hash = new Bun.CryptoHasher("sha256")
@@ -31,11 +32,16 @@ describe("file.workbench inputs", () => {
           },
         }
         await Workbench.ingest(input)
-        const inputsDir = path.join(tmp.path, ".opencode", "artifacts", session.id, "inputs")
-        expect(await Bun.file(path.join(inputsDir, "inputs.json")).exists()).toBe(true)
+        const inputsPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: "inputs/inputs.json" }),
+        )
+        expect(await Bun.file(inputsPath).exists()).toBe(true)
         const bytes = await Bun.file(filePath).bytes()
         const inputId = sha(bytes)
-        expect(await Bun.file(path.join(inputsDir, inputId, "note.txt")).exists()).toBe(true)
+        const inputPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: `inputs/${inputId}/note.txt` }),
+        )
+        expect(await Bun.file(inputPath).exists()).toBe(true)
       },
     })
   })
@@ -62,7 +68,9 @@ describe("file.workbench inputs", () => {
         const inputId = sha(bytes)
 
         await Workbench.ingest(input)
-        const manifestPath = path.join(tmp.path, ".opencode", "evidence", session.id, "manifest.json")
+        const manifestPath = await firstPath(
+          evidencePaths({ base: tmp.path, sessionId: session.id, rel: "manifest.json" }),
+        )
         const manifestBefore = JSON.parse(await Bun.file(manifestPath).text()) as {
           entries: Array<{ path: string }>
         }
@@ -70,7 +78,9 @@ describe("file.workbench inputs", () => {
 
         await Workbench.ingest(input)
 
-        const inputsPath = path.join(tmp.path, ".opencode", "artifacts", session.id, "inputs", "inputs.json")
+        const inputsPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: "inputs/inputs.json" }),
+        )
         const inputsData = JSON.parse(await Bun.file(inputsPath).text()) as { inputs: Array<Record<string, unknown>> }
         const hit = inputsData.inputs.find((item) => item.inputId === inputId) as
           | { events?: string[] }
@@ -78,7 +88,9 @@ describe("file.workbench inputs", () => {
         expect(hit).toBeDefined()
         expect(hit?.events?.includes("cache_hit")).toBe(true)
 
-        const eventsPath = path.join(tmp.path, ".opencode", "evidence", session.id, "events.jsonl")
+        const eventsPath = await firstPath(
+          evidencePaths({ base: tmp.path, sessionId: session.id, rel: "events.jsonl" }),
+        )
         const eventText = await Bun.file(eventsPath).text()
         const hits = eventText
           .split("\n")
@@ -117,7 +129,9 @@ describe("file.workbench inputs", () => {
           part,
         })
 
-        const inputsPath = path.join(tmp.path, ".opencode", "artifacts", session.id, "inputs", "inputs.json")
+        const inputsPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: "inputs/inputs.json" }),
+        )
         expect(await Bun.file(inputsPath).exists()).toBe(true)
       },
     })

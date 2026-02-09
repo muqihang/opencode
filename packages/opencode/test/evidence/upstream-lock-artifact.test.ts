@@ -5,6 +5,7 @@ import path from "path"
 import { EvidenceWriter } from "../../src/evidence/writer"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import { artifactCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 describe("evidence.upstream lockfile", () => {
   test("pack attaches UPSTREAM.lock.json as an artifact when present", async () => {
@@ -39,16 +40,21 @@ describe("evidence.upstream lockfile", () => {
 
         expect(pack.artifacts.some((a) => a.kind === "upstream-lock")).toBe(true)
 
-        const file = Bun.file(
-          path.join(
-            Instance.worktree,
-            ".opencode",
-            "artifacts",
+        const scope = resolveTenantScope()
+        const artifactPath = await (async () => {
+          const candidates = artifactCandidates({
+            base: Instance.worktree,
             sessionId,
-            "environment",
-            "upstream.lock.json",
-          ),
-        )
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "environment", "upstream.lock.json"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
+        const file = Bun.file(artifactPath)
         expect(await file.exists()).toBe(true)
         expect(await file.text()).toBe(text)
 

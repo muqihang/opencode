@@ -4,6 +4,7 @@ import { EvidenceWriter } from "../../src/evidence/writer"
 import { EvidencePack } from "../../src/protocol/evidence-pack"
 import { EvidenceMicroPack } from "../../src/protocol/evidence-micro-pack"
 import { Instance } from "../../src/project/instance"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 import { tmpdir } from "../fixture/fixture"
 
 describe("evidence.pack state", () => {
@@ -37,8 +38,20 @@ describe("evidence.pack state", () => {
 
         await writer.pack({ handoff: "first" })
 
-        const evidenceDir = path.join(Instance.worktree, ".opencode", "evidence", "state")
-        const packPath = path.join(evidenceDir, "pack.json")
+        const scope = resolveTenantScope()
+        const candidates = evidenceCandidates({
+          base: Instance.worktree,
+          sessionId: "state",
+          tenantId: scope.tenantId,
+          orgId: scope.orgId,
+        }).map((dir) => path.join(dir, "pack.json"))
+        const packPath = await (async () => {
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const firstPack = EvidencePack.parse(JSON.parse(await Bun.file(packPath).text()))
         expect(firstPack.claims.length).toBe(1)
         expect(firstPack.checks.length).toBe(1)

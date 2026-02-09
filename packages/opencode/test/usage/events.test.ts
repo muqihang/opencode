@@ -6,8 +6,24 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
 import { writeUsageEvents } from "../../src/usage/events"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
+
+async function evidenceFile(sessionId: string, name: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, name))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 describe("usage events", () => {
   test("writes usage.normalized + cache.read/cache.write events (summary + pointers only)", async () => {
@@ -44,7 +60,7 @@ describe("usage events", () => {
           providerRaw: { enabled: true },
         })
 
-        const eventsPath = path.join(baseDir(), ".opencode", "evidence", sessionId, "events.jsonl")
+        const eventsPath = await evidenceFile(sessionId, "events.jsonl")
         const lines = (await Bun.file(eventsPath).text())
           .split("\n")
           .map((line) => line.trim())
@@ -103,7 +119,7 @@ describe("usage events", () => {
           providerRaw: { enabled: false },
         })
 
-        const eventsPath = path.join(baseDir(), ".opencode", "evidence", sessionId, "events.jsonl")
+        const eventsPath = await evidenceFile(sessionId, "events.jsonl")
         const lines = (await Bun.file(eventsPath).text())
           .split("\n")
           .map((line) => line.trim())

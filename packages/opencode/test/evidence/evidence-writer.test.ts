@@ -7,6 +7,37 @@ import { tmpdir } from "../fixture/fixture"
 import { EventV1 } from "../../src/protocol/event"
 import { EvidencePack } from "../../src/protocol/evidence-pack"
 import { TurnTraceContext } from "../../src/util/turn-trace"
+import { artifactCandidates, evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+const resolveEvidenceFile = async (input: { worktree: string; sessionId: string; name: string }) => {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: input.worktree,
+    sessionId: input.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, input.name))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
+
+const resolveArtifactFile = async (input: { worktree: string; sessionId: string; name: string }) => {
+  const scope = resolveTenantScope()
+  const candidates = artifactCandidates({
+    base: input.worktree,
+    sessionId: input.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, input.name))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 describe("evidence.writer", () => {
   test("writes pack + manifest + events", async () => {
@@ -49,14 +80,16 @@ describe("evidence.writer", () => {
         expect(pack.specVersion).toBe("evidence-pack/1.0")
         expect(manifest.entries.length).toBeGreaterThan(0)
 
-        const evidenceDir = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "session_test",
-        )
-        const packJsonPath = path.join(evidenceDir, "pack.json")
-        const packMdPath = path.join(evidenceDir, "pack.md")
+        const packJsonPath = await resolveEvidenceFile({
+          worktree: Instance.worktree,
+          sessionId: "session_test",
+          name: "pack.json",
+        })
+        const packMdPath = await resolveEvidenceFile({
+          worktree: Instance.worktree,
+          sessionId: "session_test",
+          name: "pack.md",
+        })
 
         expect(await Bun.file(packJsonPath).exists()).toBe(true)
         expect(await Bun.file(packMdPath).exists()).toBe(true)
@@ -67,13 +100,11 @@ describe("evidence.writer", () => {
         expect(packFromFile.environment.execution.enforcement).toBe("soft")
         expect(packFromFile.environment.execution.backend).toBe("soft")
 
-        const eventsPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "session_test",
-          "events.jsonl",
-        )
+        const eventsPath = await resolveEvidenceFile({
+          worktree: Instance.worktree,
+          sessionId: "session_test",
+          name: "events.jsonl",
+        })
         const eventsText = await Bun.file(eventsPath).text()
         const lines = eventsText
           .split("\n")
@@ -110,7 +141,11 @@ describe("evidence.writer", () => {
           },
         )
 
-        const eventsPath = path.join(tmp.path, ".opencode", "evidence", "ses_trace", "events.jsonl")
+        const eventsPath = await resolveEvidenceFile({
+          worktree: tmp.path,
+          sessionId: "ses_trace",
+          name: "events.jsonl",
+        })
         const lines = (await Bun.file(eventsPath).text())
           .split("\n")
           .map((line) => line.trim())
@@ -128,7 +163,11 @@ describe("evidence.writer", () => {
       directory: tmp.path,
       fn: async () => {
         const writer = await EvidenceWriter.open({ sessionId: "session_symlink" })
-        const root = path.join(Instance.worktree, ".opencode", "artifacts", "session_symlink")
+        const root = await resolveArtifactFile({
+          worktree: Instance.worktree,
+          sessionId: "session_symlink",
+          name: "",
+        })
         await fs.mkdir(root, { recursive: true })
         const link = path.join(root, "link.txt")
         await fs.symlink("/tmp", link)
@@ -161,11 +200,16 @@ describe("evidence.writer", () => {
           data: bytes,
         })
         const file = Bun.file(
-          path.join(tmp.path, ".opencode", "artifacts", "binary", "inputs/binary.bin"),
+          await resolveArtifactFile({
+            worktree: tmp.path,
+            sessionId: "binary",
+            name: "inputs/binary.bin",
+          }),
         )
         const got = new Uint8Array(await file.arrayBuffer())
         expect([...got]).toEqual([...bytes])
-        expect(entry.path).toContain(".opencode/artifacts/binary/inputs/binary.bin")
+        expect(entry.path.includes(".opencode/artifacts/")).toBe(true)
+        expect(entry.path.includes("/binary/inputs/binary.bin")).toBe(true)
       },
     })
   })

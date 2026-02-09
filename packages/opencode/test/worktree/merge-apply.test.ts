@@ -10,6 +10,22 @@ import { captureWorktreePatch } from "../../src/worktree/changes"
 import { WorktreeChangeSet } from "../../src/worktree/changeset"
 import { WorktreeMerge } from "../../src/worktree/merge"
 import { tmpdir } from "../fixture/fixture"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+async function evidencePath(sessionId: string, file: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, file))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 async function prepareChangeSet(input: {
   childSessionId: string
@@ -27,13 +43,7 @@ async function prepareChangeSet(input: {
     writer,
   })
 
-  const manifestPath = path.join(
-    Instance.worktree,
-    ".opencode",
-    "evidence",
-    input.childSessionId,
-    "manifest.json",
-  )
+  const manifestPath = await evidencePath(input.childSessionId, "manifest.json")
   const manifest = EvidenceManifest.parse(JSON.parse(await Bun.file(manifestPath).text()))
   const patchEntry = manifest.entries.find((entry) => entry.kind === "worktree-patch")
   const changesEntry = manifest.entries.find((entry) => entry.kind === "worktree-changeset")
@@ -81,13 +91,7 @@ describe("worktree merge apply", () => {
         expect(result.status).toBe("ok")
         expect(await Bun.file(path.join(fixture.path, "hello.txt")).text()).toBe("child")
 
-        const packPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          parentSessionId,
-          "pack.json",
-        )
+        const packPath = await evidencePath(parentSessionId, "pack.json")
         const pack = EvidencePack.parse(JSON.parse(await Bun.file(packPath).text()))
         expect(pack.checks.length).toBeGreaterThan(0)
       },

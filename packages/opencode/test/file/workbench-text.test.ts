@@ -4,6 +4,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Workbench } from "../../src/file/workbench"
+import { artifactPaths, firstPath } from "./workbench-paths"
 
 function sha(bytes: Uint8Array) {
   const hash = new Bun.CryptoHasher("sha256")
@@ -35,9 +36,12 @@ describe("file.workbench text", () => {
 
         const bytes = await Bun.file(filePath).bytes()
         const inputId = sha(bytes)
-        const derivedDir = path.join(tmp.path, ".opencode", "artifacts", session.id, "derived", inputId)
-        const textPath = path.join(derivedDir, "text.txt")
-        const chunksPath = path.join(derivedDir, "chunks.json")
+        const textPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: `derived/${inputId}/text.txt` }),
+        )
+        const chunksPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: `derived/${inputId}/chunks.json` }),
+        )
 
         expect(await Bun.file(textPath).exists()).toBe(true)
         expect(await Bun.file(textPath).text()).toBe(text)

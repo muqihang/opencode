@@ -4,6 +4,7 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { EvidenceWriter } from "../../src/evidence/writer"
 import { EvidencePack } from "../../src/protocol/evidence-pack"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 test("evidence.writer > capsule pointers are persisted in pack", async () => {
   await using tmp = await tmpdir({ git: true })
@@ -21,7 +22,20 @@ test("evidence.writer > capsule pointers are persisted in pack", async () => {
 
       await writer.pack({ handoff: "EVAL: capsule pointers" })
 
-      const file = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "pack.json")
+      const scope = resolveTenantScope()
+      const candidates = evidenceCandidates({
+        base: Instance.worktree,
+        sessionId,
+        tenantId: scope.tenantId,
+        orgId: scope.orgId,
+      }).map((dir) => path.join(dir, "pack.json"))
+      const file = await (async () => {
+        for (const candidate of candidates) {
+          const exists = await Bun.file(candidate).exists()
+          if (exists) return candidate
+        }
+        return candidates[0]!
+      })()
       const pack = EvidencePack.parse(await Bun.file(file).json())
 
       expect(pack.capsule.handoff).toBe("EVAL: capsule pointers")

@@ -6,6 +6,23 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { EvidenceManifest } from "../../src/protocol/evidence-manifest"
 import { EventV1 } from "../../src/protocol/event"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+
+async function evidenceRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 describe("sandbox.runner", () => {
   test("soft backend executes and writes artifacts", async () => {
@@ -37,14 +54,8 @@ describe("sandbox.runner", () => {
         await fs.stat(stdoutPath)
         await fs.stat(stderrPath)
 
-        const manifestPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "session_test",
-          "manifest.json",
-        )
-        const manifestText = await Bun.file(manifestPath).text()
+        const evidenceDir = await evidenceRoot("session_test")
+        const manifestText = await Bun.file(path.join(evidenceDir, "manifest.json")).text()
         const manifest = EvidenceManifest.parse(JSON.parse(manifestText))
         const stdoutRel = path.isAbsolute(result.stdoutArtifactPath)
           ? path.relative(Instance.worktree, result.stdoutArtifactPath)
@@ -57,12 +68,6 @@ describe("sandbox.runner", () => {
         expect(stdoutEntry).toBeDefined()
         expect(stderrEntry).toBeDefined()
 
-        const evidenceDir = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "session_test",
-        )
         expect(await Bun.file(path.join(evidenceDir, "pack.json")).exists()).toBe(true)
         expect(await Bun.file(path.join(evidenceDir, "pack.md")).exists()).toBe(true)
 
@@ -120,14 +125,8 @@ describe("sandbox.runner", () => {
           })
         } catch {}
 
-        const eventsPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "session_error",
-          "events.jsonl",
-        )
-        const text = await Bun.file(eventsPath).text()
+        const eventsRoot = await evidenceRoot("session_error")
+        const text = await Bun.file(path.join(eventsRoot, "events.jsonl")).text()
         const lines = text
           .split("\n")
           .map((line) => line.trim())

@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import path from "path"
 import { EvidenceWriter } from "../../src/evidence/writer"
+import { EvidenceReader } from "../../src/evidence/reader"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
-import { EventV1 } from "../../src/protocol/event"
 
 describe("evidence.write_failed", () => {
   test("emits evidence.write_failed when artifact path is rejected", async () => {
@@ -20,21 +19,8 @@ describe("evidence.write_failed", () => {
           }),
         ).rejects.toThrow()
 
-        const eventsPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "fail_evt",
-          "events.jsonl",
-        )
-        const text = await Bun.file(eventsPath).text()
-        const lines = text
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .map((l) => EventV1.parse(JSON.parse(l)).type)
-
-        expect(lines).toContain("evidence.write_failed")
+        const events = await EvidenceReader.readEvents("fail_evt", { cursor: 0, limit: 20 })
+        expect(events.events.map((item) => item.type)).toContain("evidence.write_failed")
       },
     })
   })

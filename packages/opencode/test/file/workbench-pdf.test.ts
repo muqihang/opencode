@@ -4,6 +4,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Workbench } from "../../src/file/workbench"
+import { artifactPaths, evidencePaths, firstPath } from "./workbench-paths"
 
 function sha(bytes: Uint8Array) {
   const hash = new Bun.CryptoHasher("sha256")
@@ -34,23 +35,22 @@ describe("file.workbench pdf", () => {
 
         const bytes = await Bun.file(filePath).bytes()
         const inputId = sha(bytes)
-        const errorPath = path.join(
-          tmp.path,
-          ".opencode",
-          "artifacts",
-          session.id,
-          "derived",
-          inputId,
-          "pdf.extract.error.json",
+        const errorPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: `derived/${inputId}/pdf.extract.error.json` }),
         )
         expect(await Bun.file(errorPath).exists()).toBe(true)
 
-        const manifestPath = path.join(tmp.path, ".opencode", "evidence", session.id, "manifest.json")
+        const manifestPath = await firstPath(
+          evidencePaths({ base: tmp.path, sessionId: session.id, rel: "manifest.json" }),
+        )
         const manifestData = JSON.parse(await Bun.file(manifestPath).text()) as {
           entries: Array<{ path: string }>
         }
-        const expected = `.opencode/artifacts/${session.id}/derived/${inputId}/pdf.extract.error.json`
-        const hit = manifestData.entries.find((entry) => entry.path.replaceAll("\\", "/") === expected)
+        const suffix = `/derived/${inputId}/pdf.extract.error.json`
+        const hit = manifestData.entries.find((entry) => {
+          const value = entry.path.replaceAll("\\", "/")
+          return value.includes(".opencode/artifacts/") && value.endsWith(suffix)
+        })
         expect(hit).toBeDefined()
       },
     })

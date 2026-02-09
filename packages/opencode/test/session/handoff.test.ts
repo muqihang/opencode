@@ -10,6 +10,7 @@ import { finalizeChildSession } from "../../src/session/finalizer"
 import { ContextLedger } from "../../src/session/context-ledger"
 import { tmpdir } from "../fixture/fixture"
 import { Log } from "../../src/util/log"
+import { artifactCandidates, evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 Log.init({ print: false })
 
@@ -21,6 +22,34 @@ function sha256(text: string) {
   const hash = new Bun.CryptoHasher("sha256")
   hash.update(text)
   return hash.digest("hex")
+}
+
+async function firstPath(candidates: string[]) {
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
+
+function artifactPaths(sessionId: string, rel: string) {
+  const scope = resolveTenantScope()
+  return artifactCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, rel))
+}
+
+function evidencePaths(sessionId: string, rel: string) {
+  const scope = resolveTenantScope()
+  return evidenceCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, rel))
 }
 
 describe("session handoff capsule", () => {
@@ -49,14 +78,8 @@ describe("session handoff capsule", () => {
         const result = await finalizeChildSession({ parentSessionId, childSessionId })
         expect(result.status).toBe("ok")
 
-        const capsuleAbs = path.join(
-          baseDir(),
-          ".opencode",
-          "artifacts",
-          parentSessionId,
-          "handoff",
-          childSessionId,
-          "capsule.handoff.json",
+        const capsuleAbs = await firstPath(
+          artifactPaths(parentSessionId, `handoff/${childSessionId}/capsule.handoff.json`),
         )
         expect(await Bun.file(capsuleAbs).exists()).toBe(true)
 
@@ -74,20 +97,21 @@ describe("session handoff capsule", () => {
         expect(capsule.conflictArtifacts).toBeUndefined()
 
         const pointers = capsule.workingSet?.pointers ?? []
-        expect(pointers.some((p) => p.path.endsWith(`/artifacts/${childSessionId}/worktree/changes.patch`))).toBe(
-          true,
-        )
-        expect(pointers.some((p) => p.path.endsWith(`/artifacts/${childSessionId}/worktree/changes.json`))).toBe(
-          true,
-        )
+        expect(
+          pointers.some((p) => p.path.includes(".opencode/artifacts/") && p.path.endsWith(`/${childSessionId}/worktree/changes.patch`)),
+        ).toBe(true)
+        expect(
+          pointers.some((p) => p.path.includes(".opencode/artifacts/") && p.path.endsWith(`/${childSessionId}/worktree/changes.json`)),
+        ).toBe(true)
 
         const ledger = await ContextLedger.read(parentSessionId)
         expect(ledger.handoffs?.length).toBe(1)
         expect(ledger.handoffs?.[0]?.childSessionId).toBe(childSessionId)
-        expect(ledger.handoffs?.[0]?.capsulePath.endsWith(`/artifacts/${parentSessionId}/handoff/${childSessionId}/capsule.handoff.json`)).toBe(true)
+        expect(ledger.handoffs?.[0]?.capsulePath.includes(".opencode/artifacts/")).toBe(true)
+        expect(ledger.handoffs?.[0]?.capsulePath.endsWith(`/${parentSessionId}/handoff/${childSessionId}/capsule.handoff.json`)).toBe(true)
         expect(ledger.handoffs?.[0]?.capsuleSha256).toBe(sha256(capsuleText))
 
-        const eventsPath = path.join(baseDir(), ".opencode", "evidence", parentSessionId, "events.jsonl")
+        const eventsPath = await firstPath(evidencePaths(parentSessionId, "events.jsonl"))
         const eventsText = await fs.readFile(eventsPath, "utf-8")
         const events = eventsText
           .split("\n")

@@ -8,6 +8,7 @@ import type { EvidencePack as EvidencePackType } from "@/protocol/evidence-pack"
 import { EventV1 } from "@/protocol/event"
 import { Instance } from "@/project/instance"
 import { stableJson } from "@/util/stable-json"
+import { evidenceCandidates, resolveTenantScope } from "@/util/tenant-context"
 
 const MergeInput = z
   .object({
@@ -72,6 +73,25 @@ function sortRisks(items: Risk[]) {
 
 function baseDir() {
   return Instance.worktree === "/" ? Instance.directory : Instance.worktree
+}
+
+function sessionEvidenceDir(input: { base: string; sessionId: string }) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: input.base,
+    sessionId: input.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  return candidates[0]!
+}
+
+function artifactPrefixes(sessionId: string) {
+  const scope = resolveTenantScope()
+  return [
+    `.opencode/artifacts/${sessionId}/`,
+    `.opencode/artifacts/${scope.tenantId}/${scope.orgId}/${sessionId}/`,
+  ]
 }
 
 async function readPack(file: string) {
@@ -141,7 +161,7 @@ async function artifactsFromChild(options: {
 export async function mergeChildEvidencePacks(input: z.infer<typeof MergeInput>) {
   const data = MergeInput.parse(input)
   const base = baseDir()
-  const parentEvidenceDir = path.join(base, ".opencode", "evidence", data.parentSessionId)
+  const parentEvidenceDir = sessionEvidenceDir({ base, sessionId: data.parentSessionId })
   const parentPackPath = path.join(parentEvidenceDir, "pack.json")
   const parentManifestPath = path.join(parentEvidenceDir, "manifest.json")
   const parentEventsPath = path.join(parentEvidenceDir, "events.jsonl")
@@ -205,7 +225,7 @@ export async function mergeChildEvidencePacks(input: z.infer<typeof MergeInput>)
   const allArtifacts: Artifact[] = [...parentPack.artifacts]
 
   for (const childSessionId of data.childSessionIds) {
-    const childEvidenceDir = path.join(base, ".opencode", "evidence", childSessionId)
+    const childEvidenceDir = sessionEvidenceDir({ base, sessionId: childSessionId })
     const childPackPath = path.join(childEvidenceDir, "pack.json")
     const childManifestPath = path.join(childEvidenceDir, "manifest.json")
     const childPack = await readPack(childPackPath)

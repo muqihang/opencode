@@ -4,6 +4,22 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { runVerification } from "../../src/verification"
 import { VerificationMode } from "../../src/protocol/verification-report"
+import { artifactCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+async function artifactRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = artifactCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 const buildCtx = (sessionId: string) => ({
   sessionID: sessionId,
@@ -25,7 +41,8 @@ describe("verification.mode guardrails", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const file = path.join(Instance.worktree, ".opencode", "artifacts", "v", "derived", "note.txt")
+        const artifactBase = await artifactRoot("v")
+        const file = path.join(artifactBase, "derived", "note.txt")
         await Bun.write(file, "hello\n")
 
         const calls = { value: 0 }
@@ -37,7 +54,7 @@ describe("verification.mode guardrails", () => {
           },
         }
 
-        const base = {
+        const input = {
           taskFrame: { specVersion: "task-frame/1.0", sessionId: "v", contextPackId: "ctx" },
           budget: { timeMs: 20000 },
           claims: [{ id: "c1", text: "hello", pointers: [{ path: "derived/note.txt" }] }],
@@ -45,15 +62,15 @@ describe("verification.mode guardrails", () => {
           retrieval,
         } satisfies Omit<Parameters<typeof runVerification>[0], "mode">
 
-        const strict = await runVerification({ ...base, mode: "strict" })
+        const strict = await runVerification({ ...input, mode: "strict" })
         expect(strict.ok).toBe(true)
         expect(calls.value).toBe(0)
 
-        const balanced = await runVerification({ ...base, mode: "balanced" })
+        const balanced = await runVerification({ ...input, mode: "balanced" })
         expect(balanced.ok).toBe(true)
         expect(calls.value).toBe(1)
 
-        const loose = await runVerification({ ...base, mode: "loose" })
+        const loose = await runVerification({ ...input, mode: "loose" })
         expect(loose.ok).toBe(true)
         expect(calls.value).toBe(1)
       },

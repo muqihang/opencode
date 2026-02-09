@@ -37,7 +37,8 @@ describe("tool.grep pointers", () => {
 
         const parsed = JSON.parse(result.output)
         const pointer = parsed.pointers[0]
-        expect(pointer.path).toContain(".opencode/artifacts/test/grep/")
+        expect(pointer.path).toContain(".opencode/artifacts/")
+        expect(pointer.path).toContain("/grep/")
 
         const artifactPath = path.isAbsolute(pointer.path)
           ? pointer.path

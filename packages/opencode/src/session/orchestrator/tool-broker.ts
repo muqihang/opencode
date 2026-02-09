@@ -32,11 +32,22 @@ type ToolPolicy = OrchestratorPlan["toolPolicy"]
 
 const joinPath = (...parts: string[]) => parts.join("/").replace(/\\/g, "/").replace(/\/+/g, "/")
 
+const toArtifactPath = (input: { sessionId: string; path: string }) => {
+  const normalized = joinPath(input.path)
+  if (normalized.startsWith(".opencode/artifacts/")) return normalized
+  return joinPath(".opencode", "artifacts", input.sessionId, normalized)
+}
+
 const prefixPointers = (input: { sessionId: string; pointers: Pointers }) => {
-  const root = joinPath(".opencode", "artifacts", input.sessionId)
   return {
-    artifacts: input.pointers.artifacts.map((item) => ({ ...item, path: joinPath(root, item.path) })),
-    topK: input.pointers.topK.map((item) => ({ ...item, path: joinPath(root, item.path) })),
+    artifacts: input.pointers.artifacts.map((item) => ({
+      ...item,
+      path: toArtifactPath({ sessionId: input.sessionId, path: item.path }),
+    })),
+    topK: input.pointers.topK.map((item) => ({
+      ...item,
+      path: toArtifactPath({ sessionId: input.sessionId, path: item.path }),
+    })),
   }
 }
 

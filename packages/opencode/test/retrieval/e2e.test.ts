@@ -5,6 +5,23 @@ import { $ } from "bun"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { runRetrieval } from "../../src/retrieval/runner"
+import { artifactCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+
+async function artifactRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = artifactCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 test("retrieval outputs pointers compatible with citation-check", async () => {
   await using tmp = await tmpdir({
@@ -27,7 +44,8 @@ test("retrieval outputs pointers compatible with citation-check", async () => {
 
       expect(run.evidencePointers.topK.length).toBeGreaterThan(0)
 
-      const root = path.join(Instance.worktree, ".opencode", "artifacts", "session_e2e")
+      const first = run.evidencePointers.topK[0]?.path ?? ""
+      const root = first.startsWith(".opencode/") ? Instance.worktree : await artifactRoot("session_e2e")
       const pythonDir = path.join(root, "python")
       await fs.mkdir(pythonDir, { recursive: true })
 

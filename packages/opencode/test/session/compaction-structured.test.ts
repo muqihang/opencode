@@ -72,13 +72,13 @@ describe("session.compaction structured artifacts + events", () => {
 
         const manifest = await EvidenceReader.readManifest(sessionId)
         const wanted = ["capsule.md", "facts.json", "compaction.input.json", "compaction.report.json"]
-        const hits = wanted.map((name) => manifest.entries.find((e) => e.path.endsWith(`/compaction/${e.path.split("/compaction/")[1]?.split("/")[0]}/${name}`)))
+        const compactionPattern = new RegExp(`/artifacts/(?:[^/]+/[^/]+/)?${sessionId}/compaction/`)
 
-        const compactionEntries = manifest.entries.filter((e) => e.path.includes(`/artifacts/${sessionId}/compaction/`))
+        const compactionEntries = manifest.entries.filter((e) => compactionPattern.test(e.path))
         expect(compactionEntries.length).toBeGreaterThanOrEqual(4)
 
         for (const suffix of wanted) {
-          const found = manifest.entries.find((e) => e.path.includes(`/artifacts/${sessionId}/compaction/`) && e.path.endsWith(`/${suffix}`))
+          const found = manifest.entries.find((e) => compactionPattern.test(e.path) && e.path.endsWith(`/${suffix}`))
           expect(found).toBeTruthy()
           if (!found) continue
           expect(found.kind.length).toBeGreaterThan(0)

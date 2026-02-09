@@ -9,6 +9,7 @@ import { WorkbenchCache } from "@/file/workbench-cache"
 import { Config } from "@/config/config"
 import { Instance } from "@/project/instance"
 import { stableJson } from "@/util/stable-json"
+import { artifactCandidates, resolveTenantScope } from "@/util/tenant-context"
 import { fileURLToPath } from "url"
 
 const TEXT_EXTENSIONS = new Set([
@@ -98,6 +99,45 @@ const InputsFile = z
 
 function baseDir() {
   return Instance.worktree === "/" ? Instance.directory : Instance.worktree
+}
+
+function artifactRoots(sessionId: string) {
+  const scope = resolveTenantScope()
+  return artifactCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+}
+
+async function exists(file: string) {
+  return fs
+    .stat(file)
+    .then(() => true)
+    .catch(() => false)
+}
+
+async function firstExisting(candidates: string[]) {
+  for (const candidate of candidates) {
+    if (await exists(candidate)) return candidate
+  }
+  return candidates[0]!
+}
+
+async function resolveInputPath(sessionId: string, inputId: string, name: string) {
+  const candidates = artifactRoots(sessionId).map((root) => path.join(root, "inputs", inputId, name))
+  return firstExisting(candidates)
+}
+
+async function resolveInputsFile(sessionId: string) {
+  const candidates = artifactRoots(sessionId).map((root) => path.join(root, "inputs", "inputs.json"))
+  return firstExisting(candidates)
+}
+
+async function resolveDerivedRoot(sessionId: string, inputId: string) {
+  const candidates = artifactRoots(sessionId).map((root) => path.join(root, "derived", inputId))
+  return firstExisting(candidates)
 }
 
 function sha(bytes: Uint8Array) {
@@ -292,16 +332,7 @@ async function deriveArchive(options: {
 }) {
   const kind = archiveKind(options.name)
   if (!kind) return
-  const base = baseDir()
-  const source = path.join(
-    base,
-    ".opencode",
-    "artifacts",
-    options.sessionId,
-    "inputs",
-    options.inputId,
-    options.name,
-  )
+  const source = await resolveInputPath(options.sessionId, options.inputId, options.name)
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-unpack-"))
   const extracted = await extractArchive(kind, source, tempRoot)
 
@@ -496,16 +527,7 @@ async function derivePdfPages(options: {
   mime: string
 }) {
   if (!isPdf(options.name, options.mime)) return
-  const base = baseDir()
-  const source = path.join(
-    base,
-    ".opencode",
-    "artifacts",
-    options.sessionId,
-    "inputs",
-    options.inputId,
-    options.name,
-  )
+  const source = await resolveInputPath(options.sessionId, options.inputId, options.name)
   const count = await pdfPageCount(source)
   if (!count.ok) {
     const entry = await options.writer.artifact({
@@ -594,16 +616,7 @@ async function derivePdf(options: {
   mime: string
 }) {
   if (!isPdf(options.name, options.mime)) return
-  const base = baseDir()
-  const source = path.join(
-    base,
-    ".opencode",
-    "artifacts",
-    options.sessionId,
-    "inputs",
-    options.inputId,
-    options.name,
-  )
+  const source = await resolveInputPath(options.sessionId, options.inputId, options.name)
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-pdf-"))
   const output = path.join(tempRoot, "text.txt")
   const result = await $`pdftotext ${source} ${output}`.quiet().nothrow()
@@ -673,16 +686,7 @@ async function deriveOcrImage(options: {
   language: string
 }) {
   if (!isImage(options.name, options.mime)) return
-  const base = baseDir()
-  const source = path.join(
-    base,
-    ".opencode",
-    "artifacts",
-    options.sessionId,
-    "inputs",
-    options.inputId,
-    options.name,
-  )
+  const source = await resolveInputPath(options.sessionId, options.inputId, options.name)
   const available = Boolean(Bun.which("tesseract"))
   if (!available) {
     const errorEntry = await options.writer.artifact({
@@ -800,16 +804,7 @@ async function deriveDocx(options: {
   type ExtractZipResult = { ok: true } | { ok: false; error: string }
 
   if (!isDocx(options.name, options.mime)) return
-  const base = baseDir()
-  const source = path.join(
-    base,
-    ".opencode",
-    "artifacts",
-    options.sessionId,
-    "inputs",
-    options.inputId,
-    options.name,
-  )
+  const source = await resolveInputPath(options.sessionId, options.inputId, options.name)
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-docx-"))
   const extracted = await Archive.extractZip(source, tempRoot)
     .then<ExtractZipResult>(() => ({ ok: true }))
@@ -955,7 +950,7 @@ export const Workbench = {
     const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
     const inputId = sha(payload.bytes)
     const config = await Config.get()
-    const inputsPath = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "inputs", "inputs.json")
+    const inputsPath = await resolveInputsFile(data.sessionId)
     const current = await readInputs(inputsPath)
     const existing = current.inputs.find((item) => item.inputId === inputId)
     const wantsText = isTextLike(payload.name, payload.bytes)
@@ -1056,7 +1051,7 @@ export const Workbench = {
         name: payload.name,
         mime: payload.mime,
       })
-      const derivedRoot = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "derived", inputId)
+      const derivedRoot = await resolveDerivedRoot(data.sessionId, inputId)
       const textPath = path.join(derivedRoot, "text.txt")
       const chunksPath = path.join(derivedRoot, "chunks.json")
       const textExists = await Bun.file(textPath).exists()
@@ -1086,7 +1081,7 @@ export const Workbench = {
         inputId,
         name: payload.name,
       })
-      const derivedRoot = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "derived", inputId)
+      const derivedRoot = await resolveDerivedRoot(data.sessionId, inputId)
       const listPath = path.join(derivedRoot, "unpacked", "filelist.json")
       const listExists = await Bun.file(listPath).exists()
       if (listExists) {
@@ -1120,7 +1115,7 @@ export const Workbench = {
         name: payload.name,
         mime: payload.mime,
       })
-      const derivedRoot = path.join(baseDir(), ".opencode", "artifacts", data.sessionId, "derived", inputId)
+      const derivedRoot = await resolveDerivedRoot(data.sessionId, inputId)
       const artifacts: Array<{ rel: string; kind: string }> = []
       const pagesPath = path.join(derivedRoot, "pdf.pages.json")
       const pagesExists = await Bun.file(pagesPath).exists()
