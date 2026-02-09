@@ -206,6 +206,17 @@ export namespace Config {
       ...experimental,
       orchestrator_v15_a2: experimental.orchestrator_v15_a2 ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2,
       offline_eval_gates: experimental.offline_eval_gates ?? Flag.OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES,
+      orchestrator_v16_observability:
+        experimental.orchestrator_v16_observability ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_OBSERVABILITY,
+      orchestrator_v16_llm_workers:
+        experimental.orchestrator_v16_llm_workers ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_LLM_WORKERS,
+      orchestrator_v16_scorer:
+        experimental.orchestrator_v16_scorer ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_SCORER,
+      orchestrator_v16_deepseek_thinking:
+        experimental.orchestrator_v16_deepseek_thinking ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_DEEPSEEK_THINKING,
+      orchestrator_v16_cache_aware_prompt:
+        experimental.orchestrator_v16_cache_aware_prompt ??
+        Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_CACHE_AWARE_PROMPT,
     }
 
     result.plugin = deduplicatePlugins(result.plugin ?? [])
@@ -1249,6 +1260,26 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Enable orchestrator v1.5 a2 behaviors"),
+          orchestrator_v16_observability: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator v1.6 observability rollout stage"),
+          orchestrator_v16_llm_workers: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator v1.6 llm workers rollout stage"),
+          orchestrator_v16_scorer: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator v1.6 scorer rollout stage"),
+          orchestrator_v16_deepseek_thinking: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator v1.6 deepseek thinking rollout stage"),
+          orchestrator_v16_cache_aware_prompt: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator v1.6 cache-aware prompt rollout stage"),
           offline_eval_gates: z
             .boolean()
             .optional()

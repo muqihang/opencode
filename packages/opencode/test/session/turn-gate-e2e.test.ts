@@ -138,6 +138,107 @@ describe("turn gate e2e", () => {
     }
   })
 
+  test("v16 rollout flags keep dependency ordering in resolve + run gate", async () => {
+    const mod = await loadProcessor()
+    const base = {
+      system: ["base"],
+      tools: { read: makeTool(), write: makeTool(), bash: makeTool() },
+    }
+    const state: {
+      gate?: {
+        v15B1: boolean
+        adaptiveTTC: boolean
+        v15B2: boolean
+        pointerContextOS: boolean
+        v15A1: boolean
+        claimGraphGate: boolean
+        dualPassSynthesis: boolean
+        v16Observability: boolean
+        v16LLMWorkers: boolean
+        v16Scorer: boolean
+        v16DeepseekThinking: boolean
+        v16CacheAwarePrompt: boolean
+      }
+    } = {}
+
+    const rollout = mod.resolveOrchestratorRollout(undefined, {
+      orchestrator: true,
+      llmWorkers: true,
+      workerBadge: true,
+      shadowMode: false,
+      orchestratorV15B1: true,
+      adaptiveTTC: true,
+      orchestratorV15B2: false,
+      pointerContextOS: false,
+      orchestratorV15A1: false,
+      claimGraphGate: false,
+      dualPassSynthesis: false,
+      orchestratorV16Observability: true,
+      orchestratorV16LLMWorkers: true,
+      orchestratorV16Scorer: false,
+      orchestratorV16DeepseekThinking: true,
+      orchestratorV16CacheAwarePrompt: true,
+    })
+
+    expect(rollout).toMatchObject({
+      enabled: true,
+      llmWorkers: true,
+      v15B1: true,
+      adaptiveTTC: true,
+      v15B2: false,
+      pointerContextOS: false,
+      v15A1: false,
+      claimGraphGate: false,
+      dualPassSynthesis: false,
+      v16Observability: true,
+      v16LLMWorkers: true,
+      v16Scorer: false,
+      v16DeepseekThinking: false,
+      v16CacheAwarePrompt: false,
+    })
+
+    await mod.executeOrchestratorTurnByRollout({
+      rollout,
+      base,
+      run: async (gate: {
+        v15B1: boolean
+        adaptiveTTC: boolean
+        v15B2: boolean
+        pointerContextOS: boolean
+        v15A1: boolean
+        claimGraphGate: boolean
+        dualPassSynthesis: boolean
+        v16Observability: boolean
+        v16LLMWorkers: boolean
+        v16Scorer: boolean
+        v16DeepseekThinking: boolean
+        v16CacheAwarePrompt: boolean
+      }) => {
+        state.gate = gate
+        return {
+          system: ["base", "<orchestrator>v16</orchestrator>"],
+          tools: { read: makeTool() },
+          degraded: false,
+        }
+      },
+    })
+
+    expect(state.gate).toEqual({
+      v15B1: true,
+      adaptiveTTC: true,
+      v15B2: false,
+      pointerContextOS: false,
+      v15A1: false,
+      claimGraphGate: false,
+      dualPassSynthesis: false,
+      v16Observability: true,
+      v16LLMWorkers: true,
+      v16Scorer: false,
+      v16DeepseekThinking: false,
+      v16CacheAwarePrompt: false,
+    })
+  })
+
   test("execute passes turn gate switches to the runner", async () => {
     const mod = await loadProcessor()
     const base = {
