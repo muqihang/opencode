@@ -103,6 +103,63 @@ describe("ProviderTransform.options - setCacheKey", () => {
   })
 })
 
+describe("ProviderTransform.providerOptions - deepseek thinking", () => {
+  test("drops unsupported params in thinking mode to avoid 400", () => {
+    const model = {
+      id: "deepseek/deepseek-chat",
+      providerID: "deepseek",
+      api: {
+        id: "deepseek-chat",
+        url: "https://api.deepseek.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+      name: "DeepSeek Chat",
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: false,
+        toolcall: true,
+        input: { text: true, audio: false, image: false, video: false, pdf: false },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: {
+          field: "reasoning_content",
+        },
+      },
+      cost: {
+        input: 0.001,
+        output: 0.002,
+        cache: { read: 0.0001, write: 0.0002 },
+      },
+      limit: {
+        context: 128000,
+        output: 8192,
+      },
+      status: "active",
+      options: {},
+      headers: {},
+      release_date: "2023-04-01",
+    } as any
+
+    const result = ProviderTransform.providerOptions(model, {
+      thinking: { type: "enabled" },
+      logprobs: true,
+      top_logprobs: 2,
+      frequency_penalty: 1,
+      presence_penalty: 1,
+      temperature: 0.2,
+      top_p: 0.5,
+      keep: "ok",
+    })
+
+    expect(result).toEqual({
+      deepseek: {
+        thinking: { type: "enabled" },
+        keep: "ok",
+      },
+    })
+  })
+})
+
 describe("ProviderTransform.maxOutputTokens", () => {
   test("returns 32k when modelLimit > 32k", () => {
     const modelLimit = 100000
@@ -287,6 +344,109 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       },
     ])
     expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("Let me think about this...")
+  })
+
+  test("DeepSeek tool loop reasoning keeps same-turn reasoning_content and clears earlier turn history", () => {
+    const model = {
+      id: "deepseek/deepseek-chat",
+      providerID: "deepseek",
+      api: {
+        id: "deepseek-chat",
+        url: "https://api.deepseek.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+      name: "DeepSeek Chat",
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: false,
+        toolcall: true,
+        input: { text: true, audio: false, image: false, video: false, pdf: false },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: {
+          field: "reasoning_content",
+        },
+      },
+      cost: {
+        input: 0.001,
+        output: 0.002,
+        cache: { read: 0.0001, write: 0.0002 },
+      },
+      limit: {
+        context: 128000,
+        output: 8192,
+      },
+      status: "active",
+      options: {},
+      headers: {},
+      release_date: "2023-04-01",
+    } as any
+
+    const msgs = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "old question" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "old thinking" },
+          { type: "text", text: "old answer" },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "new question" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "loop thinking 1" },
+          {
+            type: "tool-call",
+            toolCallId: "tool-1",
+            toolName: "bash",
+            input: { command: "pwd" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "tool-1",
+            toolName: "bash",
+            output: { type: "text", value: "ok" },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "loop thinking 2" },
+          { type: "text", text: "new answer" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, model, {}) as any[]
+
+    expect(result[1].providerOptions?.openaiCompatible?.reasoning_content).toBeUndefined()
+    expect(result[1].content).toEqual([{ type: "text", text: "old answer" }])
+
+    expect(result[3].providerOptions?.openaiCompatible?.reasoning_content).toBe("loop thinking 1")
+    expect(result[3].content).toEqual([
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "bash",
+        input: { command: "pwd" },
+      },
+    ])
+
+    expect(result[5].providerOptions?.openaiCompatible?.reasoning_content).toBe("loop thinking 2")
+    expect(result[5].content).toEqual([{ type: "text", text: "new answer" }])
   })
 
   test("Non-DeepSeek providers leave reasoning content unchanged", () => {

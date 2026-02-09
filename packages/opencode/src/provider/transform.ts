@@ -39,6 +39,31 @@ export namespace ProviderTransform {
     return undefined
   }
 
+  function deepseekThinking(model: Provider.Model, options: { [x: string]: any }) {
+    if (model.providerID !== "deepseek") return false
+    if (model.id.toLowerCase().includes("reasoner") || model.api.id.toLowerCase().includes("reasoner")) return true
+    const thinking = options["thinking"]
+    if (!thinking || typeof thinking !== "object") return false
+    return thinking["type"] === "enabled"
+  }
+
+  function sanitizeDeepseekOptions(model: Provider.Model, options: { [x: string]: any }) {
+    if (!deepseekThinking(model, options)) return options
+    const blocked = new Set([
+      "temperature",
+      "topP",
+      "top_p",
+      "logprobs",
+      "topLogprobs",
+      "top_logprobs",
+      "presencePenalty",
+      "presence_penalty",
+      "frequencyPenalty",
+      "frequency_penalty",
+    ])
+    return Object.fromEntries(Object.entries(options).filter((item) => !blocked.has(item[0])))
+  }
+
   function normalizeMessages(
     msgs: ModelMessage[],
     model: Provider.Model,
@@ -126,9 +151,11 @@ export namespace ProviderTransform {
 
     if (typeof model.capabilities.interleaved === "object" && model.capabilities.interleaved.field) {
       const field = model.capabilities.interleaved.field
-      return msgs.map((msg) => {
+      const reasoningStart = model.providerID === "deepseek" ? msgs.findLastIndex((item) => item.role === "user") : -1
+      return msgs.map((msg, index) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
-          const reasoningParts = msg.content.filter((part: any) => part.type === "reasoning")
+          const keepReasoning = reasoningStart === -1 || index > reasoningStart
+          const reasoningParts = keepReasoning ? msg.content.filter((part: any) => part.type === "reasoning") : []
           const reasoningText = reasoningParts.map((part: any) => part.text).join("")
 
           // Filter out reasoning parts from content
@@ -633,7 +660,8 @@ export namespace ProviderTransform {
 
   export function providerOptions(model: Provider.Model, options: { [x: string]: any }) {
     const key = sdkKey(model.api.npm) ?? model.providerID
-    return { [key]: options }
+    const cleaned = sanitizeDeepseekOptions(model, options)
+    return { [key]: cleaned }
   }
 
   export function maxOutputTokens(
