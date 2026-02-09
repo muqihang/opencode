@@ -37,6 +37,11 @@ export type OrchestratorRollout = {
   v15A1?: boolean
   claimGraphGate?: boolean
   dualPassSynthesis?: boolean
+  v16Observability?: boolean
+  v16LLMWorkers?: boolean
+  v16Scorer?: boolean
+  v16DeepseekThinking?: boolean
+  v16CacheAwarePrompt?: boolean
 }
 
 type OrchestratorRolloutFlags = {
@@ -51,6 +56,11 @@ type OrchestratorRolloutFlags = {
   orchestratorV15A1: boolean
   claimGraphGate: boolean
   dualPassSynthesis: boolean
+  orchestratorV16Observability: boolean
+  orchestratorV16LLMWorkers: boolean
+  orchestratorV16Scorer: boolean
+  orchestratorV16DeepseekThinking: boolean
+  orchestratorV16CacheAwarePrompt: boolean
 }
 
 export type OrchestratorRunGate = {
@@ -61,12 +71,46 @@ export type OrchestratorRunGate = {
   v15A1?: boolean
   claimGraphGate?: boolean
   dualPassSynthesis?: boolean
+  v16Observability?: boolean
+  v16LLMWorkers?: boolean
+  v16Scorer?: boolean
+  v16DeepseekThinking?: boolean
+  v16CacheAwarePrompt?: boolean
 }
 
 type OrchestratorTurnShape = {
   system: string[]
   tools: Record<string, Tool>
   degraded: boolean
+}
+
+const withV16Rollout = <T extends object>(input: {
+  base: T
+  include: boolean
+  enabled: boolean
+  llmWorkers: boolean
+  observability: boolean
+  v16LLMWorkers: boolean
+  scorer: boolean
+  deepseekThinking: boolean
+  cacheAwarePrompt: boolean
+}) => {
+  if (!input.include) return input.base
+
+  const v16Observability = input.enabled && input.observability
+  const v16LLMWorkers = v16Observability && input.llmWorkers && input.v16LLMWorkers
+  const v16Scorer = v16LLMWorkers && input.scorer
+  const v16DeepseekThinking = v16Scorer && input.deepseekThinking
+  const v16CacheAwarePrompt = v16DeepseekThinking && input.cacheAwarePrompt
+
+  return {
+    ...input.base,
+    v16Observability,
+    v16LLMWorkers,
+    v16Scorer,
+    v16DeepseekThinking,
+    v16CacheAwarePrompt,
+  }
 }
 
 export const resolveOrchestratorRollout = (
@@ -85,8 +129,14 @@ export const resolveOrchestratorRollout = (
     orchestratorV15A1: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A1 === true,
     claimGraphGate: Flag.OPENCODE_EXPERIMENTAL_CLAIM_GRAPH_GATE === true,
     dualPassSynthesis: Flag.OPENCODE_EXPERIMENTAL_DUAL_PASS_SYNTHESIS === true,
+    orchestratorV16Observability: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_OBSERVABILITY === true,
+    orchestratorV16LLMWorkers: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_LLM_WORKERS === true,
+    orchestratorV16Scorer: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_SCORER === true,
+    orchestratorV16DeepseekThinking: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_DEEPSEEK_THINKING === true,
+    orchestratorV16CacheAwarePrompt: Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_CACHE_AWARE_PROMPT === true,
     ...flags,
   }
+
   const b2 =
     flags?.orchestratorV15B2 !== undefined ||
     flags?.pointerContextOS !== undefined ||
@@ -101,6 +151,30 @@ export const resolveOrchestratorRollout = (
     resolved.orchestratorV15A1 === true ||
     resolved.claimGraphGate === true ||
     resolved.dualPassSynthesis === true
+  const v16 =
+    flags?.orchestratorV16Observability !== undefined ||
+    flags?.orchestratorV16LLMWorkers !== undefined ||
+    flags?.orchestratorV16Scorer !== undefined ||
+    flags?.orchestratorV16DeepseekThinking !== undefined ||
+    flags?.orchestratorV16CacheAwarePrompt !== undefined ||
+    config?.experimental?.orchestrator_v16_observability !== undefined ||
+    config?.experimental?.orchestrator_v16_llm_workers !== undefined ||
+    config?.experimental?.orchestrator_v16_scorer !== undefined ||
+    config?.experimental?.orchestrator_v16_deepseek_thinking !== undefined ||
+    config?.experimental?.orchestrator_v16_cache_aware_prompt !== undefined ||
+    resolved.orchestratorV16Observability === true ||
+    resolved.orchestratorV16LLMWorkers === true ||
+    resolved.orchestratorV16Scorer === true ||
+    resolved.orchestratorV16DeepseekThinking === true ||
+    resolved.orchestratorV16CacheAwarePrompt === true
+
+  const v16Observability = config?.experimental?.orchestrator_v16_observability ?? resolved.orchestratorV16Observability
+  const v16LLMWorkers = config?.experimental?.orchestrator_v16_llm_workers ?? resolved.orchestratorV16LLMWorkers
+  const v16Scorer = config?.experimental?.orchestrator_v16_scorer ?? resolved.orchestratorV16Scorer
+  const v16DeepseekThinking =
+    config?.experimental?.orchestrator_v16_deepseek_thinking ?? resolved.orchestratorV16DeepseekThinking
+  const v16CacheAwarePrompt =
+    config?.experimental?.orchestrator_v16_cache_aware_prompt ?? resolved.orchestratorV16CacheAwarePrompt
 
   const enabled = resolved.orchestrator === true
   if (!enabled) {
@@ -112,25 +186,62 @@ export const resolveOrchestratorRollout = (
       v15B1: false,
       adaptiveTTC: false,
     }
-    if (!b2) return base
+    if (!b2) {
+      return withV16Rollout({
+        base,
+        include: v16,
+        enabled: false,
+        llmWorkers: false,
+        observability: v16Observability,
+        v16LLMWorkers,
+        scorer: v16Scorer,
+        deepseekThinking: v16DeepseekThinking,
+        cacheAwarePrompt: v16CacheAwarePrompt,
+      })
+    }
+
     const b2Base = {
       ...base,
       v15B2: false,
       pointerContextOS: false,
     }
-    if (!a1) return b2Base
-    return {
-      ...b2Base,
-      v15A1: false,
-      claimGraphGate: false,
-      dualPassSynthesis: false,
+    if (!a1) {
+      return withV16Rollout({
+        base: b2Base,
+        include: v16,
+        enabled: false,
+        llmWorkers: false,
+        observability: v16Observability,
+        v16LLMWorkers,
+        scorer: v16Scorer,
+        deepseekThinking: v16DeepseekThinking,
+        cacheAwarePrompt: v16CacheAwarePrompt,
+      })
     }
+
+    return withV16Rollout({
+      base: {
+        ...b2Base,
+        v15A1: false,
+        claimGraphGate: false,
+        dualPassSynthesis: false,
+      },
+      include: v16,
+      enabled: false,
+      llmWorkers: false,
+      observability: v16Observability,
+      v16LLMWorkers,
+      scorer: v16Scorer,
+      deepseekThinking: v16DeepseekThinking,
+      cacheAwarePrompt: v16CacheAwarePrompt,
+    })
   }
 
   const llmWorkers = config?.experimental?.orchestrator_llm_workers ?? resolved.llmWorkers
   const workerBadge = config?.experimental?.orchestrator_worker_badge ?? resolved.workerBadge
   const shadowMode = config?.experimental?.orchestrator_shadow_mode ?? resolved.shadowMode
   const v15B1 = config?.experimental?.orchestrator_v15_b1 ?? resolved.orchestratorV15B1
+
   if (!v15B1) {
     const base = {
       enabled,
@@ -140,23 +251,60 @@ export const resolveOrchestratorRollout = (
       v15B1: false,
       adaptiveTTC: false,
     }
-    if (!b2) return base
+    if (!b2) {
+      return withV16Rollout({
+        base,
+        include: v16,
+        enabled,
+        llmWorkers,
+        observability: v16Observability,
+        v16LLMWorkers,
+        scorer: v16Scorer,
+        deepseekThinking: v16DeepseekThinking,
+        cacheAwarePrompt: v16CacheAwarePrompt,
+      })
+    }
+
     const b2Base = {
       ...base,
       v15B2: false,
       pointerContextOS: false,
     }
-    if (!a1) return b2Base
-    return {
-      ...b2Base,
-      v15A1: false,
-      claimGraphGate: false,
-      dualPassSynthesis: false,
+    if (!a1) {
+      return withV16Rollout({
+        base: b2Base,
+        include: v16,
+        enabled,
+        llmWorkers,
+        observability: v16Observability,
+        v16LLMWorkers,
+        scorer: v16Scorer,
+        deepseekThinking: v16DeepseekThinking,
+        cacheAwarePrompt: v16CacheAwarePrompt,
+      })
     }
+
+    return withV16Rollout({
+      base: {
+        ...b2Base,
+        v15A1: false,
+        claimGraphGate: false,
+        dualPassSynthesis: false,
+      },
+      include: v16,
+      enabled,
+      llmWorkers,
+      observability: v16Observability,
+      v16LLMWorkers,
+      scorer: v16Scorer,
+      deepseekThinking: v16DeepseekThinking,
+      cacheAwarePrompt: v16CacheAwarePrompt,
+    })
   }
 
   const adaptiveTTC = config?.experimental?.adaptive_ttc ?? resolved.adaptiveTTC
   const v15B2 = config?.experimental?.orchestrator_v15_b2 ?? resolved.orchestratorV15B2
+
   if (!v15B2) {
     const base = {
       enabled,
@@ -166,19 +314,55 @@ export const resolveOrchestratorRollout = (
       v15B1,
       adaptiveTTC,
     }
-    if (!b2) return base
+    if (!b2) {
+      return withV16Rollout({
+        base,
+        include: v16,
+        enabled,
+        llmWorkers,
+        observability: v16Observability,
+        v16LLMWorkers,
+        scorer: v16Scorer,
+        deepseekThinking: v16DeepseekThinking,
+        cacheAwarePrompt: v16CacheAwarePrompt,
+      })
+    }
+
     const b2Base = {
       ...base,
       v15B2: false,
       pointerContextOS: false,
     }
-    if (!a1) return b2Base
-    return {
-      ...b2Base,
-      v15A1: false,
-      claimGraphGate: false,
-      dualPassSynthesis: false,
+    if (!a1) {
+      return withV16Rollout({
+        base: b2Base,
+        include: v16,
+        enabled,
+        llmWorkers,
+        observability: v16Observability,
+        v16LLMWorkers,
+        scorer: v16Scorer,
+        deepseekThinking: v16DeepseekThinking,
+        cacheAwarePrompt: v16CacheAwarePrompt,
+      })
     }
+
+    return withV16Rollout({
+      base: {
+        ...b2Base,
+        v15A1: false,
+        claimGraphGate: false,
+        dualPassSynthesis: false,
+      },
+      include: v16,
+      enabled,
+      llmWorkers,
+      observability: v16Observability,
+      v16LLMWorkers,
+      scorer: v16Scorer,
+      deepseekThinking: v16DeepseekThinking,
+      cacheAwarePrompt: v16CacheAwarePrompt,
+    })
   }
 
   const pointerContextOS = config?.experimental?.pointer_context_os ?? resolved.pointerContextOS
@@ -192,13 +376,36 @@ export const resolveOrchestratorRollout = (
       v15B1,
       adaptiveTTC,
     }
-    if (!a1) return base
-    return {
-      ...base,
-      v15A1: false,
-      claimGraphGate: false,
-      dualPassSynthesis: false,
+    if (!a1) {
+      return withV16Rollout({
+        base,
+        include: v16,
+        enabled,
+        llmWorkers,
+        observability: v16Observability,
+        v16LLMWorkers,
+        scorer: v16Scorer,
+        deepseekThinking: v16DeepseekThinking,
+        cacheAwarePrompt: v16CacheAwarePrompt,
+      })
     }
+
+    return withV16Rollout({
+      base: {
+        ...base,
+        v15A1: false,
+        claimGraphGate: false,
+        dualPassSynthesis: false,
+      },
+      include: v16,
+      enabled,
+      llmWorkers,
+      observability: v16Observability,
+      v16LLMWorkers,
+      scorer: v16Scorer,
+      deepseekThinking: v16DeepseekThinking,
+      cacheAwarePrompt: v16CacheAwarePrompt,
+    })
   }
 
   const v15A1 = resolved.orchestratorV15A1
@@ -206,7 +413,30 @@ export const resolveOrchestratorRollout = (
   const dualPassSynthesis = v15A1 && resolved.dualPassSynthesis
 
   if (!a1) {
-    return {
+    return withV16Rollout({
+      base: {
+        enabled,
+        llmWorkers,
+        workerBadge,
+        shadowMode,
+        v15B1,
+        adaptiveTTC,
+        v15B2,
+        pointerContextOS,
+      },
+      include: v16,
+      enabled,
+      llmWorkers,
+      observability: v16Observability,
+      v16LLMWorkers,
+      scorer: v16Scorer,
+      deepseekThinking: v16DeepseekThinking,
+      cacheAwarePrompt: v16CacheAwarePrompt,
+    })
+  }
+
+  return withV16Rollout({
+    base: {
       enabled,
       llmWorkers,
       workerBadge,
@@ -215,23 +445,21 @@ export const resolveOrchestratorRollout = (
       adaptiveTTC,
       v15B2,
       pointerContextOS,
-    }
-  }
-
-  return {
+      v15A1,
+      claimGraphGate,
+      dualPassSynthesis,
+    },
+    include: v16,
     enabled,
     llmWorkers,
-    workerBadge,
-    shadowMode,
-    v15B1,
-    adaptiveTTC,
-    v15B2,
-    pointerContextOS,
-    v15A1,
-    claimGraphGate,
-    dualPassSynthesis,
-  }
+    observability: v16Observability,
+    v16LLMWorkers,
+    scorer: v16Scorer,
+    deepseekThinking: v16DeepseekThinking,
+    cacheAwarePrompt: v16CacheAwarePrompt,
+  })
 }
+
 
 export const executeOrchestratorTurnByRollout = async (input: {
   rollout: OrchestratorRollout
@@ -275,7 +503,7 @@ export const executeOrchestratorTurnByRollout = async (input: {
           v15B2,
           pointerContextOS,
         }
-  const gate =
+  const gateA1 =
     !hasA1
       ? gateBase
       : {
@@ -283,6 +511,28 @@ export const executeOrchestratorTurnByRollout = async (input: {
           v15A1,
           claimGraphGate,
           dualPassSynthesis,
+        }
+  const hasV16 =
+    input.rollout.v16Observability !== undefined ||
+    input.rollout.v16LLMWorkers !== undefined ||
+    input.rollout.v16Scorer !== undefined ||
+    input.rollout.v16DeepseekThinking !== undefined ||
+    input.rollout.v16CacheAwarePrompt !== undefined
+  const v16Observability = input.rollout.enabled && input.rollout.v16Observability === true
+  const v16LLMWorkers = v16Observability && input.rollout.llmWorkers && input.rollout.v16LLMWorkers === true
+  const v16Scorer = v16LLMWorkers && input.rollout.v16Scorer === true
+  const v16DeepseekThinking = v16Scorer && input.rollout.v16DeepseekThinking === true
+  const v16CacheAwarePrompt = v16DeepseekThinking && input.rollout.v16CacheAwarePrompt === true
+  const gate =
+    !hasV16
+      ? gateA1
+      : {
+          ...gateA1,
+          v16Observability,
+          v16LLMWorkers,
+          v16Scorer,
+          v16DeepseekThinking,
+          v16CacheAwarePrompt,
         }
 
   const result = await input.run(gate)
