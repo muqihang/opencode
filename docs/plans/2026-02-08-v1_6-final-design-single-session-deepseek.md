@@ -283,3 +283,19 @@ V1.6 约束：
 - DeepSeek 特性已内生到协议层和门禁层
 - 具备明确可执行里程碑与发布标准
 
+
+---
+
+## 13. 收口审计与证据索引
+
+V1.6 发布收口统一采用以下产物与格式：
+
+- 审计脚本：`packages/opencode/script/v15-checklist-audit.ts`
+- 收口审计模板：`docs/plans/2026-02-08-v1_6-closeout-audit-report.md`
+- 强制段落：`里程碑状态`、`未满足项`、`证据路径索引`
+
+执行命令：
+
+- `cd packages/opencode && bun script/v15-checklist-audit.ts`
+
+生成输出应直接映射 M1~M5 的状态，并附带证据路径索引用于发布前复核。
