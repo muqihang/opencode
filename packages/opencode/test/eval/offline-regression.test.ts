@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { tmpdir } from "../fixture/fixture"
+import { Instance } from "../../src/project/instance"
+import { runToolBroker } from "../../src/session/orchestrator/tool-broker"
 import { runOfflineGateEval } from "../../src/eval/offline"
 
 const writeSuites = async (dir: string, suites: unknown[]) => {
@@ -130,4 +132,50 @@ describe("eval.offline", () => {
     expect(block.gate.checks.cacheHitRatio.ok).toBe(false)
     expect(block.gate.checks.cacheHitRatio.status).toBe("fail")
   })
+
+  test("tool broker non-interactive contract", async () => {
+    const keyword = "offline-non-interactive-contract"
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "src"), { recursive: true })
+        await Bun.write(path.join(dir, "src", "keyword.ts"), `export const keyword = "${keyword}"\n`)
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const broker = await runToolBroker({
+          sessionId: "offline_non_interactive_contract",
+          messageId: "msg_offline_non_interactive_contract",
+          toolRequests: [
+            { kind: "verification", input: "confirm" },
+            { kind: "retrieval", input: keyword },
+          ],
+          toolPolicy: { allowed: ["retrieval"], bounceMax: 1 },
+          abort: new AbortController().signal,
+        })
+
+        const reject = broker.results.find((item) => item.kind === "verification")
+        const retrieval = broker.results.find((item) => item.kind === "retrieval")
+
+        const result = {
+          checks: {
+            toolBrokerNonInteractive: {
+              ok:
+                reject?.status === "rejected" &&
+                reject.reason === "unsupported_kind_v0" &&
+                retrieval?.status === "ok" &&
+                Boolean(retrieval?.pointers) &&
+                typeof retrieval?.summary?.total === "number",
+            },
+          },
+        }
+
+        expect(result.checks.toolBrokerNonInteractive.ok).toBe(true)
+      },
+    })
+  })
+
 })
