@@ -4,6 +4,7 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { SandboxRunner } from "../../src/sandbox/runner"
 import { EvidencePack } from "../../src/protocol/evidence-pack"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 describe("evidence.pack provenance", () => {
   test("pack.json records os/runtime/repo metadata", async () => {
@@ -26,13 +27,20 @@ describe("evidence.pack provenance", () => {
           limits: { timeoutMs: 5000 },
         })
 
-        const packPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "prov",
-          "pack.json",
-        )
+        const scope = resolveTenantScope()
+        const candidates = evidenceCandidates({
+          base: Instance.worktree,
+          sessionId: "prov",
+          tenantId: scope.tenantId,
+          orgId: scope.orgId,
+        }).map((dir) => path.join(dir, "pack.json"))
+        const packPath = await (async () => {
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const data = JSON.parse(await Bun.file(packPath).text()) as unknown
         const pack = EvidencePack.parse(data)
 

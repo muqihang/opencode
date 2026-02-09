@@ -5,6 +5,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Workbench } from "../../src/file/workbench"
+import { artifactPaths, firstPath } from "./workbench-paths"
 
 function sha(bytes: Uint8Array) {
   const hash = new Bun.CryptoHasher("sha256")
@@ -49,18 +50,14 @@ describe("file.workbench docx", () => {
 
         const bytes = await Bun.file(docxPath).bytes()
         const inputId = sha(bytes)
-        const textPath = path.join(tmp.path, ".opencode", "artifacts", session.id, "derived", inputId, "text.txt")
+        const textPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: `derived/${inputId}/text.txt` }),
+        )
         expect(await Bun.file(textPath).exists()).toBe(true)
         expect(await Bun.file(textPath).text()).toContain("Hello")
 
-        const structurePath = path.join(
-          tmp.path,
-          ".opencode",
-          "artifacts",
-          session.id,
-          "derived",
-          inputId,
-          "docx.structure.json",
+        const structurePath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: `derived/${inputId}/docx.structure.json` }),
         )
         expect(await Bun.file(structurePath).exists()).toBe(true)
         const structure = JSON.parse(await Bun.file(structurePath).text()) as {

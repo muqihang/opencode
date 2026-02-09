@@ -43,11 +43,18 @@ describe("session routing injection", () => {
         // Pointer-first: prompt should reference capsule path, not embed capsule content.
         expect(result.systemPrompt).not.toContain("# Routing Capsule")
 
-        const artifactRootAbs = path.join(Instance.worktree, result.artifactRoot)
-        expect(await Bun.file(path.join(artifactRootAbs, result.pointers.request)).exists()).toBe(true)
-        expect(await Bun.file(path.join(artifactRootAbs, result.pointers.capsule)).exists()).toBe(true)
+        const artifactRootAbs = path.isAbsolute(result.artifactRoot)
+          ? result.artifactRoot
+          : path.join(Instance.worktree, result.artifactRoot)
+        const pointerFile = (pointer: string) => {
+          if (path.isAbsolute(pointer)) return pointer
+          if (pointer.startsWith(".opencode/")) return path.join(Instance.worktree, pointer)
+          return path.join(artifactRootAbs, pointer)
+        }
+        expect(await Bun.file(pointerFile(result.pointers.request)).exists()).toBe(true)
+        expect(await Bun.file(pointerFile(result.pointers.capsule)).exists()).toBe(true)
         for (const item of result.pointers.results) {
-          expect(await Bun.file(path.join(artifactRootAbs, item)).exists()).toBe(true)
+          expect(await Bun.file(pointerFile(item)).exists()).toBe(true)
         }
       },
     })

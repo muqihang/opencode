@@ -5,6 +5,7 @@ import { PythonTool } from "../../src/tool/python"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { EventV1 } from "../../src/protocol/event"
+import { artifactCandidates, evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 const baseCtx = {
   sessionID: "",
@@ -24,8 +25,36 @@ function sid(name: string, dir: string) {
   return name + "-" + path.basename(dir)
 }
 
+async function firstPath(candidates: string[]) {
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
+
+function artifactPaths(sessionID: string, rel: string) {
+  const scope = resolveTenantScope()
+  return artifactCandidates({
+    base: Instance.worktree,
+    sessionId: sessionID,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((root) => path.join(root, rel))
+}
+
+function evidencePaths(sessionID: string, rel: string) {
+  const scope = resolveTenantScope()
+  return evidenceCandidates({
+    base: Instance.worktree,
+    sessionId: sessionID,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((root) => path.join(root, rel))
+}
+
 async function readEventTypes(sessionID: string) {
-  const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionID, "events.jsonl")
+  const eventsPath = await firstPath(evidencePaths(sessionID, "events.jsonl"))
   const text = await Bun.file(eventsPath).text().catch(() => "")
   return text
     .split("\n")
@@ -53,14 +82,7 @@ describe("python deps offline-first", () => {
         expect(result.metadata.python_path.includes(`${path.sep}.opencode${path.sep}runtime${path.sep}python${path.sep}venv`)).toBe(
           false,
         )
-        const lockArtifact = path.join(
-          Instance.worktree,
-          ".opencode",
-          "artifacts",
-          session,
-          "python",
-          "deps-lock.sha256.txt",
-        )
+        const lockArtifact = await firstPath(artifactPaths(session, "python/deps-lock.sha256.txt"))
         const lockExists = await Bun.file(lockArtifact).exists()
         expect(lockExists).toBe(false)
       },
@@ -92,14 +114,7 @@ describe("python deps offline-first", () => {
             ctx(session),
           ),
         ).rejects.toThrow()
-        const lockArtifact = path.join(
-          Instance.worktree,
-          ".opencode",
-          "artifacts",
-          session,
-          "python",
-          "deps-lock.sha256.txt",
-        )
+        const lockArtifact = await firstPath(artifactPaths(session, "python/deps-lock.sha256.txt"))
         const lockExists = await Bun.file(lockArtifact).exists()
         expect(lockExists).toBe(true)
         const types = await readEventTypes(session)
@@ -136,14 +151,7 @@ describe("python deps offline-first", () => {
         expect(result.metadata.python_path.includes(`${path.sep}.opencode${path.sep}runtime${path.sep}python${path.sep}venv`)).toBe(
           false,
         )
-        const lockArtifact = path.join(
-          Instance.worktree,
-          ".opencode",
-          "artifacts",
-          session,
-          "python",
-          "deps-lock.sha256.txt",
-        )
+        const lockArtifact = await firstPath(artifactPaths(session, "python/deps-lock.sha256.txt"))
         const lockExists = await Bun.file(lockArtifact).exists()
         expect(lockExists).toBe(false)
       },
@@ -178,24 +186,10 @@ describe("python deps offline-first", () => {
         expect(result.metadata.python_path.includes(`${path.sep}.opencode${path.sep}runtime${path.sep}python${path.sep}venv`)).toBe(
           true,
         )
-        const lockArtifact = path.join(
-          Instance.worktree,
-          ".opencode",
-          "artifacts",
-          session,
-          "python",
-          "deps-lock.sha256.txt",
-        )
+        const lockArtifact = await firstPath(artifactPaths(session, "python/deps-lock.sha256.txt"))
         const lockText = await Bun.file(lockArtifact).text()
         expect(lockText.trim()).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-        const freezeArtifact = path.join(
-          Instance.worktree,
-          ".opencode",
-          "artifacts",
-          session,
-          "python",
-          "pip-freeze.txt",
-        )
+        const freezeArtifact = await firstPath(artifactPaths(session, "python/pip-freeze.txt"))
         const freezeExists = await Bun.file(freezeArtifact).exists()
         expect(freezeExists).toBe(true)
       },

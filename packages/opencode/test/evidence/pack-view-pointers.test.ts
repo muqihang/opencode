@@ -3,6 +3,7 @@ import path from "path"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { SandboxRunner } from "../../src/sandbox/runner"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 describe("evidence.pack view pointers", () => {
   test("pack.md includes pointers for execpolicy-eval and worktree-patch", async () => {
@@ -28,16 +29,24 @@ describe("evidence.pack view pointers", () => {
           limits: { timeoutMs: 5000 },
         })
 
-        const mdPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "view_ptr",
-          "pack.md",
-        )
+        const scope = resolveTenantScope()
+        const mdPath = await (async () => {
+          const candidates = evidenceCandidates({
+            base: Instance.worktree,
+            sessionId: "view_ptr",
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "pack.md"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const md = await Bun.file(mdPath).text()
-        expect(md).toContain(".opencode/artifacts/view_ptr/policy/execpolicy.eval.json")
-        expect(md).toContain(".opencode/artifacts/view_ptr/worktree/changes.patch")
+        expect(md.includes(".opencode/artifacts/")).toBe(true)
+        expect(md.includes("/view_ptr/policy/execpolicy.eval.json")).toBe(true)
+        expect(md.includes("/view_ptr/worktree/changes.patch")).toBe(true)
       },
     })
   })

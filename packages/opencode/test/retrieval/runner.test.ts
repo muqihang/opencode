@@ -9,6 +9,22 @@ import { ContextBlocks } from "../../src/session/context-blocks"
 import { EventV1 } from "../../src/protocol/event"
 import { CodeRetrievalStats } from "../../src/retrieval/code"
 import { defer } from "../../src/util/defer"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+async function eventsPath(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, "events.jsonl"))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 test("retrieval events are call-scoped and context pack includes evidence pointers", async () => {
   await using tmp = await tmpdir({
@@ -32,14 +48,8 @@ test("retrieval events are call-scoped and context pack includes evidence pointe
       expect(run.retrievalId.length).toBeGreaterThan(0)
       expect(run.artifacts.hits.endsWith(`retrieval/${run.retrievalId}/hits.json`)).toBe(true)
 
-      const eventsPath = path.join(
-        Instance.worktree,
-        ".opencode",
-        "evidence",
-        "session_r",
-        "events.jsonl",
-      )
-      const events = (await Bun.file(eventsPath).text())
+      const eventsPathValue = await eventsPath("session_r")
+      const events = (await Bun.file(eventsPathValue).text())
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line))
@@ -111,8 +121,8 @@ test("retrieval cache uses ssot store and hit skips heavy code retrieval", async
       expect(one.retrievalCacheKey).toBe(two.retrievalCacheKey)
       expect(CodeRetrievalStats.runs).toBe(1)
 
-      const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-      const eventsText = await Bun.file(eventsPath).text()
+      const eventsPathValue = await eventsPath(sessionId)
+      const eventsText = await Bun.file(eventsPathValue).text()
       const events = eventsText
         .split("\n")
         .map((line) => line.trim())
@@ -176,8 +186,8 @@ test("retrieval cache can be disabled via env and then heavy work runs again", a
       expect(one.retrievalCacheKey).toBe(two.retrievalCacheKey)
       expect(CodeRetrievalStats.runs).toBe(2)
 
-      const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-      const eventsText = await Bun.file(eventsPath).text()
+      const eventsPathValue = await eventsPath(sessionId)
+      const eventsText = await Bun.file(eventsPathValue).text()
       const events = eventsText
         .split("\n")
         .map((line) => line.trim())

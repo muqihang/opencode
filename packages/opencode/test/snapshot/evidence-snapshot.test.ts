@@ -7,7 +7,7 @@ import { Log } from "../../src/util/log"
 import { Instance } from "../../src/project/instance"
 import { Identifier } from "../../src/id/id"
 import { Snapshot } from "../../src/snapshot"
-import { EventV1 } from "../../src/protocol/event"
+import { EvidenceReader } from "../../src/evidence/reader"
 import { tmpdir } from "../fixture/fixture"
 
 Log.init({ print: false })
@@ -96,22 +96,9 @@ describe("snapshot.evidence", () => {
           messageID: userMsg.id,
         })
 
-        const eventsPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          sessionID,
-          "events.jsonl",
-        )
-        const eventsText = await Bun.file(eventsPath).text()
-        const events = eventsText
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => EventV1.parse(JSON.parse(line)))
-
-        const created = events.find((event) => event.type === "snapshot.created")
-        const reverted = events.find((event) => event.type === "snapshot.reverted")
+        const events = await EvidenceReader.readEvents(sessionID, { cursor: 0, limit: 200 })
+        const created = events.events.find((event) => event.type === "snapshot.created")
+        const reverted = events.events.find((event) => event.type === "snapshot.reverted")
         expect(created).toBeDefined()
         expect(reverted).toBeDefined()
 

@@ -71,6 +71,10 @@ describe("cli evidence eval", () => {
             validCitations: 70,
             tasks: 20,
             completedTasks: 10,
+            keyClaims: 40,
+            keyClaimsWithEvidence: 10,
+            cacheRequests: 20,
+            cacheHits: 2,
           },
         }),
       )
@@ -111,6 +115,10 @@ describe("cli evidence eval", () => {
             validCitations: 70,
             tasks: 20,
             completedTasks: 10,
+            keyClaims: 40,
+            keyClaimsWithEvidence: 10,
+            cacheRequests: 20,
+            cacheHits: 2,
           },
         }),
       )

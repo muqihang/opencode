@@ -8,6 +8,38 @@ import { RoutingRunRequest } from "../../src/protocol/routing-run-request"
 import { RoutingWorkerResult } from "../../src/protocol/routing-worker-result"
 import { resolveRoutingConfig } from "../../src/routing/config"
 import { routingConfigFingerprint } from "../../src/routing/cache"
+import { artifactCandidates, evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+
+async function artifactBase(sessionId: string, runId: string) {
+  const scope = resolveTenantScope()
+  const candidates = artifactCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((root) => path.join(root, "routing", runId))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
+
+async function eventsPath(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((root) => path.join(root, "events.jsonl"))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 describe("routing.runner", () => {
   test("writes routing artifacts and strict protocol results", async () => {
@@ -30,14 +62,7 @@ describe("routing.runner", () => {
           tier: "plan",
         })
 
-        const base = path.join(
-          Instance.worktree,
-          ".opencode",
-          "artifacts",
-          "session_test",
-          "routing",
-          run.routingRunId,
-        )
+        const base = await artifactBase("session_test", run.routingRunId)
         const requestPath = path.join(base, "request.json")
         const workerAPath = path.join(base, "worker-a.result.json")
         const workerBPath = path.join(base, "worker-b.result.json")
@@ -114,14 +139,7 @@ describe("routing.runner", () => {
           tier: "plan",
         })
 
-        const base = path.join(
-          Instance.worktree,
-          ".opencode",
-          "artifacts",
-          "session_cache",
-          "routing",
-          second.routingRunId,
-        )
+        const base = await artifactBase("session_cache", second.routingRunId)
         const requestPath = path.join(base, "request.json")
         const workerAPath = path.join(base, "worker-a.result.json")
         const workerBPath = path.join(base, "worker-b.result.json")
@@ -176,14 +194,8 @@ describe("routing.runner", () => {
         })
 
         const firstRun = await first
-        const base = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "session_cancel",
-          "events.jsonl",
-        )
-        const lines = (await Bun.file(base).text())
+        const file = await eventsPath("session_cancel")
+        const lines = (await Bun.file(file).text())
           .trim()
           .split("\n")
           .filter((line) => line.trim())
@@ -223,14 +235,8 @@ describe("routing.runner", () => {
           },
         })
 
-        const base = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "session_timeout",
-          "events.jsonl",
-        )
-        const lines = (await Bun.file(base).text())
+        const file = await eventsPath("session_timeout")
+        const lines = (await Bun.file(file).text())
           .trim()
           .split("\n")
           .filter((line) => line.trim())

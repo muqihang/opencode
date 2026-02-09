@@ -6,6 +6,7 @@ import { Filesystem } from "@/util/filesystem"
 import { Identifier } from "@/id/id"
 import { stableJson } from "@/util/stable-json"
 import { Lock } from "@/util/lock"
+import { artifactCandidates, resolveTenantScope } from "@/util/tenant-context"
 
 const CacheCategory = z.enum(["text", "archive", "pdf"])
 
@@ -55,6 +56,33 @@ function cacheRoot() {
 
 function normalizeRel(rel: string) {
   return rel.replaceAll("\\", "/")
+}
+
+function artifactRoots(sessionId: string) {
+  const scope = resolveTenantScope()
+  return artifactCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+}
+
+async function resolveDerivedRoot(input: {
+  sessionId: string
+  inputId: string
+  artifacts: Array<{ rel: string }>
+}) {
+  const candidates = artifactRoots(input.sessionId).map((root) =>
+    path.join(root, "derived", input.inputId),
+  )
+  for (const candidate of candidates) {
+    const found = await Promise.all(
+      input.artifacts.map((item) => Bun.file(path.join(candidate, normalizeRel(item.rel))).exists()),
+    )
+    if (found.some(Boolean)) return candidate
+  }
+  return candidates[0]!
 }
 
 function isTraversal(rel: string) {
@@ -144,8 +172,11 @@ export const WorkbenchCache = {
     category: CacheCategory
     artifacts: Array<{ rel: string; kind: string }>
   }) {
-    const base = baseDir()
-    const sessionDerived = path.join(base, ".opencode", "artifacts", input.sessionId, "derived", input.inputId)
+    const sessionDerived = await resolveDerivedRoot({
+      sessionId: input.sessionId,
+      inputId: input.inputId,
+      artifacts: input.artifacts,
+    })
     const categoryDir = path.join(cacheRoot(), input.inputId, input.category)
     await using lock = await Lock.write(`file-workbench-cache:${input.inputId}:${input.category}`)
     void lock

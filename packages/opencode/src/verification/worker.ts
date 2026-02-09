@@ -175,13 +175,13 @@ const scriptOutput = async (outputRel: string) => {
 }
 
 const countPointers = (claims: z.infer<typeof Claim>[], pointers?: z.infer<typeof Pointer>[]) => {
-  if (pointers) return pointers.length
+  if (pointers && pointers.length > 0) return pointers.length
   const total = claims.reduce((sum, claim) => sum + claim.pointers.length, 0)
   return total
 }
 
 const combinePointers = (claims: z.infer<typeof Claim>[], pointers?: z.infer<typeof Pointer>[]) => {
-  if (pointers) return pointers
+  if (pointers && pointers.length > 0) return pointers
   const list: z.infer<typeof Pointer>[] = []
   for (const claim of claims) {
     for (const pointer of claim.pointers) {

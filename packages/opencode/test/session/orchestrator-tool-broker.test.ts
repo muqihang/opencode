@@ -4,6 +4,7 @@ import path from "path"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { runToolBroker } from "../../src/session/orchestrator/tool-broker"
+import { EvidenceReader } from "../../src/evidence/reader"
 
 const keywordPath = path.join(import.meta.dir, "..", "fixture", "orchestrator-broker-retrieval.txt")
 const readKeyword = async () => (await Bun.file(keywordPath).text()).trim()
@@ -59,8 +60,8 @@ test("tool broker returns retrieval pointers", async () => {
       expect(entry.status).toBe("ok")
       expect(Boolean(entry.pointers)).toBe(true)
       const pointers = entry.pointers!
-      const hit = pointers.artifacts.find((artifact) =>
-        artifact.path.includes(`.opencode/artifacts/${sessionId}/retrieval/`),
+      const hit = pointers.artifacts.find(
+        (artifact) => artifact.path.includes(".opencode/artifacts/") && artifact.path.includes(`/${sessionId}/retrieval/`),
       )
       expect(Boolean(hit)).toBe(true)
       expect(entry.summary?.total).toBeGreaterThan(0)
@@ -93,7 +94,8 @@ test("tool broker persists pointer artifact for each tool result", async () => {
       const entry = result.results[0]!
       const pointer = entry.pointers?.artifacts.find((item) => item.kind === "tool-broker-pointer")
       expect(Boolean(pointer)).toBe(true)
-      expect(pointer?.path.includes(`.opencode/artifacts/${sessionId}/tool-broker/`)).toBe(true)
+      expect(pointer?.path.includes(".opencode/artifacts/")).toBe(true)
+      expect(pointer?.path.includes(`/${sessionId}/tool-broker/`)).toBe(true)
 
       const pointerData = await Bun.file(path.join(tmp.path, pointer!.path)).json()
       expect(pointerData).toMatchObject({
@@ -104,9 +106,7 @@ test("tool broker persists pointer artifact for each tool result", async () => {
         status: "ok",
       })
 
-      const manifestPath = path.join(tmp.path, ".opencode", "evidence", sessionId, "manifest.json")
-      const manifestRaw = await Bun.file(manifestPath).json()
-      const manifest = manifestRaw as { entries: Array<{ path: string }> }
+      const manifest = await EvidenceReader.readManifest(sessionId)
       expect(manifest.entries.some((item) => item.path === pointer?.path)).toBe(true)
     },
   })

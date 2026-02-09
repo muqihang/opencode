@@ -121,13 +121,6 @@ export const PythonTool = Tool.define("python", async () => {
 
       const script = await ScriptRegistry.resolve({ scriptId: params.script_id })
       const base = baseDir()
-      const artifactsRoot = path.join(base, ".opencode", "artifacts", ctx.sessionID)
-      const inputPath = path.join(artifactsRoot, "python", "input.json")
-      const outputFile = outputName(params.output_name)
-      const outputPath = path.join(artifactsRoot, "python", outputFile)
-
-      await fs.mkdir(path.dirname(outputPath), { recursive: true })
-
       const writer = await EvidenceWriter.open({ sessionId: ctx.sessionID })
       const version = await pythonVersion(pythonPath)
       const versionEntry = version.text
@@ -159,6 +152,10 @@ export const PythonTool = Tool.define("python", async () => {
         path: "python/input.json",
         data: stableJson(inputData),
       })
+      const inputPath = path.join(base, inputEntry.path)
+      const outputFile = outputName(params.output_name)
+      const outputPath = path.join(base, path.dirname(inputEntry.path), outputFile)
+      await fs.mkdir(path.dirname(outputPath), { recursive: true })
 
       const deps = config.python?.deps
       const depsMode = deps?.mode ?? "offline"

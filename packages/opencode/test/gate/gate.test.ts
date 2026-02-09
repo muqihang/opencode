@@ -6,6 +6,23 @@ import { EvidenceWriter } from "../../src/evidence/writer"
 import { EvidencePack } from "../../src/protocol/evidence-pack"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+
+async function evidenceRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 describe("gate.runner", () => {
   test("runs gates and records checks", async () => {
@@ -36,14 +53,8 @@ describe("gate.runner", () => {
         const writer = await EvidenceWriter.open({ sessionId })
         await writer.pack({ handoff: "gate" })
 
-        const packPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          sessionId,
-          "pack.json",
-        )
-        const pack = EvidencePack.parse(JSON.parse(await Bun.file(packPath).text()))
+        const evidenceDir = await evidenceRoot(sessionId)
+        const pack = EvidencePack.parse(JSON.parse(await Bun.file(path.join(evidenceDir, "pack.json")).text()))
         expect(pack.checks.length).toBeGreaterThan(0)
       },
     })

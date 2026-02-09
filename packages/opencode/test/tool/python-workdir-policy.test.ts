@@ -7,6 +7,23 @@ import { Session } from "../../src/session"
 import { SessionWorktree } from "../../src/worktree/session"
 import { EvidenceManifest } from "../../src/protocol/evidence-manifest"
 import { tmpdir } from "../fixture/fixture"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+
+async function evidenceRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 const ctx = {
   sessionID: "",
@@ -49,14 +66,8 @@ describe("tool.python workdir policy", () => {
           },
           { ...ctx, sessionID: primary.id },
         )
-        const primaryManifestPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          primary.id,
-          "manifest.json",
-        )
-        const primaryManifest = EvidenceManifest.parse(JSON.parse(await Bun.file(primaryManifestPath).text()))
+        const primaryEvidence = await evidenceRoot(primary.id)
+        const primaryManifest = EvidenceManifest.parse(JSON.parse(await Bun.file(path.join(primaryEvidence, "manifest.json")).text()))
         const primaryPatch = primaryManifest.entries.find((entry) => entry.kind === "worktree-patch")
         expect(primaryPatch).toBeUndefined()
 
@@ -71,14 +82,8 @@ describe("tool.python workdir policy", () => {
           },
           { ...ctx, sessionID: child.id },
         )
-        const childManifestPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          child.id,
-          "manifest.json",
-        )
-        const childManifest = EvidenceManifest.parse(JSON.parse(await Bun.file(childManifestPath).text()))
+        const childEvidence = await evidenceRoot(child.id)
+        const childManifest = EvidenceManifest.parse(JSON.parse(await Bun.file(path.join(childEvidence, "manifest.json")).text()))
         const childPatch = childManifest.entries.find((entry) => entry.kind === "worktree-patch")
         expect(childPatch).toBeDefined()
       },

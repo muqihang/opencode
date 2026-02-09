@@ -6,6 +6,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Workbench } from "../../src/file/workbench"
+import { artifactPaths, evidencePaths, firstPath } from "./workbench-paths"
 
 function sha(bytes: Uint8Array) {
   const hash = new Bun.CryptoHasher("sha256")
@@ -60,7 +61,9 @@ describe("file.workbench cross-session cache", () => {
           part: { type: "file", url: `file://${filePath}`, mime: "text/markdown", filename: "note.md" },
         })
 
-        const inputsPath = path.join(tmp.path, ".opencode", "artifacts", sessionB.id, "inputs", "inputs.json")
+        const inputsPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: sessionB.id, rel: "inputs/inputs.json" }),
+        )
         const inputs = JSON.parse(await Bun.file(inputsPath).text()) as {
           inputs: Array<{ inputId: string; events?: string[] }>
         }
@@ -68,12 +71,16 @@ describe("file.workbench cross-session cache", () => {
         expect(entry).toBeDefined()
         expect(entry!.events?.includes("cache_hit")).toBe(true)
 
-        const eventsPath = path.join(tmp.path, ".opencode", "evidence", sessionB.id, "events.jsonl")
+        const eventsPath = await firstPath(
+          evidencePaths({ base: tmp.path, sessionId: sessionB.id, rel: "events.jsonl" }),
+        )
         const events = await readEvents(eventsPath)
         const hits = events.filter((e) => e.type === "file.cache_hit" && e.data?.scope === "global")
         expect(hits.length).toBeGreaterThan(0)
 
-        const derivedText = path.join(tmp.path, ".opencode", "artifacts", sessionB.id, "derived", inputId, "text.txt")
+        const derivedText = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: sessionB.id, rel: `derived/${inputId}/text.txt` }),
+        )
         expect(await Bun.file(derivedText).exists()).toBe(true)
         expect(await Bun.file(derivedText).text()).toBe(text)
       },
@@ -102,14 +109,8 @@ describe("file.workbench cross-session cache", () => {
           part: { type: "file", url: `file://${filePath}`, mime: "application/octet-stream", filename: "bad.bin" },
         })
 
-        const pdfError = path.join(
-          tmp.path,
-          ".opencode",
-          "artifacts",
-          sessionB.id,
-          "derived",
-          inputId,
-          "pdf.extract.error.json",
+        const pdfError = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: sessionB.id, rel: `derived/${inputId}/pdf.extract.error.json` }),
         )
         expect(await Bun.file(pdfError).exists()).toBe(false)
       },
@@ -149,18 +150,14 @@ describe("file.workbench cross-session cache", () => {
           part: { type: "file", url: `file://${filePath}`, mime: "application/pdf", filename: "bad.pdf" },
         })
 
-        const pdfError = path.join(
-          tmp.path,
-          ".opencode",
-          "artifacts",
-          sessionB.id,
-          "derived",
-          inputId,
-          "pdf.extract.error.json",
+        const pdfError = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: sessionB.id, rel: `derived/${inputId}/pdf.extract.error.json` }),
         )
         expect(await Bun.file(pdfError).exists()).toBe(true)
 
-        const eventsPath = path.join(tmp.path, ".opencode", "evidence", sessionB.id, "events.jsonl")
+        const eventsPath = await firstPath(
+          evidencePaths({ base: tmp.path, sessionId: sessionB.id, rel: "events.jsonl" }),
+        )
         const events = await readEvents(eventsPath)
         const hits = events.filter((e) => e.type === "file.cache_hit" && e.data?.scope === "global")
         expect(hits.length).toBeGreaterThan(0)
@@ -196,10 +193,14 @@ describe("file.workbench cross-session cache", () => {
           part: { type: "file", url: `file://${archivePath}`, mime: "application/x-tar", filename: "bundle.tar" },
         })
 
-        const unpacked = path.join(tmp.path, ".opencode", "artifacts", sessionB.id, "derived", inputId, "unpacked")
+        const unpacked = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: sessionB.id, rel: `derived/${inputId}/unpacked` }),
+        )
         expect(await Bun.file(path.join(unpacked, "a.txt")).exists()).toBe(true)
 
-        const eventsPath = path.join(tmp.path, ".opencode", "evidence", sessionB.id, "events.jsonl")
+        const eventsPath = await firstPath(
+          evidencePaths({ base: tmp.path, sessionId: sessionB.id, rel: "events.jsonl" }),
+        )
         const events = await readEvents(eventsPath)
         const hits = events.filter((e) => e.type === "file.cache_hit" && e.data?.scope === "global")
         const archiveHit = hits.find((hit) => Array.isArray(hit.data?.categories) && hit.data?.categories.includes("archive"))

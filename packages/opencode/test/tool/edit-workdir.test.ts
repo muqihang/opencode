@@ -7,6 +7,23 @@ import { SessionWorktree } from "../../src/worktree/session"
 import { FileTime } from "../../src/file/time"
 import { EvidenceManifest } from "../../src/protocol/evidence-manifest"
 import { tmpdir } from "../fixture/fixture"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+
+async function evidenceRoot(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 const ctx = {
   sessionID: "s1",
@@ -51,14 +68,8 @@ describe("tool.edit workdir", () => {
         expect(await Bun.file(isolatedPath).text()).toBe("after")
         expect(await Bun.file(repoPath).text()).toBe("before")
 
-        const manifestPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          ctx.sessionID,
-          "manifest.json",
-        )
-        const manifest = EvidenceManifest.parse(JSON.parse(await Bun.file(manifestPath).text()))
+        const evidenceDir = await evidenceRoot(ctx.sessionID)
+        const manifest = EvidenceManifest.parse(JSON.parse(await Bun.file(path.join(evidenceDir, "manifest.json")).text()))
         const patchEntry = manifest.entries.find((entry) => entry.kind === "worktree-patch")
         const changesEntry = manifest.entries.find((entry) => entry.kind === "worktree-changeset")
         expect(patchEntry).toBeDefined()

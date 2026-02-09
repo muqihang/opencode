@@ -4,7 +4,7 @@ import path from "path"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { runRetrieval } from "../../src/retrieval/runner"
-import { EventV1 } from "../../src/protocol/event"
+import { EvidenceReader } from "../../src/evidence/reader"
 import { CodeRetrievalStats } from "../../src/retrieval/code"
 
 test("retrieval cache contamination triggers coldstart", async () => {
@@ -30,13 +30,10 @@ test("retrieval cache contamination triggers coldstart", async () => {
 
       expect(CodeRetrievalStats.runs).toBe(1)
 
-      const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-      const firstEvents = (await Bun.file(eventsPath).text())
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => EventV1.parse(JSON.parse(line)))
-      const write = firstEvents.find((item) => item.type === "cache.write" && item.data?.namespace === "retrieval")
+      const firstEvents = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 200 })
+      const write = firstEvents.events.find(
+        (item) => item.type === "cache.write" && item.data?.namespace === "retrieval",
+      )
       const key = typeof write?.data?.key === "string" ? write.data.key : ""
       expect(key.length).toBeGreaterThan(0)
 
@@ -70,13 +67,8 @@ test("retrieval cache contamination triggers coldstart", async () => {
       expect(two.retrievalCacheKey).toBe(one.retrievalCacheKey)
       expect(CodeRetrievalStats.runs).toBe(2)
 
-      const events = (await Bun.file(eventsPath).text())
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => EventV1.parse(JSON.parse(line)))
-
-      const cold = events.find((item) => item.type === "cache.coldstart")
+      const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 400 })
+      const cold = events.events.find((item) => item.type === "cache.coldstart")
       expect(Boolean(cold)).toBe(true)
       expect(cold?.data?.namespace).toBe("retrieval")
     },

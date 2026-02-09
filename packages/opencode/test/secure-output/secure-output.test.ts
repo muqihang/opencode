@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test"
 import path from "path"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
-import { EventV1 } from "../../src/protocol/event"
 import { EvidenceWriter } from "../../src/evidence/writer"
+import { EvidenceReader } from "../../src/evidence/reader"
 import { runSecureOutput } from "../../src/secure-output"
 
 const sha256 = (text: string) => {
@@ -45,13 +45,8 @@ describe("secure-output", () => {
         expect(result.text).toContain("这是一个确定事实")
         expect(result.text).not.toContain("为了避免把未核验内容当作事实输出")
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-        const eventsText = await Bun.file(eventsPath).text()
-        const types = eventsText
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => EventV1.parse(JSON.parse(line)).type)
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 80 })
+        const types = events.events.map((item) => item.type)
         expect(types).toContain("protocol.violation")
         expect(types).toContain("secure_output.degraded")
       },
@@ -80,13 +75,8 @@ describe("secure-output", () => {
         expect(result.text).toContain("这是一个确定事实")
         expect(result.text).not.toContain("为了避免把未核验内容当作事实输出")
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-        const eventsText = await Bun.file(eventsPath).text()
-        const types = eventsText
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => EventV1.parse(JSON.parse(line)).type)
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 80 })
+        const types = events.events.map((item) => item.type)
         expect(types).toContain("protocol.violation")
         expect(types).toContain("secure_output.degraded")
       },
@@ -100,11 +90,13 @@ describe("secure-output", () => {
       fn: async () => {
         const sessionId = "so-2"
         const messageId = "m-2"
-        const base = path.join(Instance.worktree, ".opencode", "artifacts", sessionId)
-        const root = path.join(base, "derived", "input")
         const content = "hello\nworld\n"
         const rel = "derived/input/note.txt"
-        await Bun.write(path.join(root, "note.txt"), content)
+        const roots = [
+          path.join(Instance.worktree, ".opencode", "artifacts", sessionId, "derived", "input"),
+          path.join(Instance.worktree, ".opencode", "artifacts", "local", "default", sessionId, "derived", "input"),
+        ]
+        await Promise.all(roots.map((root) => Bun.write(path.join(root, "note.txt"), content)))
 
         const answer = [
           "我建议先核验证据，然后再给出结论。",
@@ -149,13 +141,8 @@ describe("secure-output", () => {
         const claims = manifest.entries.find((entry) => entry.path.includes("secure-output") && entry.path.endsWith("claims.json"))
         expect(claims).toBeDefined()
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", sessionId, "events.jsonl")
-        const eventsText = await Bun.file(eventsPath).text()
-        const types = eventsText
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => EventV1.parse(JSON.parse(line)).type)
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 80 })
+        const types = events.events.map((item) => item.type)
         expect(types).toContain("secure_output.completed")
       },
     })

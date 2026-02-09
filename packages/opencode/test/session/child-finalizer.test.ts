@@ -8,21 +8,42 @@ import { captureWorktreePatch } from "../../src/worktree/changes"
 import { EvidencePack } from "../../src/protocol/evidence-pack"
 import { finalizeChildSession } from "../../src/session/finalizer"
 import { tmpdir } from "../fixture/fixture"
+import { artifactCandidates, evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 function baseDir() {
   return Instance.worktree === "/" ? Instance.directory : Instance.worktree
 }
 
-function markerPath(parentSessionId: string, childSessionId: string) {
-  return path.join(
-    baseDir(),
-    ".opencode",
-    "artifacts",
-    parentSessionId,
-    "worktree",
-    "merged",
-    `${childSessionId}.json`,
-  )
+async function firstPath(candidates: string[]) {
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
+
+function artifactPaths(sessionId: string, rel: string) {
+  const scope = resolveTenantScope()
+  return artifactCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, rel))
+}
+
+function evidencePaths(sessionId: string, rel: string) {
+  const scope = resolveTenantScope()
+  return evidenceCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, rel))
+}
+
+async function markerPath(parentSessionId: string, childSessionId: string) {
+  return firstPath(artifactPaths(parentSessionId, `worktree/merged/${childSessionId}.json`))
 }
 
 describe("session child finalizer", () => {
@@ -51,10 +72,10 @@ describe("session child finalizer", () => {
         expect(result.status).toBe("ok")
         expect(await Bun.file(path.join(fixture.path, "hello.txt")).text()).toBe("child")
 
-        const marker = markerPath(parentSessionId, childSessionId)
+        const marker = await markerPath(parentSessionId, childSessionId)
         expect(await Bun.file(marker).exists()).toBe(true)
 
-        const packPath = path.join(baseDir(), ".opencode", "evidence", parentSessionId, "pack.json")
+        const packPath = await firstPath(evidencePaths(parentSessionId, "pack.json"))
         const pack = EvidencePack.parse(JSON.parse(await Bun.file(packPath).text()))
         expect(pack.checks.length).toBeGreaterThan(0)
 

@@ -4,6 +4,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Workbench } from "../../src/file/workbench"
+import { artifactPaths, evidencePaths, firstPath } from "./workbench-paths"
 
 function sha(bytes: Uint8Array) {
   const hash = new Bun.CryptoHasher("sha256")
@@ -57,18 +58,14 @@ describe("file.workbench ocr", () => {
 
         const bytes = await Bun.file(filePath).bytes()
         const inputId = sha(bytes)
-        const errorPath = path.join(
-          tmp.path,
-          ".opencode",
-          "artifacts",
-          session.id,
-          "derived",
-          inputId,
-          "ocr.error.json",
+        const errorPath = await firstPath(
+          artifactPaths({ base: tmp.path, sessionId: session.id, rel: `derived/${inputId}/ocr.error.json` }),
         )
         expect(await Bun.file(errorPath).exists()).toBe(true)
 
-        const eventsPath = path.join(tmp.path, ".opencode", "evidence", session.id, "events.jsonl")
+        const eventsPath = await firstPath(
+          evidencePaths({ base: tmp.path, sessionId: session.id, rel: "events.jsonl" }),
+        )
         const events = await readEvents(eventsPath)
         const hits = events.filter((event) => event.type === "doc.ocr_image")
         expect(hits.length).toBeGreaterThan(0)

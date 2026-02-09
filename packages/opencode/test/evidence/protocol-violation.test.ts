@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { EvidenceWriter } from "../../src/evidence/writer"
+import { EvidenceReader } from "../../src/evidence/reader"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
@@ -11,9 +12,8 @@ describe("evidence.protocol violation", () => {
       fn: async () => {
         const writer = await EvidenceWriter.open({ sessionId: "bad_pack" })
         await expect(writer.event({} as any)).rejects.toThrow()
-        const eventsPath = `${Instance.worktree}/.opencode/evidence/bad_pack/events.jsonl`
-        const text = await Bun.file(eventsPath).text()
-        expect(text).toContain("protocol.violation")
+        const events = await EvidenceReader.readEvents("bad_pack", { cursor: 0, limit: 20 })
+        expect(events.events.map((item) => item.type)).toContain("protocol.violation")
       },
     })
   })

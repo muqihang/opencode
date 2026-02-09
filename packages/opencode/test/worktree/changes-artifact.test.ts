@@ -4,6 +4,7 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { SandboxRunner } from "../../src/sandbox/runner"
 import { EvidenceManifest } from "../../src/protocol/evidence-manifest"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 describe("worktree change-set artifact", () => {
   test("runner registers a patch artifact for isolated git workdir", async () => {
@@ -29,18 +30,27 @@ describe("worktree change-set artifact", () => {
           limits: { timeoutMs: 10_000 },
         })
 
-        const manifestPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          "patchy",
-          "manifest.json",
-        )
+        const scope = resolveTenantScope()
+        const manifestPath = await (async () => {
+          const candidates = evidenceCandidates({
+            base: Instance.worktree,
+            sessionId: "patchy",
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "manifest.json"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const manifest = EvidenceManifest.parse(JSON.parse(await Bun.file(manifestPath).text()))
 
         const patchEntry = manifest.entries.find((e) => e.kind === "worktree-patch")
         expect(patchEntry).toBeDefined()
-        expect(patchEntry!.path).toContain(".opencode/artifacts/patchy")
+        const pointer = patchEntry!.path.replaceAll("\\", "/")
+        expect(pointer.includes(".opencode/artifacts/")).toBe(true)
+        expect(pointer.includes("/patchy/")).toBe(true)
       },
     })
   })

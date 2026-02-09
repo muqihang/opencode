@@ -7,6 +7,7 @@ import { EvidenceManifest } from "../../src/protocol/evidence-manifest"
 import { SessionWorktree } from "../../src/worktree/session"
 import { captureWorktreePatch } from "../../src/worktree/changes"
 import { WorktreeChangeSet } from "../../src/worktree/changeset"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 describe("worktree changeset artifact", () => {
   test("capture emits patch + changeset manifest", async () => {
@@ -21,13 +22,20 @@ describe("worktree changeset artifact", () => {
 
         await captureWorktreePatch({ workdir, sessionId, writer })
 
-        const manifestPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          sessionId,
-          "manifest.json",
-        )
+        const scope = resolveTenantScope()
+        const manifestPath = await (async () => {
+          const candidates = evidenceCandidates({
+            base: Instance.worktree,
+            sessionId,
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "manifest.json"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const manifest = EvidenceManifest.parse(JSON.parse(await Bun.file(manifestPath).text()))
         const patchEntry = manifest.entries.find((e) => e.kind === "worktree-patch")
         const changesEntry = manifest.entries.find((e) => e.kind === "worktree-changeset")

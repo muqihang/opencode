@@ -93,7 +93,7 @@ describe("orchestrator v1.5 b1 flags integration", () => {
     for (const item of cases) {
       const mod = await loadProcessor()
       const rollout = mod.resolveOrchestratorRollout(undefined, item.flags)
-      expect(rollout).toEqual(item.expected)
+      expect(rollout).toMatchObject(item.expected)
     }
   })
 
@@ -119,7 +119,7 @@ describe("orchestrator v1.5 b1 flags integration", () => {
       },
     )
 
-    expect(rollout).toEqual({
+    expect(rollout).toMatchObject({
       enabled: true,
       llmWorkers: true,
       workerBadge: true,

@@ -4,6 +4,22 @@ import { PythonTool } from "../../src/tool/python"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { EventV1 } from "../../src/protocol/event"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
+
+async function eventsPath(sessionId: string) {
+  const scope = resolveTenantScope()
+  const candidates = evidenceCandidates({
+    base: Instance.worktree,
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((dir) => path.join(dir, "events.jsonl"))
+  for (const candidate of candidates) {
+    const exists = await Bun.file(candidate).exists()
+    if (exists) return candidate
+  }
+  return candidates[0]!
+}
 
 const ctx = {
   sessionID: "python_test",
@@ -36,8 +52,8 @@ describe("tool.python", () => {
         expect(result.metadata.exit).toBe(0)
         expect(result.metadata.output_artifact).toBeDefined()
 
-        const eventsPath = path.join(Instance.worktree, ".opencode", "evidence", ctx.sessionID, "events.jsonl")
-        const text = await Bun.file(eventsPath).text()
+        const eventsPathValue = await eventsPath(ctx.sessionID)
+        const text = await Bun.file(eventsPathValue).text()
         const types = text
           .split("\n")
           .map((line) => line.trim())

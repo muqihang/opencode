@@ -6,6 +6,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Workbench } from "../../src/file/workbench"
+import { artifactCandidates, evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 function sha(bytes: Uint8Array) {
   const hash = new Bun.CryptoHasher("sha256")
@@ -41,15 +42,43 @@ describe("file.workbench archive", () => {
 
         const bytes = await Bun.file(archivePath).bytes()
         const inputId = sha(bytes)
-        const unpackedDir = path.join(tmp.path, ".opencode", "artifacts", session.id, "derived", inputId, "unpacked")
+        const scope = resolveTenantScope()
+        const unpackedDir = await (async () => {
+          const candidates = artifactCandidates({
+            base: tmp.path,
+            sessionId: session.id,
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "derived", inputId, "unpacked"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(path.join(candidate, "a.txt")).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         expect(await Bun.file(path.join(unpackedDir, "a.txt")).exists()).toBe(true)
 
-        const manifestPath = path.join(tmp.path, ".opencode", "evidence", session.id, "manifest.json")
+        const manifestPath = await (async () => {
+          const candidates = evidenceCandidates({
+            base: tmp.path,
+            sessionId: session.id,
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "manifest.json"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const manifestData = JSON.parse(await Bun.file(manifestPath).text()) as {
           entries: Array<{ path: string }>
         }
-        const expected = `.opencode/artifacts/${session.id}/derived/${inputId}/unpacked/filelist.json`
-        const hit = manifestData.entries.find((entry) => entry.path.replaceAll("\\", "/") === expected)
+        const suffix = `/${session.id}/derived/${inputId}/unpacked/filelist.json`
+        const hit = manifestData.entries.find((entry) => {
+          const value = entry.path.replaceAll("\\", "/")
+          return value.includes(".opencode/artifacts/") && value.endsWith(suffix)
+        })
         expect(hit).toBeDefined()
       },
     })

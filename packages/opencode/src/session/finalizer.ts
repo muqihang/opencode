@@ -10,6 +10,7 @@ import { WorktreeChangeSet } from "@/worktree/changeset"
 import { resolveWorkdirMode, resolveWorkdirPath } from "@/workdir/resolve"
 import { stableJson } from "@/util/stable-json"
 import { ContextLedger } from "@/session/context-ledger"
+import { artifactCandidates, resolveTenantScope } from "@/util/tenant-context"
 
 type Writer = Awaited<ReturnType<typeof EvidenceWriter.open>>
 
@@ -56,6 +57,23 @@ function markerRelativePath(childSessionId: string) {
 async function exists(filepath: string) {
   const stat = await fs.stat(filepath).catch(() => undefined)
   return Boolean(stat)
+}
+
+function artifactPaths(input: { base: string; sessionId: string; rel: string }) {
+  const scope = resolveTenantScope()
+  return artifactCandidates({
+    base: input.base,
+    sessionId: input.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((root) => path.join(root, input.rel))
+}
+
+async function firstExisting(paths: string[]) {
+  for (const candidate of paths) {
+    if (await exists(candidate)) return candidate
+  }
+  return undefined
 }
 
 async function readChangeSetFiles(changeSetPath: string) {
@@ -168,9 +186,15 @@ export async function finalizeChildSession(
   const writer = await EvidenceWriter.open({ sessionId: data.parentSessionId })
 
   const markerRel = markerRelativePath(data.childSessionId)
-  const markerAbs = path.join(base, ".opencode", "artifacts", data.parentSessionId, markerRel)
+  const markerAbs = await firstExisting(
+    artifactPaths({
+      base,
+      sessionId: data.parentSessionId,
+      rel: markerRel,
+    }),
+  )
 
-  if (await exists(markerAbs)) {
+  if (markerAbs) {
     await writer.event({
       specVersion: "event/1.0",
       ts: new Date().toISOString(),
@@ -200,22 +224,18 @@ export async function finalizeChildSession(
     const childWriter = await EvidenceWriter.open({ sessionId: data.childSessionId })
     await childWriter.pack({ handoff: "child finalized" })
 
-    const patchPath = path.join(
+    const patchCandidates = artifactPaths({
       base,
-      ".opencode",
-      "artifacts",
-      data.childSessionId,
-      "worktree",
-      "changes.patch",
-    )
-    const changeSetPath = path.join(
+      sessionId: data.childSessionId,
+      rel: path.posix.join("worktree", "changes.patch"),
+    })
+    const changeSetCandidates = artifactPaths({
       base,
-      ".opencode",
-      "artifacts",
-      data.childSessionId,
-      "worktree",
-      "changes.json",
-    )
+      sessionId: data.childSessionId,
+      rel: path.posix.join("worktree", "changes.json"),
+    })
+    const patchPath = (await firstExisting(patchCandidates)) ?? patchCandidates[0]!
+    const changeSetPath = (await firstExisting(changeSetCandidates)) ?? changeSetCandidates[0]!
 
     const hasPatch = await exists(patchPath)
     const hasChangeSet = await exists(changeSetPath)

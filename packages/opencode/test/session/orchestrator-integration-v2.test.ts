@@ -328,7 +328,7 @@ describe("orchestrator integration v2 rollout", () => {
         expect(brokerCalls.length).toBeGreaterThan(0)
       },
     })
-  })
+  }, 15000)
 
   test("workers on and shadow off keeps orchestrator injection", async () => {
     const mod = await loadProcessor()

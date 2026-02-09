@@ -5,6 +5,7 @@ import { EvidencePack } from "../../src/protocol/evidence-pack"
 import { Instance } from "../../src/project/instance"
 import { mergeChildEvidencePacks } from "../../src/evidence/macro-merge"
 import { tmpdir } from "../fixture/fixture"
+import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 function sha(input: string) {
   const hash = new Bun.CryptoHasher("sha256")
@@ -34,13 +35,20 @@ describe("evidence.macro-merge", () => {
 
         await mergeChildEvidencePacks({ parentSessionId, childSessionIds: [childA, childB] })
 
-        const packPath = path.join(
-          Instance.worktree,
-          ".opencode",
-          "evidence",
-          parentSessionId,
-          "pack.json",
-        )
+        const scope = resolveTenantScope()
+        const packPath = await (async () => {
+          const candidates = evidenceCandidates({
+            base: Instance.worktree,
+            sessionId: parentSessionId,
+            tenantId: scope.tenantId,
+            orgId: scope.orgId,
+          }).map((dir) => path.join(dir, "pack.json"))
+          for (const candidate of candidates) {
+            const exists = await Bun.file(candidate).exists()
+            if (exists) return candidate
+          }
+          return candidates[0]!
+        })()
         const pack = EvidencePack.parse(JSON.parse(await Bun.file(packPath).text()))
 
         const testArtifacts = pack.artifacts.filter((artifact) => artifact.kind === "test")
@@ -58,8 +66,8 @@ describe("evidence.macro-merge", () => {
         }
         const expectedSha = sha("same")
         const aliases = aliasData.bySha256[expectedSha] ?? []
-        expect(aliases).toContain(`.opencode/artifacts/${childA}/a.txt`)
-        expect(aliases).toContain(`.opencode/artifacts/${childB}/b.txt`)
+        expect(aliases.some((item) => item.includes(".opencode/artifacts/") && item.includes(`/${childA}/a.txt`))).toBe(true)
+        expect(aliases.some((item) => item.includes(".opencode/artifacts/") && item.includes(`/${childB}/b.txt`))).toBe(true)
       },
     })
   })
