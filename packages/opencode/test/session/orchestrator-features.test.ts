@@ -24,6 +24,27 @@ describe("orchestrator features", () => {
     expect(result.features.hasVerificationIntent).toBe(true)
   })
 
+  test("negated exec phrasing does not trigger exec intent", () => {
+    const result = extractFeatures({
+      uxMode: "auto",
+      intentText: "只做分析，不执行命令，不运行测试；请给出证据链。",
+      hasFileParts: false,
+    })
+
+    expect(result.features.hasExecIntent).toBe(false)
+    expect(result.features.hasVerificationIntent).toBe(true)
+  })
+
+  test("generic decision wording should not trigger exec intent", () => {
+    const result = extractFeatures({
+      uxMode: "auto",
+      intentText: "请执行一次证据优先的业务判定，输出结论与引用。",
+      hasFileParts: false,
+    })
+
+    expect(result.features.hasExecIntent).toBe(false)
+    expect(result.features.hasVerificationIntent).toBe(true)
+  })
   test("passes uxMode and parentSessionId", () => {
     const result = extractFeatures({
       uxMode: "deep",

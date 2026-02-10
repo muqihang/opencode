@@ -55,6 +55,20 @@ const routeDebug = (value: string) => {
   return text.startsWith("from_model=") || text.startsWith("to_model=") || text.startsWith("gate_reason=")
 }
 
+const summaryText = (value: string) => safeNote(value).replace(/\s+/g, " ").trim()
+
+const resultSummary = (value: LlmWorkerResult) => {
+  const note = (value.notes ?? []).find((item) => {
+    const text = item.trim()
+    if (!text) return false
+    return !routeDebug(text)
+  })
+  if (!note) return
+  const summary = summaryText(note)
+  if (!summary) return
+  return summary
+}
+
 const errorText = (error: unknown) => {
   if (error instanceof Error) return error.message
   return String(error)
@@ -143,6 +157,7 @@ const writeLifecycleEvidence = async (input: {
   attempt: number
   cache?: WorkerCache
   reason?: string
+  summary?: string
   latencyMs?: number
 }) => {
   const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
@@ -167,6 +182,7 @@ const writeLifecycleEvidence = async (input: {
         attempt: input.attempt,
         cache: input.cache,
         reason: input.reason,
+        summary: input.summary,
         latencyMs: input.latencyMs,
       },
       redaction: { applied: true, policyVersion: "v1" },
@@ -183,6 +199,7 @@ const emitLifecycle = async (input: {
   attempt: number
   cache?: WorkerCache
   reason?: string
+  summary?: string
   latencyMs?: number
 }) => {
   const messageId = input.messageId
@@ -201,6 +218,7 @@ const emitLifecycle = async (input: {
     attempt: input.attempt,
     cache: input.cache,
     reason: input.reason,
+    summary: input.summary,
     latencyMs: input.latencyMs,
   }).catch(() => {})
 
@@ -213,6 +231,7 @@ const emitLifecycle = async (input: {
     attempt: input.attempt,
     cache: input.cache,
     reason: input.reason,
+    summary: input.summary,
     latencyMs: input.latencyMs,
   })
 }
@@ -329,13 +348,42 @@ export const WorkerRunner = {
     const nowIso = new Date(nowMs).toISOString()
     const compute = () => worker.compute({ rolePack, model: input.model, now: nowIso })
 
-    const cached = await store
-      .getOrCompute({ key, ttlMs, policy, compute })
-      .then((value) => ({ ok: true as const, value }))
-      .catch((error) => ({ ok: false as const, error }))
+    const read = (nextPolicy: { enabled: boolean; force: boolean }) =>
+      store
+        .getOrCompute({ key, ttlMs, policy: nextPolicy, compute })
+        .then((value) => ({ ok: true as const, value }))
+        .catch((error) => ({ ok: false as const, error }))
 
-    if (!cached.ok) {
-      const reason = errorText(cached.error)
+    const resolved = await (async () => {
+      const first = await read(policy)
+      if (!first.ok) return { state: "compute_error" as const, error: first.error }
+
+      const firstCache = { status: first.value.status, tier: first.value.tier }
+      const firstResult = LlmWorkerResult.safeParse(first.value.value)
+      if (!firstResult.success) {
+        return { state: "result_invalid" as const, cache: firstCache }
+      }
+
+      if (firstCache.status !== "hit") {
+        return { state: "ok" as const, cache: firstCache, result: firstResult.data }
+      }
+      if (firstResult.data.status === "ok") {
+        return { state: "ok" as const, cache: firstCache, result: firstResult.data }
+      }
+
+      const forced = await read({ enabled: policy.enabled, force: true })
+      if (!forced.ok) return { state: "compute_error" as const, error: forced.error }
+
+      const forcedCache = { status: forced.value.status, tier: forced.value.tier }
+      const forcedResult = LlmWorkerResult.safeParse(forced.value.value)
+      if (!forcedResult.success) {
+        return { state: "result_invalid" as const, cache: forcedCache }
+      }
+      return { state: "ok" as const, cache: forcedCache, result: forcedResult.data }
+    })()
+
+    if (resolved.state === "compute_error") {
+      const reason = errorText(resolved.error)
       await emitLifecycle({
         sessionId: input.sessionId,
         messageId: input.messageId,
@@ -352,9 +400,7 @@ export const WorkerRunner = {
       return { result: degraded(`worker compute failed: ${reason}`), cache: emptyCache }
     }
 
-    const cache = { status: cached.value.status, tier: cached.value.tier }
-    const result = LlmWorkerResult.safeParse(cached.value.value)
-    if (!result.success) {
+    if (resolved.state === "result_invalid") {
       await emitLifecycle({
         sessionId: input.sessionId,
         messageId: input.messageId,
@@ -362,13 +408,14 @@ export const WorkerRunner = {
         workerId: input.workerId,
         phase: "degraded",
         attempt: 1,
-        cache,
+        cache: resolved.cache,
         reason: toLifecycleReason({ type: "worker_result_invalid" }),
       })
-      return { result: degraded("worker result schema invalid"), cache }
+      return { result: degraded("worker result schema invalid"), cache: resolved.cache }
     }
 
-    const verified = verify(result.data)
+    const cache = resolved.cache
+    const verified = verify(resolved.result)
     const ended = typeof input.now === "number" ? input.now : Date.now()
     const phase = verified.result.status === "degraded" ? "degraded" : "completed"
     await emitLifecycle({
@@ -381,6 +428,7 @@ export const WorkerRunner = {
       cache,
       latencyMs: Math.max(0, ended - started),
       reason: verified.result.status === "degraded" ? toLifecycleReason({ type: "worker_degraded" }) : undefined,
+      summary: resultSummary(verified.result),
     })
     return { result: verified.result, cache }
   },

@@ -4,6 +4,17 @@ import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 import { stableJson } from "@/util/stable-json"
 
+const AdaptiveDegradedCodes = new Set([
+  "adaptive.ttc.scale_blocked_budget",
+  "adaptive.ttc.guard.budget",
+  "adaptive.ttc.budget_overrun",
+  "adaptive.ttc.early_stop",
+  "adaptive.ttc.degrade_3_to_2",
+  "adaptive.ttc.degrade_2_to_1",
+  "adaptive.ttc.breaker.active",
+  "adaptive.ttc.breaker.trip",
+])
+
 const OrchestratorArtifactsInput = z
   .object({
     sessionId: z.string().min(1),
@@ -47,8 +58,11 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
     redaction: { applied: true, policyVersion: "v1" },
   })
 
-  const adaptive = data.plan.reasons.filter((item) => item.code.startsWith("adaptive.ttc."))
-  if (adaptive.length === 0) return
+  const adaptive = data.plan.reasons
+    .map((item) => item.code)
+    .filter((code) => code.startsWith("adaptive.ttc."))
+  const degradedAdaptive = adaptive.filter((code) => AdaptiveDegradedCodes.has(code))
+  if (degradedAdaptive.length === 0) return
 
   await writer
     .event({
@@ -62,7 +76,7 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
       data: {
         planId,
         stage: "adaptive_ttc",
-        reason: adaptive.map((item) => item.code).join(","),
+        reason: degradedAdaptive.join(","),
       },
       redaction: { applied: true, policyVersion: "v1" },
     })

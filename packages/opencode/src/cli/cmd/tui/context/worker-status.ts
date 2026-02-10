@@ -6,13 +6,19 @@ export type WorkerLifecycle = {
   workerID: string
   phase: WorkerPhase
   reason?: string
+  summary?: string
 }
 
 export type WorkerTurn = {
   triggered: boolean
   phase: "running" | "completed" | "degraded"
   workers: Record<string, WorkerPhase>
+  summaries: Record<string, string>
   reason?: string
+}
+
+type WorkerHintOptions = {
+  showSummary?: boolean
 }
 
 const roleLabel = (workerID: string) => {
@@ -28,6 +34,15 @@ const phaseLabel = (phase: WorkerPhase) => {
   if (phase === "completed") return "已完成"
   if (phase === "degraded") return "已降级（继续回答）"
   return "未启用"
+}
+
+const SummaryMaxChars = 96
+
+const summaryLabel = (summary: string) => {
+  const text = summary.replace(/\s+/g, " ").trim()
+  if (!text) return
+  if (text.length <= SummaryMaxChars) return text
+  return `${text.slice(0, SummaryMaxChars)}...`
 }
 
 function isRecord(input: unknown): input is Record<string, unknown> {
@@ -71,12 +86,14 @@ export function readWorkerLifecycle(input: { type: string; properties?: unknown 
   if (!workerID) return
   if (!isWorkerPhase(input.properties.phase)) return
   const reason = typeof input.properties.reason === "string" ? input.properties.reason : undefined
+  const summary = typeof input.properties.summary === "string" ? summaryLabel(input.properties.summary) : undefined
   return {
     sessionID,
     messageID,
     workerID,
     phase: input.properties.phase,
     reason,
+    ...(summary ? { summary } : {}),
   }
 }
 
@@ -92,6 +109,10 @@ export function mergeWorkerTurn(current: WorkerTurn | undefined, event: WorkerLi
     ...(current?.workers ?? {}),
     [event.workerID]: event.phase,
   }
+  const summaries = {
+    ...(current?.summaries ?? {}),
+    ...(event.summary ? { [event.workerID]: event.summary } : {}),
+  }
 
   const reason = event.phase === "degraded" && event.reason ? event.reason : current?.reason
 
@@ -99,11 +120,12 @@ export function mergeWorkerTurn(current: WorkerTurn | undefined, event: WorkerLi
     triggered: true,
     phase: phase(workers),
     workers,
+    summaries,
     reason,
   }
 }
 
-export function formatWorkerHint(turn: WorkerTurn | undefined): string | undefined {
+export function formatWorkerHint(turn: WorkerTurn | undefined, options?: WorkerHintOptions): string | undefined {
   if (!turn?.triggered) return
   const workers = Object.entries(turn.workers)
   if (workers.length === 0) {
@@ -116,5 +138,20 @@ export function formatWorkerHint(turn: WorkerTurn | undefined): string | undefin
     .slice(0, 3)
     .map(([workerID, workerPhase]) => `${roleLabel(workerID)}：${phaseLabel(workerPhase)}`)
   const body = labels.join(" · ")
-  return `协助过程：${body}`
+  const base = `协助过程：${body}`
+  if (!options?.showSummary) return base
+
+  const summaries = workers
+    .slice(0, 3)
+    .map(([workerID]) => {
+      const summary = turn.summaries[workerID]
+      if (!summary) return
+      const text = summaryLabel(summary)
+      if (!text) return
+      return `${roleLabel(workerID)}：${text}`
+    })
+    .filter((item) => Boolean(item)) as string[]
+  if (summaries.length === 0) return base
+  return `${base}
+小脑摘要：${summaries.join(" · ")}`
 }

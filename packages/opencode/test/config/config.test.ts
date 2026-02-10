@@ -1753,10 +1753,14 @@ describe("experimental flag defaults", () => {
   test("maps A2 and offline gate switches from env flags", async () => {
     const prevA2 = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
     const prevGate = process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"]
+    const prevWorkerTimeout = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"]
+    const prevWorkerDebugSummary = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY"]
 
     try {
       process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"] = "1"
       process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"] = "false"
+      process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"] = "21000"
+      process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY"] = "1"
 
       await using tmp = await tmpdir()
       await Instance.provide({
@@ -1765,6 +1769,8 @@ describe("experimental flag defaults", () => {
           const config = await Config.get()
           expect(config.experimental?.orchestrator_v15_a2).toBe(true)
           expect(config.experimental?.offline_eval_gates).toBe(false)
+          expect(config.experimental?.orchestrator_worker_timeout_ms).toBe(21000)
+          expect(config.experimental?.orchestrator_worker_debug_summary).toBe(true)
         },
       })
     } finally {
@@ -1779,16 +1785,32 @@ describe("experimental flag defaults", () => {
       } else {
         process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"] = prevGate
       }
+
+      if (prevWorkerTimeout === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"] = prevWorkerTimeout
+      }
+
+      if (prevWorkerDebugSummary === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY"] = prevWorkerDebugSummary
+      }
     }
   })
 
   test("keeps offline gate enabled by default when env is absent", async () => {
     const prevGate = process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"]
     const prevA2 = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
+    const prevWorkerTimeout = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"]
+    const prevWorkerDebugSummary = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY"]
 
     try {
       delete process.env["OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES"]
       delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
+      delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"]
+      delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY"]
 
       await using tmp = await tmpdir()
       await Instance.provide({
@@ -1796,6 +1818,8 @@ describe("experimental flag defaults", () => {
         fn: async () => {
           const config = await Config.get()
           expect(config.experimental?.offline_eval_gates).toBe(true)
+          expect(config.experimental?.orchestrator_worker_timeout_ms).toBeUndefined()
+          expect(config.experimental?.orchestrator_worker_debug_summary).toBe(false)
         },
       })
     } finally {
@@ -1807,9 +1831,21 @@ describe("experimental flag defaults", () => {
 
       if (prevA2 === undefined) {
         delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"]
-        return
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"] = prevA2
       }
-      process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"] = prevA2
+
+      if (prevWorkerTimeout === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"] = prevWorkerTimeout
+      }
+
+      if (prevWorkerDebugSummary === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY"] = prevWorkerDebugSummary
+      }
     }
   })
 })

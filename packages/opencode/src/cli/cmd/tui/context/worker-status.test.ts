@@ -109,6 +109,7 @@ describe("worker status", () => {
       workers: {
         worker_1: "completed",
       },
+      summaries: {},
     }
     const turn = mergeWorkerTurn(base, {
       sessionID: "ses_1",
@@ -120,12 +121,12 @@ describe("worker status", () => {
   })
 
   test("formats hint for each visible phase", () => {
-    expect(formatWorkerHint({ triggered: true, phase: "running", workers: {} })).toContain("协助过程")
-    expect(formatWorkerHint({ triggered: true, phase: "running", workers: {} })).toContain("进行中")
-    expect(formatWorkerHint({ triggered: true, phase: "completed", workers: {} })).toContain("协助过程")
-    expect(formatWorkerHint({ triggered: true, phase: "completed", workers: {} })).toContain("已完成")
-    expect(formatWorkerHint({ triggered: true, phase: "degraded", workers: {} })).toContain("协助过程")
-    expect(formatWorkerHint({ triggered: true, phase: "degraded", workers: {} })).toContain("已降级")
+    expect(formatWorkerHint({ triggered: true, phase: "running", workers: {}, summaries: {} })).toContain("协助过程")
+    expect(formatWorkerHint({ triggered: true, phase: "running", workers: {}, summaries: {} })).toContain("进行中")
+    expect(formatWorkerHint({ triggered: true, phase: "completed", workers: {}, summaries: {} })).toContain("协助过程")
+    expect(formatWorkerHint({ triggered: true, phase: "completed", workers: {}, summaries: {} })).toContain("已完成")
+    expect(formatWorkerHint({ triggered: true, phase: "degraded", workers: {}, summaries: {} })).toContain("协助过程")
+    expect(formatWorkerHint({ triggered: true, phase: "degraded", workers: {}, summaries: {} })).toContain("已降级")
   })
 
   test("formats role level progress with user friendly labels", () => {
@@ -140,8 +141,24 @@ describe("worker status", () => {
     expect(text).toContain("进行中")
   })
 
+
+
+  test("preserves worker summary and renders verbose hint when enabled", () => {
+    const turn = mergeWorkerTurn(undefined, {
+      sessionID: "ses_1",
+      messageID: "msg_1",
+      workerID: "retrieval_planner",
+      phase: "completed",
+      summary: "已定位 4 个必读证据文件",
+    })
+    const text = formatWorkerHint(turn, { showSummary: true })
+    expect(text).toContain("协助过程")
+    expect(text).toContain("小脑摘要")
+    expect(text).toContain("检索规划")
+    expect(text).toContain("已定位 4 个必读证据文件")
+  })
   test("formats no hint when turn has no worker events", () => {
     expect(formatWorkerHint(undefined)).toBeUndefined()
-    expect(formatWorkerHint({ triggered: false, phase: "completed", workers: {} })).toBeUndefined()
+    expect(formatWorkerHint({ triggered: false, phase: "completed", workers: {}, summaries: {} })).toBeUndefined()
   })
 })

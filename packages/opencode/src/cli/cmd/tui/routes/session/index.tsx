@@ -1149,8 +1149,9 @@ function UserMessage(props: {
 
   const compaction = createMemo(() => props.parts.find((x) => x.type === "compaction"))
   const workerTurn = createMemo(() => sync.data.worker[props.message.sessionID]?.[props.message.id])
+  const workerSummary = createMemo(() => sync.data.config.experimental?.orchestrator_worker_debug_summary === true)
   const workerHint = createMemo(() => {
-    return formatWorkerHint(workerTurn())
+    return formatWorkerHint(workerTurn(), { showSummary: workerSummary() })
   })
   const workerTone = createMemo(() => {
     const turn = workerTurn()

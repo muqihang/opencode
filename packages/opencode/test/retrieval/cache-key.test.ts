@@ -40,3 +40,27 @@ test("retrieval cache key excludes session/message but includes workspace finger
     },
   })
 })
+
+
+test("workspace fingerprint tolerates recursive symlink loops in non-git trees", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const loopRoot = path.join(dir, "vendor", "clawdbot", "packages", "moltbot", "node_modules")
+      const target = path.join(dir, "vendor", "clawdbot", "vendor", "a2ui", "renderers", "lit", "src", "0.8", "ui", "custom-components")
+      await fs.mkdir(loopRoot, { recursive: true })
+      await fs.mkdir(target, { recursive: true })
+      await Bun.write(path.join(target, "marker.txt"), "ok\n")
+      const linked = await fs
+        .symlink(path.join("..", "..", ".."), path.join(loopRoot, "openclaw"))
+        .then(() => true)
+        .catch(() => false)
+      return { linked }
+    },
+  })
+
+  if (!tmp.extra.linked) return
+
+  const fingerprint = await resolveWorkspaceFingerprint({ root: tmp.path })
+  expect(fingerprint.vcs).toBe("none")
+  expect(fingerprint.fsFingerprint.length).toBeGreaterThan(0)
+})

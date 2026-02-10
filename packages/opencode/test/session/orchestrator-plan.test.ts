@@ -52,6 +52,30 @@ describe("orchestrator plan", () => {
     })
   })
 
+  test("generic decision phrasing stays on assist instead of fork", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText: "请执行一次证据优先的业务判定，输出结论与引用，不要执行命令或脚本。",
+          hasFileParts: false,
+        })
+
+        const result = await buildPlan({
+          sessionId: "s2_generic_decision",
+          messageId: "m2_generic_decision",
+          features,
+          toolsetFingerprint: "toolset-2-generic-decision",
+        })
+
+        expect(result.plan.orchestratorMode).toBe("assist")
+        expect(result.plan.workers.map((item) => item.id)).toEqual(["retrieval_planner", "evidence_critic"])
+      },
+    })
+  })
+
   test("deep + high complexity reaches heavy with explicit reason", async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({
@@ -199,6 +223,63 @@ describe("orchestrator plan", () => {
 
         expect(result.plan.orchestratorMode).toBe("chat")
         expect(result.plan.workers.length).toBe(0)
+      },
+    })
+  })
+
+  test("worker timeout default is extended for v1.6 workers", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText: "需要引用和证据",
+          hasFileParts: false,
+        })
+
+        const result = await buildPlan({
+          sessionId: "s-timeout-default",
+          messageId: "m-timeout-default",
+          features,
+          toolsetFingerprint: "toolset-timeout-default",
+        })
+
+        expect(result.plan.orchestratorMode).toBe("assist")
+        expect(result.plan.budgets.workerTimeoutMs).toBe(12000)
+        expect(result.plan.workers.map((item) => item.budget.timeoutMs)).toEqual([12000, 12000])
+      },
+    })
+  })
+
+  test("worker timeout can be overridden from config experimental", async () => {
+    await using fixture = await tmpdir({
+      git: true,
+      config: {
+        experimental: {
+          orchestrator_worker_timeout_ms: 21000,
+        },
+      },
+    })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText: "需要引用和证据",
+          hasFileParts: false,
+        })
+
+        const result = await buildPlan({
+          sessionId: "s-timeout-override",
+          messageId: "m-timeout-override",
+          features,
+          toolsetFingerprint: "toolset-timeout-override",
+        })
+
+        expect(result.plan.orchestratorMode).toBe("assist")
+        expect(result.plan.budgets.workerTimeoutMs).toBe(21000)
+        expect(result.plan.workers.map((item) => item.budget.timeoutMs)).toEqual([21000, 21000])
       },
     })
   })

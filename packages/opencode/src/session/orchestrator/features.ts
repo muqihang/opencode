@@ -27,7 +27,10 @@ const WritePattern =
   /(apply[_\s-]*patch|apply\s+patch|apply_patch|edit|modify|update|write|rewrite|refactor|rename|delete|create file|add file|commit|patch|修改|编辑|写入|改一下|改动|提交|重构|重命名|删除|新增文件|创建文件)/i
 
 const ExecPattern =
-  /(run|execute|bash|shell|command|test|install|build|compile|npm|bun|python|node|script|make|cargo|运行|执行|测试|安装|构建|编译|命令|脚本)/i
+  /(run|bash|shell|command|test|install|build|compile|npm|bun|python|node|script|make|cargo|运行|测试|安装|构建|编译|命令|脚本|execute\s+(?:command|script|test|build|compile|npm|bun|python|node|make|cargo)|执行(?:命令|脚本|测试|构建|编译|安装))/i
+
+const ExecNegationPattern =
+  /(不执行|不运行|不要执行|不要运行|无需执行|无需运行|无须执行|无须运行|不需要执行|不需要运行|do not run|don't run|do not execute|don't execute|without running|without executing)/i
 
 const VerifyPattern =
   /(cite|citation|source|evidence|verify|verification|fact check|reference|proof|quote|引用|证据|来源|核验|验证|对账|合规|事实核查)/i
@@ -64,11 +67,14 @@ const featureSignals = (input: FeatureInput): FeatureSignals => {
     intentText: input.intentText,
     kind: "write",
   })
-  const hasExecIntent = ExecPattern.test(input.intentText) || byFileParts({
-    hasFileParts: input.hasFileParts,
-    intentText: input.intentText,
-    kind: "exec",
-  })
+  const hasExecIntent =
+    (ExecPattern.test(input.intentText) ||
+      byFileParts({
+        hasFileParts: input.hasFileParts,
+        intentText: input.intentText,
+        kind: "exec",
+      })) &&
+    !ExecNegationPattern.test(input.intentText)
   const hasVerificationIntent = VerifyPattern.test(input.intentText)
 
   return {

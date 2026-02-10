@@ -15,6 +15,62 @@ const makeTool = (): Tool =>
   })
 
 describe("turn gate e2e", () => {
+  test("config experimental orchestrator enables rollout without env flag", async () => {
+    const mod = await loadProcessor()
+    const config = {
+      experimental: {
+        orchestrator: true,
+        orchestrator_llm_workers: true,
+        orchestrator_worker_badge: true,
+        orchestrator_v15_b1: true,
+        adaptive_ttc: true,
+        orchestrator_v15_b2: true,
+        pointer_context_os: true,
+        orchestrator_v16_observability: true,
+        orchestrator_v16_llm_workers: true,
+        orchestrator_v16_scorer: true,
+        orchestrator_v16_deepseek_thinking: true,
+        orchestrator_v16_cache_aware_prompt: true,
+      },
+    }
+    const rollout = mod.resolveOrchestratorRollout(
+      config as unknown as { experimental: Record<string, boolean> },
+      {
+        orchestrator: false,
+        llmWorkers: false,
+        workerBadge: false,
+        shadowMode: false,
+        orchestratorV15B1: false,
+        adaptiveTTC: false,
+        orchestratorV15B2: false,
+        pointerContextOS: false,
+        orchestratorV15A1: false,
+        claimGraphGate: false,
+        dualPassSynthesis: false,
+        orchestratorV16Observability: false,
+        orchestratorV16LLMWorkers: false,
+        orchestratorV16Scorer: false,
+        orchestratorV16DeepseekThinking: false,
+        orchestratorV16CacheAwarePrompt: false,
+      },
+    )
+
+    expect(rollout).toMatchObject({
+      enabled: true,
+      llmWorkers: true,
+      workerBadge: true,
+      v15B1: true,
+      adaptiveTTC: true,
+      v15B2: true,
+      pointerContextOS: true,
+      v16Observability: true,
+      v16LLMWorkers: true,
+      v16Scorer: true,
+      v16DeepseekThinking: true,
+      v16CacheAwarePrompt: true,
+    })
+  })
+
   test("A1 flags remain gated by orchestrator + b1 + b2 + a1", async () => {
     const cases = [
       {

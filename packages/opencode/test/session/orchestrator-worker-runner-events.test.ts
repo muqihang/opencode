@@ -269,7 +269,14 @@ describe("orchestrator worker runner lifecycle events", () => {
         const sessionID = "s-events-route"
         const workerID = "evidence_critic"
         const rolePack = pack({ pointers: ["ptr-1"], planPointer: "orchestrator/plan-events-route/plan.json" })
-        const events: Array<{ phase: string; reason?: string; fromModel?: string; toModel?: string; gateReason?: string }> = []
+        const events: Array<{
+          phase: string
+          reason?: string
+          fromModel?: string
+          toModel?: string
+          gateReason?: string
+          summary?: string
+        }> = []
         const unsub = Bus.subscribe(OrchestratorEvent.WorkerLifecycle, (event) => {
           if (event.properties.sessionID !== sessionID) return
           if (event.properties.workerID !== workerID) return
@@ -279,6 +286,7 @@ describe("orchestrator worker runner lifecycle events", () => {
             fromModel: event.properties.fromModel,
             toModel: event.properties.toModel,
             gateReason: event.properties.gateReason,
+            summary: event.properties.summary,
           })
         })
 
@@ -304,6 +312,7 @@ describe("orchestrator worker runner lifecycle events", () => {
         expect(output.result.status).toBe("degraded")
         const degraded = events.find((item) => item.phase === "degraded")
         expect(degraded?.reason).toBe("worker_degraded")
+        expect(degraded?.summary).toBe("worker degraded: error")
         expect(degraded?.fromModel).toBeUndefined()
         expect(degraded?.toModel).toBeUndefined()
         expect(degraded?.gateReason).toBeUndefined()

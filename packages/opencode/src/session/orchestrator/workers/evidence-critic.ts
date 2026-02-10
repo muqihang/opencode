@@ -48,6 +48,11 @@ const clean = (value: string, max: number) => {
   return text.slice(0, max)
 }
 
+const normalizeKind = (kind: "retrieval" | "verification") => {
+  if (kind === "verification") return "retrieval" as const
+  return kind
+}
+
 const bounded = (input: { rolePack: LlmWorkerRolePack; output: Critic }) => {
   const need = input.rolePack.workingSet.pointers.length === 0
   const maxTools = input.rolePack.budget.maxToolCalls
@@ -63,7 +68,7 @@ const bounded = (input: { rolePack: LlmWorkerRolePack; output: Critic }) => {
   const merged = [...head, ...tail]
 
   const tools = (input.output.toolRequests ?? [])
-    .map((item) => ({ kind: item.kind, input: clean(item.input, Math.min(1200, maxText * 2)) }))
+    .map((item) => ({ kind: normalizeKind(item.kind), input: clean(item.input, Math.min(1200, maxText * 2)) }))
     .filter((item) => item.input.length > 0)
 
   const withNeed = need && !tools.some((item) => item.kind === "retrieval")

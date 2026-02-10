@@ -1,13 +1,17 @@
 import type { Tool } from "ai"
+import path from "path"
+import { Instance } from "@/project/instance"
 import { EvidenceWriter } from "@/evidence/writer"
 import { LlmWorkerRolePack } from "@/protocol/llm-worker-role-pack"
 import { LlmWorkerResult } from "@/protocol/llm-worker-result"
 import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import { WorkerRunner } from "./worker-runner"
-import { isPlannerWorker } from "./worker-spec"
+import { isPlannerWorker, type WorkerModel } from "./worker-spec"
 import { runDualPass } from "./dual-pass"
 import { runToolBroker } from "./tool-broker"
+import { stableJson } from "@/util/stable-json"
+import { artifactSessionPrefix, isA2TenantNamespaceEnabled, resolveTenantScope } from "@/util/tenant-context"
 
 type TurnInput = {
   sessionId: string
@@ -19,6 +23,7 @@ type TurnInput = {
   system: string[]
   tools: Record<string, Tool>
   workingSetPointers?: string[]
+  model?: WorkerModel
 }
 
 type TurnResult = {
@@ -31,6 +36,12 @@ type ToolGateInput = {
   tools: Record<string, Tool>
   mainTools?: OrchestratorPlan["mainTools"]
 }
+
+type WorkerRun = Awaited<ReturnType<typeof WorkerRunner.run>>
+
+type WorkerEntry = { workerId: string; run: WorkerRun }
+
+type BrokerOutput = Awaited<ReturnType<typeof runToolBroker>>
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -61,14 +72,40 @@ const writeOrchestratorDegraded = async (input: {
     .catch(() => {})
 }
 
+const planPointerPath = (input: { sessionId: string; planId: string }) => {
+  const scope = resolveTenantScope()
+  const prefix = artifactSessionPrefix({
+    sessionId: input.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+    namespaced: isA2TenantNamespaceEnabled(),
+  })
+  return `${prefix}orchestrator/${input.planId}/orchestrator.plan.json`
+}
+
 const toPlanPointer = (input: { sessionId: string; plan: OrchestratorPlan; intentText: string }) => {
-  const base = [".opencode", "artifacts", input.sessionId, "orchestrator", input.plan.orchestratorPlanId].join("/")
-  const pointer = `${base}/orchestrator.plan.json`
+  const pointer = planPointerPath({
+    sessionId: input.sessionId,
+    planId: input.plan.orchestratorPlanId,
+  })
   const intent = input.intentText.trim()
-  if (!intent) return pointer
-  const max = 400
-  const clipped = intent.length > max ? `${intent.slice(0, max)}...` : intent
-  return `${pointer}\n\nintent:${clipped}`
+  const maxIntent = 400
+  const clippedIntent = intent.length > maxIntent ? `${intent.slice(0, maxIntent)}...` : intent
+  const meta = stableJson({
+    mode: input.plan.orchestratorMode,
+    workers: input.plan.workers.map((item) => item.id),
+    evidence: input.plan.evidencePolicy?.mode ?? "off",
+    toolPolicy: input.plan.toolPolicy,
+    reasons: input.plan.reasons.map((item) => item.code).slice(0, 8),
+  })
+  const maxMeta = 900
+  const clippedMeta = meta.length > maxMeta ? `${meta.slice(0, maxMeta)}...` : meta
+  const lines = [pointer]
+  if (clippedIntent) {
+    lines.push("", `intent:${clippedIntent}`)
+  }
+  lines.push("", `plan_meta:${clippedMeta}`)
+  return lines.join("\n")
 }
 
 const toWorkingSetPointers = (input?: string[]) => {
@@ -190,17 +227,139 @@ const renderInjection = (input: {
   return lines.join("\n")
 }
 
-const summarizeBroker = (input: { results: Awaited<ReturnType<typeof runToolBroker>>["results"] }) => {
+const summarizeBroker = (input: { results: BrokerOutput["results"] }) => {
   const total = input.results.reduce((acc, item) => acc + (item.summary?.total ?? 0), 0)
   const code = input.results.reduce((acc, item) => acc + (item.summary?.code ?? 0), 0)
   const workbench = input.results.reduce((acc, item) => acc + (item.summary?.workbench ?? 0), 0)
   return [`broker: total=${total} code=${code} workbench=${workbench}`]
 }
 
-const extractPointers = (input: Awaited<ReturnType<typeof runToolBroker>> | undefined) => {
+const PointerPreviewChars = 1200
+
+const toAbsolute = (input: string) => (path.isAbsolute(input) ? input : path.join(Instance.directory, input))
+
+const readPreview = async (input: string) => {
+  if (!input) return ""
+  return Bun.file(toAbsolute(input))
+    .text()
+    .then((value) => value.replace(/\s+/g, " ").trim().slice(0, PointerPreviewChars))
+    .catch(() => "")
+}
+
+const readHits = async (input: string) => {
+  if (!input) return []
+  return Bun.file(toAbsolute(input))
+    .json()
+    .then((value) => (Array.isArray(value) ? value : []))
+    .catch(() => [])
+}
+
+const withPreview = async (input: string) => {
+  const text = await readPreview(input)
+  if (!text) return input
+  return `${input}
+${text}`
+}
+
+const extractPointers = (input: BrokerOutput | undefined) => {
   if (!input) return []
   const pointers = input.results.flatMap((result) => result.pointers?.topK ?? [])
   return pointers.map((ptr) => `${ptr.path}`)
+}
+
+const extractWorkingSetPointers = async (input: BrokerOutput | undefined) => {
+  if (!input) return []
+
+  const top = input.results
+    .flatMap((result) => result.pointers?.topK ?? [])
+    .filter((item) => typeof item.path === "string")
+    .map((item) => item.path)
+    .slice(0, 8)
+
+  const snippetPreview = await Promise.all(
+    top
+      .filter((item) => item.includes("/snippets/"))
+      .slice(0, 8)
+      .map(withPreview),
+  )
+
+  const hitFiles = input.results
+    .flatMap((result) => result.pointers?.artifacts ?? [])
+    .filter((artifact) => artifact.kind === "retrieval-hits" && typeof artifact.path === "string")
+    .map((artifact) => artifact.path)
+
+  const hitRows = await Promise.all(hitFiles.map(readHits))
+  const origins = hitRows
+    .flatMap((rows) => rows)
+    .map((item) => (typeof item?.origin?.path === "string" ? item.origin.path : ""))
+    .filter((item) => item.length > 0)
+    .slice(0, 8)
+
+  const originPreview = await Promise.all(origins.map(withPreview))
+
+  const artifacts = input.results
+    .flatMap((result) => result.pointers?.artifacts ?? [])
+    .filter((item) => typeof item.path === "string")
+    .map((item) => item.path)
+    .slice(0, 8)
+
+  return toWorkingSetPointers([...snippetPreview, ...originPreview, ...top, ...artifacts])
+}
+
+const rerunCriticWithPointers = async (input: {
+  sessionId: string
+  messageId: string
+  plan: OrchestratorPlan
+  intentText: string
+  model?: WorkerModel
+  runs: WorkerEntry[]
+  broker?: BrokerOutput
+  workingSetPointers: string[]
+}) => {
+  const critic = input.runs.find((item) => item.workerId === "evidence_critic")
+  if (!critic) return input.runs
+  if (critic.run.result.status === "ok") return input.runs
+
+  const pointers = await extractWorkingSetPointers(input.broker)
+  if (pointers.length === 0) return input.runs
+
+  const planPath = planPointerPath({
+    sessionId: input.sessionId,
+    planId: input.plan.orchestratorPlanId,
+  })
+  const planPreview = await withPreview(planPath)
+
+  const rolePack = buildRolePack({
+    sessionId: input.sessionId,
+    plan: input.plan,
+    intentText: input.intentText,
+    workingSetPointers: [...input.workingSetPointers, planPreview, ...pointers],
+  })
+
+  const rerun = await WorkerRunner.run({
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    workerId: "evidence_critic",
+    rolePack,
+    model: input.model,
+  })
+
+  return input.runs.map((item) => (item.workerId === "evidence_critic" ? { workerId: item.workerId, run: rerun } : item))
+}
+
+const TurnCacheLimit = 256
+
+const turnCache = new Map<string, TurnResult>()
+
+const turnCacheKey = (input: TurnInput) =>
+  `${input.sessionId}:${input.messageId}:${input.plan.orchestratorPlanId}:${input.plan.orchestratorMode}`
+
+const rememberTurn = (input: { key: string; result: TurnResult }) => {
+  turnCache.set(input.key, input.result)
+  if (turnCache.size <= TurnCacheLimit) return
+  const first = turnCache.keys().next().value
+  if (!first) return
+  turnCache.delete(first)
 }
 
 export const applyMainTools = (input: ToolGateInput): Record<string, Tool> => {
@@ -218,12 +377,17 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
     return { system: input.system, tools: gatedTools, degraded: false }
   }
 
+  const cacheKey = turnCacheKey(input)
+  const cached = turnCache.get(cacheKey)
+  if (cached) return cached
+
   const task = async () => {
+    const basePointers = input.workingSetPointers ?? []
     const rolePack = buildRolePack({
       sessionId: input.sessionId,
       plan: input.plan,
       intentText: input.intentText,
-      workingSetPointers: input.workingSetPointers ?? [],
+      workingSetPointers: basePointers,
     })
     const workers = input.plan.workers
     const runs = await Promise.all(
@@ -233,6 +397,7 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
           messageId: input.messageId,
           workerId: worker.id,
           rolePack,
+          model: input.model,
         }).then((run) => ({ workerId: worker.id, run })),
       ),
     )
@@ -244,11 +409,12 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
           messageId: input.messageId,
           workerId: "evidence_critic",
           rolePack,
+          model: input.model,
         })
       : undefined
     const allRuns = criticRun ? [...runs, { workerId: "evidence_critic", run: criticRun }] : runs
-    const workerResults = allRuns.map((item) => item.run.result)
-    const toolRequests = workerResults.flatMap((result) => result.toolRequests ?? [])
+    const preResults = allRuns.map((item) => item.run.result)
+    const toolRequests = preResults.flatMap((result) => result.toolRequests ?? [])
     const broker = toolRequests.length
       ? await runToolBroker({
           sessionId: input.sessionId,
@@ -259,6 +425,18 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
           abort: input.abort,
         })
       : undefined
+
+    const finalizedRuns = await rerunCriticWithPointers({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      plan: input.plan,
+      intentText: input.intentText,
+      model: input.model,
+      runs: allRuns,
+      broker,
+      workingSetPointers: basePointers,
+    })
+    const workerResults = finalizedRuns.map((item) => item.run.result)
 
     const injected = renderInjection({
       plan: input.plan,
@@ -310,6 +488,7 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
       degraded: true,
     }
   })
+  rememberTurn({ key: cacheKey, result })
   return result
 }
 

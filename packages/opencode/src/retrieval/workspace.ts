@@ -1,5 +1,6 @@
 import path from "path"
 import { $ } from "bun"
+import { FileIgnore } from "@/file/ignore"
 import { stableJson } from "@/util/stable-json"
 
 export type WorkspaceFingerprint = {
@@ -82,12 +83,13 @@ const resolveFsFingerprint = async (root: string) => {
     cwd: root,
     absolute: true,
     onlyFiles: true,
-    followSymlinks: true,
+    followSymlinks: false,
     dot: true,
   })) {
     const rel = path.relative(root, file)
     if (!rel || rel.startsWith("..")) continue
     if (isInternalPath(rel)) continue
+    if (FileIgnore.match(rel)) continue
     const stat = await Bun.file(file)
       .stat()
       .catch(() => undefined)

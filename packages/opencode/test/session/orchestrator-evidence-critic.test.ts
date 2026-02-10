@@ -99,6 +99,25 @@ describe("orchestrator evidence_critic", () => {
     expect(result.toolRequests?.length).toBe(1)
   })
 
+
+  test("verification requests are normalized to retrieval for broker compatibility", async () => {
+    const rolePack = pack({ pointers: ["ptr-1"], maxToolCalls: 2 })
+    const result = await evidenceCritic(
+      { rolePack },
+      {
+        run: async () => ({
+          status: "ok",
+          object: {
+            status: "ok",
+            toolRequests: [{ kind: "verification", input: "cross-check policy evidence" }],
+          },
+        }),
+      },
+    )
+
+    expect(result.toolRequests?.map((item) => item.kind)).toEqual(["retrieval"])
+  })
+
   test("worker permissions stay no-write/no-exec/no-ask after llm degradation", async () => {
     const rolePack = pack({ pointers: ["ptr-1"] })
     const result = await evidenceCritic(

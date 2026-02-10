@@ -204,6 +204,7 @@ export namespace Config {
     const experimental = result.experimental ?? {}
     result.experimental = {
       ...experimental,
+      orchestrator: experimental.orchestrator ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR,
       orchestrator_v15_a2: experimental.orchestrator_v15_a2 ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2,
       offline_eval_gates: experimental.offline_eval_gates ?? Flag.OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES,
       orchestrator_v16_observability:
@@ -217,6 +218,10 @@ export namespace Config {
       orchestrator_v16_cache_aware_prompt:
         experimental.orchestrator_v16_cache_aware_prompt ??
         Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V16_CACHE_AWARE_PROMPT,
+      orchestrator_worker_timeout_ms:
+        experimental.orchestrator_worker_timeout_ms ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS,
+      orchestrator_worker_debug_summary:
+        experimental.orchestrator_worker_debug_summary ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY,
     }
 
     result.plugin = deduplicatePlugins(result.plugin ?? [])
@@ -1228,6 +1233,10 @@ export namespace Config {
             .optional()
             .describe("Tools that should only be available to primary agents."),
           continue_loop_on_deny: z.boolean().optional().describe("Continue the agent loop when a tool call is denied"),
+          orchestrator: z
+            .boolean()
+            .optional()
+            .describe("Enable orchestrator pipeline"),
           orchestrator_llm_workers: z
             .boolean()
             .optional()
@@ -1280,6 +1289,16 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Enable orchestrator v1.6 cache-aware prompt rollout stage"),
+          orchestrator_worker_timeout_ms: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe("Override worker LLM timeout in milliseconds for orchestrator plans"),
+          orchestrator_worker_debug_summary: z
+            .boolean()
+            .optional()
+            .describe("Show worker summary text in TUI assist progress (debug-only)"),
           offline_eval_gates: z
             .boolean()
             .optional()

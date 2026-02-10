@@ -176,7 +176,7 @@ export const resolveOrchestratorRollout = (
   const v16CacheAwarePrompt =
     config?.experimental?.orchestrator_v16_cache_aware_prompt ?? resolved.orchestratorV16CacheAwarePrompt
 
-  const enabled = resolved.orchestrator === true
+  const enabled = (config?.experimental?.orchestrator ?? resolved.orchestrator) === true
   if (!enabled) {
     const base = {
       enabled: false,
@@ -656,6 +656,10 @@ export namespace SessionProcessor {
                 system: streamInput.system,
                 tools: streamInput.tools,
                 workingSetPointers: gate.pointerContextOS ? undefined : [],
+                model: {
+                  providerID: streamInput.model.providerID,
+                  modelID: streamInput.model.id,
+                },
               }),
           })
         })().catch(async (error) => {

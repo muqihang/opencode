@@ -1,6 +1,7 @@
 import { ulid } from "ulid"
 import { CachePolicy } from "@/cache/policy"
 import { CacheStore } from "@/cache/store"
+import { Config } from "@/config/config"
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import {
   OrchestratorPlan,
@@ -70,6 +71,8 @@ const DualPassCriticTimeoutMs = 1200
 
 const DualPassUnknownFirst = "unknown-first"
 
+const WorkerTimeoutMs = 12000
+
 const breaker = new Map<string, Breaker>()
 
 const readTrips = (sessionId: string) => breaker.get(sessionId)?.trips ?? 0
@@ -82,10 +85,10 @@ const writeTrips = (input: { sessionId: string; trips: number }) => {
   breaker.set(input.sessionId, { trips: input.trips })
 }
 
-const worker = (id: string): PlanWorker => ({
+const worker = (id: string, timeoutMs: number): PlanWorker => ({
   id,
   model: "small",
-  budget: { timeoutMs: 1500 },
+  budget: { timeoutMs },
 })
 
 const resolveModeLegacy = (input: {
@@ -132,12 +135,12 @@ const resolveDualPass = (input: { a1?: A1Features; dualPassSynthesis: boolean })
   }
 }
 
-const resolveWorkers = (input: { orchestratorMode: OrchestratorMode }): PlanWorker[] => {
+const resolveWorkers = (input: { orchestratorMode: OrchestratorMode; workerTimeoutMs: number }): PlanWorker[] => {
   if (input.orchestratorMode === "assist") {
-    return [worker("retrieval_planner"), worker("evidence_critic")]
+    return [worker("retrieval_planner", input.workerTimeoutMs), worker("evidence_critic", input.workerTimeoutMs)]
   }
   if (input.orchestratorMode === "heavy") {
-    return [worker("retrieval_planner"), worker("patch_planner")]
+    return [worker("retrieval_planner", input.workerTimeoutMs), worker("patch_planner", input.workerTimeoutMs)]
   }
   return []
 }
@@ -159,7 +162,7 @@ const adaptiveWorkers = (input: {
   const high = input.uxMode === "deep" && input.intentTokensEstimate >= HeavyIntentTokens
   const scaled =
     high && input.workers.length === AdaptiveDefaultWorkers
-      ? [...input.workers, worker("evidence_critic")]
+      ? [...input.workers, worker("evidence_critic", input.workers[0]?.budget.timeoutMs ?? WorkerTimeoutMs)]
       : input.workers
   const cap = budgetCap(input.maxOutputTokens)
   const load = input.intentTokensEstimate * Math.max(1, scaled.length)
@@ -317,6 +320,8 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
       dualPassCandidate: false,
     } satisfies A1Features)
   const wsFingerprint = workspaceFingerprint()
+  const config = await Config.get()
+  const workerTimeoutMs = config.experimental?.orchestrator_worker_timeout_ms ?? WorkerTimeoutMs
   const evidencePolicy = resolveEvidencePolicy({ uxMode: feat.uxMode, hasVerificationIntent: feat.hasVerificationIntent })
   const inputsFingerprint = sha256Text(
     stableJson({
@@ -327,6 +332,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
       toolsetFingerprint: input.toolsetFingerprint,
       uxMode: feat.uxMode,
       evidencePolicy: evidencePolicy ?? null,
+      workerTimeoutMs,
       scores: input.scores ?? null,
       a1,
       dualPassSynthesis,
@@ -346,6 +352,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
       toolsetFingerprint: input.toolsetFingerprint,
       uxMode: feat.uxMode,
       evidencePolicy: evidencePolicy ?? null,
+      workerTimeoutMs,
       scores: input.scores ?? null,
       a1,
       dualPassSynthesis,
@@ -370,12 +377,12 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
 
       const budgets = {
         maxWallClockMs: 8000,
-        workerTimeoutMs: 1500,
+        workerTimeoutMs,
         maxOutputTokens: 32000,
         maxToolCalls: 4,
       }
 
-      const workers = resolveWorkers({ orchestratorMode })
+      const workers = resolveWorkers({ orchestratorMode, workerTimeoutMs })
       const adaptive = adaptiveWorkers({
         sessionId: input.sessionId,
         uxMode: feat.uxMode,

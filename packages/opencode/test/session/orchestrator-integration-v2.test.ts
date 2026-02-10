@@ -224,6 +224,119 @@ describe("orchestrator integration v2 rollout", () => {
     })
   })
 
+  test("degraded critic can recover after broker pointers are available", async () => {
+    await using fixture = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(`${dir}/docs/policy/risk-policy.md`, "block list: SY\n")
+        await Bun.write(`${dir}/data/cases/case_risk_sy.json`, '{"case_id":"RISK-007","country":"SY"}\n')
+      },
+    })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const sessionId = "s-critic-recover"
+        const messageId = "m-critic-recover"
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText: "请做证据审查并给结论",
+          hasFileParts: false,
+        })
+        const built = await buildPlan({
+          sessionId,
+          messageId,
+          features,
+          toolsetFingerprint: "toolset-critic-recover",
+        }).then((item) => item.plan)
+
+        const plan = {
+          ...built,
+          dualPass: {
+            enabled: true,
+            criticTimeoutMs: 120,
+            unknownFirst: "unknown-first",
+          },
+        }
+
+        const original = WorkerRunner.run
+        const calls: Array<{ workerId: string; pointers: number }> = []
+
+        WorkerRunner.run = (async (input) => {
+          calls.push({ workerId: input.workerId, pointers: input.rolePack.workingSet.pointers.length })
+          if (input.workerId === "retrieval_planner") {
+            return {
+              result: {
+                specVersion: "llm-worker-result/1.0",
+                status: "ok",
+                notes: ["planner requested retrieval"],
+                toolRequests: [{ kind: "retrieval", input: "read docs/policy/risk-policy.md" }],
+              },
+              cache: { status: "miss", tier: "none" },
+            }
+          }
+
+          if (input.workerId === "evidence_critic" && input.rolePack.workingSet.pointers.length === 0) {
+            return {
+              result: {
+                specVersion: "llm-worker-result/1.0",
+                status: "degraded",
+                notes: ["need evidence pointers"],
+                toolRequests: [{ kind: "retrieval", input: "read docs/policy/risk-policy.md" }],
+              },
+              cache: { status: "miss", tier: "none" },
+            }
+          }
+
+          if (input.workerId === "evidence_critic") {
+            return {
+              result: {
+                specVersion: "llm-worker-result/1.0",
+                status: "ok",
+                notes: ["evidence reviewed with pointers"],
+              },
+              cache: { status: "miss", tier: "none" },
+            }
+          }
+
+          return {
+            result: {
+              specVersion: "llm-worker-result/1.0",
+              status: "ok",
+            },
+            cache: { status: "miss", tier: "none" },
+          }
+        }) as typeof WorkerRunner.run
+
+        try {
+          const result = await runOrchestratorTurn({
+            sessionId,
+            messageId,
+            abort: new AbortController().signal,
+            plan,
+            features,
+            intentText: "请做证据审查并给结论",
+            system: ["base"],
+            tools: { read: makeTool() },
+          })
+
+          const criticCalls = calls.filter((item) => item.workerId === "evidence_critic")
+          const events = await EvidenceReader.readEvents(sessionId, { cursor: 0 })
+          const turnFail = events.events.filter((event) => event.type === "orchestrator.degraded" && event.data?.stage === "turn")
+          const broker = events.events.filter((event) => event.type === "tool_broker.requested")
+
+          expect(criticCalls.length).toBeGreaterThan(1)
+          expect(criticCalls.some((item) => item.pointers > 0)).toBe(true)
+          expect(result.degraded).toBe(false)
+          expect(result.system[result.system.length - 1]).not.toBe("unknown-first")
+          expect(turnFail.length).toBe(0)
+          expect(broker.length).toBeGreaterThan(0)
+        } finally {
+          WorkerRunner.run = original
+        }
+      },
+    })
+  })
+
   test("workers off skips worker execution and keeps base output", async () => {
     const mod = await loadProcessor()
     const baseTools = { read: makeTool(), write: makeTool(), bash: makeTool() }
@@ -258,7 +371,14 @@ describe("orchestrator integration v2 rollout", () => {
   })
 
   test("shadow mode runs workers with lifecycle evidence but does not inject output", async () => {
-    await using fixture = await tmpdir({ git: true })
+    await using fixture = await tmpdir({
+      git: true,
+      config: {
+        experimental: {
+          orchestrator_worker_timeout_ms: 2000,
+        },
+      },
+    })
     await Instance.provide({
       directory: fixture.path,
       fn: async () => {
@@ -328,7 +448,7 @@ describe("orchestrator integration v2 rollout", () => {
         expect(brokerCalls.length).toBeGreaterThan(0)
       },
     })
-  }, 15000)
+  }, 30000)
 
   test("workers on and shadow off keeps orchestrator injection", async () => {
     const mod = await loadProcessor()

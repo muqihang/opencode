@@ -39,6 +39,8 @@ export namespace Flag {
   export declare const OPENCODE_DISABLE_PROJECT_CONFIG: boolean
   export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2: boolean
   export declare const OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES: boolean
+  export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS: number | undefined
+  export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY: boolean
   export const OPENCODE_FAKE_VCS = process.env["OPENCODE_FAKE_VCS"]
   export const OPENCODE_CLIENT = process.env["OPENCODE_CLIENT"] ?? "cli"
   export const OPENCODE_SERVER_PASSWORD = process.env["OPENCODE_SERVER_PASSWORD"]
@@ -168,6 +170,30 @@ Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES", {
 Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2", {
   get() {
     return truthy("OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2")
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+// Dynamic getter for OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS
+// This must be evaluated at access time to support runtime env overrides in CLI/tests
+Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS", {
+  get() {
+    const value = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"]
+    if (!value) return undefined
+    const parsed = Number(value)
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+
+// Dynamic getter for OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY
+// This must be evaluated at access time to support runtime env overrides in CLI/tests
+Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY", {
+  get() {
+    return truthy("OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY")
   },
   enumerable: true,
   configurable: false,

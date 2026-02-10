@@ -80,6 +80,51 @@ describe("orchestrator worker runner", () => {
     })
   })
 
+
+
+  test("degraded cache hit forces rebuild and can recover", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const count = { value: 0 }
+        const rolePack = pack({ pointers: ["p-recover"], planPointer: "orchestrator/cache/recover.json" })
+        const compute = async () => {
+          count.value += 1
+          if (count.value === 1) {
+            return {
+              specVersion: "llm-worker-result/1.0" as const,
+              status: "degraded" as const,
+              notes: ["worker degraded: timeout"],
+            }
+          }
+          return {
+            specVersion: "llm-worker-result/1.0" as const,
+            status: "ok" as const,
+            notes: ["recovered"],
+          }
+        }
+
+        const first = await WorkerRunner.run({
+          sessionId: "s-cache-recover",
+          workerId: "evidence_critic",
+          rolePack,
+          compute,
+        })
+        const second = await WorkerRunner.run({
+          sessionId: "s-cache-recover",
+          workerId: "evidence_critic",
+          rolePack,
+          compute,
+        })
+
+        expect(first.result.status).toBe("degraded")
+        expect(second.result.status).toBe("ok")
+        expect(count.value).toBe(2)
+      },
+    })
+  })
+
   test("verifier degrades unsafe notes", async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({

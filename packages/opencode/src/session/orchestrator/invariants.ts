@@ -166,7 +166,7 @@ export const V15_CORE_INVARIANTS: InvariantSpec[] = [
         path: "src/session/orchestrator/index.ts",
         note: "orchestrator 收集 worker toolRequests 并统一进入 runToolBroker",
         includes: [
-          "const toolRequests = workerResults.flatMap((result) => result.toolRequests ?? [])",
+          "flatMap((result) => result.toolRequests ?? [])",
           "await runToolBroker({",
         ],
       },
