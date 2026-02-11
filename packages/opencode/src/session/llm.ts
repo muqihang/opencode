@@ -43,6 +43,12 @@ import { packPromptSections } from "@/session/orchestrator/prepare"
 export namespace LLM {
   const log = Log.create({ service: "llm" })
 
+  export type PromptSection = {
+    id: string
+    stability: "stable" | "dynamic"
+    text: string
+  }
+
   export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
   export type StreamInput = {
@@ -61,6 +67,26 @@ export namespace LLM {
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
+
+  export function buildSystemSections(input: {
+    providerPrompt: string
+    permissionText: string
+    environmentText: string
+    capsuleText: string
+    userText: string
+    secureOutputContract?: string
+  }): PromptSection[] {
+    const contract = input.secureOutputContract ?? SecureOutputContract.text
+    return [
+      { id: "stable:provider", stability: "stable", text: input.providerPrompt },
+      { id: "stable:permissions", stability: "stable", text: input.permissionText },
+      { id: "stable:decision", stability: "stable", text: DecisionBoundary.text },
+      { id: "stable:secure_output_contract", stability: "stable", text: contract },
+      { id: "dynamic:environment", stability: "dynamic", text: input.environmentText },
+      { id: "dynamic:capsule", stability: "dynamic", text: input.capsuleText },
+      { id: "dynamic:user", stability: "dynamic", text: input.userText },
+    ]
+  }
 
   export function buildGatewayHeaders(input: {
     sessionID: string
@@ -137,14 +163,13 @@ export namespace LLM {
     ).join("\n\n")
     const userText = input.user.system ?? ""
     const packedSystem = packPromptSections({
-      sections: [
-        { id: "stable:provider", stability: "stable", text: providerPrompt },
-        { id: "stable:permissions", stability: "stable", text: permissionText },
-        { id: "stable:decision", stability: "stable", text: DecisionBoundary.text },
-        { id: "dynamic:environment", stability: "dynamic", text: environmentText },
-        { id: "dynamic:capsule", stability: "dynamic", text: capsuleText },
-        { id: "dynamic:user", stability: "dynamic", text: userText },
-      ],
+      sections: buildSystemSections({
+        providerPrompt,
+        permissionText,
+        environmentText,
+        capsuleText,
+        userText,
+      }),
     })
     const systemBase = [...packedSystem.packed]
     if (systemBase.length === 0) systemBase.push("")

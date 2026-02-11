@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import type { OrchestratorPlan } from "../../src/protocol/orchestrator-plan"
 import { resolveSecureOutputMode } from "../../src/session/orchestrator/policy"
+import { LLM } from "../../src/session/llm"
+import { SecureOutputContract } from "../../src/session/secure-output-contract"
+import { packPromptSections } from "../../src/session/orchestrator/prepare"
 
 const makePlan = (overrides: Partial<OrchestratorPlan> = {}): OrchestratorPlan => {
   return {
@@ -91,5 +94,35 @@ describe("orchestrator secure-output policy", () => {
       plan: makePlan({ orchestratorMode: "fork" }),
     })
     expect(mode).toBeNull()
+  })
+
+  test("secure output contract arrival in system prompt", () => {
+    const build = (
+      LLM as unknown as {
+        buildSystemSections?: (input: {
+          providerPrompt: string
+          permissionText: string
+          environmentText: string
+          capsuleText: string
+          userText: string
+        }) => Array<{ id: string; stability: "stable" | "dynamic"; text: string }>
+      }
+    ).buildSystemSections
+
+    expect(typeof build).toBe("function")
+    if (!build) return
+
+    const sections = build({
+      providerPrompt: "provider",
+      permissionText: "permissions",
+      environmentText: "environment",
+      capsuleText: "",
+      userText: "",
+    })
+    const contract = sections.find((item) => item.id === "stable:secure_output_contract")
+    expect(contract?.text).toBe(SecureOutputContract.text)
+
+    const packed = packPromptSections({ sections })
+    expect(packed.packed.join("\n\n")).toContain("<secure_output_contract>")
   })
 })
