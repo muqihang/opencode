@@ -1,0 +1,21 @@
+sample_id,message_id,receiver,sent_at_cst,channel,ack_status,next_followup_at_cst,escalation_flag
+S01,msg_c46bc6a4c001nkCj9853ZDTii3,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S02,msg_c469dda90001QKDQjpou3Fpgk0,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S03,msg_c4af69bdb001pDTy8nBnuEro6Y,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S04,msg_c4af8e8d1001wANN6RfrFWoXsZ,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S05,msg_c4afccdd70015wpQNZI5xYT5R7,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S06,msg_c4b10fc95001F75HfPAhR5167o,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S07,msg_c4b12f36b001dBksp3t7aGx8U5,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S08,msg_c4b140720001aoHswvVc3oIswN,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S09,msg_c4b2210b0001GFBAvzP56zqJKN,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S10,msg_c4b2661fd001ROME876qiAbbzY,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S11,msg_c4b2768ff001BvRzXy7K55qGGS,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S12,msg_c4b27c85d001Bl3S5s0sM2fpAA,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S13,msg_c4b2841e1001o35rbn8yRfGmo6,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S14,msg_c4b287b20001rwu1r63uDcyXvI,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S15,msg_c4b2929c9001G8XXgvRqnR6kxx,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S16,msg_c4b2976b8001VOqXtPBaS222FI,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S17,msg_c4b2aa656001Cor2tUPAYb08wB,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S18,msg_c4b2aebce001kpqNSdafGmM3mj,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S19,msg_c4b2b4028001yHg89O6GVXYuhe,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes
+S20,msg_c4b2edcdb0015Yn6v7Z6HfbOwz,应用层负责人（实名）,2026-02-11 14:12:00 CST,email+im,pending_t3_checked,2026-02-11 22:00:00 CST,yes

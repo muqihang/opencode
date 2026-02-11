@@ -1,0 +1,13 @@
+{
+  "specVersion": "card-blk-01-runtime-sample/1.0",
+  "sampleId": "S02",
+  "sessionId": "ses_3b9622573ffejMRJFrytlZ5nbO",
+  "messageId": "msg_c469dda90001QKDQjpou3Fpgk0",
+  "eventLogPath": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b9622573ffejMRJFrytlZ5nbO/events.jsonl",
+  "eventAnchors": {
+    "requestedLine": 970,
+    "protocolViolationLine": 971,
+    "degradedLine": 972
+  },
+  "note": "来自运行态 events.jsonl 的 secure_output.requested/protocol.violation/degraded 连续事件"
+}

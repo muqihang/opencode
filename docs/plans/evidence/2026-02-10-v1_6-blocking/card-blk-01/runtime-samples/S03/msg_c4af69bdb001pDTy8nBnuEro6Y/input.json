@@ -1,0 +1,18 @@
+{
+  "specVersion": "card-blk-01-runtime-sample/1.0",
+  "sampleId": "S03",
+  "sessionId": "ses_3b51283d0ffeWbeAOjPM3NUMPy",
+  "messageId": "msg_c4af69bdb001pDTy8nBnuEro6Y",
+  "collectedAt": "2026-02-11T05:37:45Z",
+  "sourceInputArtifact": "/Users/muqihang/chelingxi_workspace/test/.opencode/artifacts/local/default/ses_3b51283d0ffeWbeAOjPM3NUMPy/secure-output/msg_c4af7cff30016sEfY6TgAn66vk.input.json",
+  "secureOutputInput": {
+    "budget": {
+      "maxScripts": 4,
+      "timeMs": 8000
+    },
+    "messageId": "msg_c4af7cff30016sEfY6TgAn66vk",
+    "mode": "balanced",
+    "sessionId": "ses_3b51283d0ffeWbeAOjPM3NUMPy",
+    "specVersion": "secure-output-input/1.0"
+  }
+}

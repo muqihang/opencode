@@ -1,0 +1,18 @@
+{
+  "specVersion": "card-blk-01-runtime-sample/1.0",
+  "sampleId": "S01",
+  "sessionId": "ses_3b94395d0ffeC634iIBFEBTwWj",
+  "messageId": "msg_c46bc6a4c001nkCj9853ZDTii3",
+  "sourceErrorArtifact": "/Users/muqihang/chelingxi_workspace/test/.opencode/artifacts/local/default/ses_3b94395d0ffeC634iIBFEBTwWj/secure-output/msg_c46c128b2001UXd7orSsfEQ0dL.error.json",
+  "degradeReasonCodes": ["missing_claims_block"],
+  "error": {
+    "code": "missing_block",
+    "input_artifact": ".opencode/artifacts/local/default/ses_3b94395d0ffeC634iIBFEBTwWj/secure-output/msg_c46c128b2001UXd7orSsfEQ0dL.input.json",
+    "reasons": [
+      "未提供结构化断言块（assistant_claims_json），无法对事实断言做核验",
+      "检测到确定性表述，但缺少 fact 断言与证据指针"
+    ],
+    "specVersion": "secure-output-error/1.0"
+  },
+  "degradedEventTs": "2026-02-10T08:54:24.962Z"
+}
