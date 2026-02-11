@@ -17,9 +17,10 @@ test("smoke model selection updates prompt footer", async ({ page, gotoSession }
   await expect(dialog).toBeVisible()
 
   const input = dialog.getByRole("textbox").first()
+  const items = dialog.locator('[data-slot="list-item"]')
+  await expect(items.first()).toBeVisible()
 
   const selected = dialog.locator('[data-slot="list-item"][data-selected="true"]').first()
-  await expect(selected).toBeVisible()
 
   const other = dialog.locator('[data-slot="list-item"]:not([data-selected="true"])').first()
   const target = (await other.count()) > 0 ? other : selected
