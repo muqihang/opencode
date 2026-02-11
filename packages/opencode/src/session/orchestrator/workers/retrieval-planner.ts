@@ -5,6 +5,7 @@ import { LlmWorkerResult } from "@/protocol/llm-worker-result"
 import { withTimeout } from "@/util/timeout"
 import { runStructured } from "../worker-llm"
 import type { WorkerComputeInput, WorkerModel } from "../worker-spec"
+import type { ToolRequest } from "@/protocol/llm-worker-result"
 
 const Retrieval = z
   .object({
@@ -29,6 +30,8 @@ type RetrievalDeps = {
   run: typeof runStructured
   resolveModel: typeof Provider.defaultModel
 }
+
+const retrieval = (input: string): ToolRequest => ({ kind: "retrieval", input })
 
 const noteLimit = (pack: LlmWorkerRolePack) => {
   const byToken = Math.floor(pack.budget.maxOutputTokens / 128)
@@ -85,7 +88,7 @@ const fallback = (input: { rolePack: LlmWorkerRolePack; reason: string }) => {
   const maxText = textLimit(input.rolePack)
   const maxTools = input.rolePack.budget.maxToolCalls
   const tools = input.rolePack.workingSet.pointers.length === 0
-    ? [{ kind: "retrieval" as const, input: clean(input.rolePack.planPointer, Math.min(1200, maxText * 2)) }]
+    ? [retrieval(clean(input.rolePack.planPointer, Math.min(1200, maxText * 2)))]
     : []
 
   return LlmWorkerResult.parse({
@@ -138,9 +141,9 @@ export const retrievalPlanner = async (input: WorkerComputeInput, deps?: Partial
       },
     ],
     degraded: (reason) => ({
-      status: "degraded",
+      status: "degraded" as const,
       notes: [`worker degraded: ${reason}`],
-      toolRequests: rolePack.workingSet.pointers.length === 0 ? [{ kind: "retrieval", input: rolePack.planPointer }] : [],
+      toolRequests: rolePack.workingSet.pointers.length === 0 ? [retrieval(rolePack.planPointer)] : [],
     }),
   })
 

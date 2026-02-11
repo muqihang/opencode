@@ -29,10 +29,10 @@ describe("orchestrator worker runner lifecycle events", () => {
           phase: string
           messageID?: string
           messageId?: string
-          planID: string
-          planId: string
-          workerID: string
-          workerId: string
+          planID?: string
+          planId?: string
+          workerID?: string
+          workerId?: string
         }> = []
         const unsub = Bus.subscribe(OrchestratorEvent.WorkerLifecycle, (event) => {
           if (event.properties.sessionID !== sessionID) return

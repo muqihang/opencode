@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { LlmWorkerRolePack } from "../../src/protocol/llm-worker-role-pack"
 import { evidenceCritic } from "../../src/session/orchestrator/workers/evidence-critic"
+import { runStructured } from "../../src/session/orchestrator/worker-llm"
 
 const pack = (input: { pointers: string[]; maxToolCalls?: number; maxOutputTokens?: number }) =>
   LlmWorkerRolePack.parse({
@@ -22,16 +23,16 @@ describe("orchestrator evidence_critic", () => {
     const result = await evidenceCritic(
       { rolePack },
       {
-        run: async () => {
+        run: (async () => {
           hits += 1
           return {
-            status: "ok",
+            status: "ok" as const,
             object: {
-              status: "ok",
+              status: "ok" as const,
               notes: ["worker note"],
             },
           }
-        },
+        }) as typeof runStructured,
       },
     )
 
@@ -44,13 +45,13 @@ describe("orchestrator evidence_critic", () => {
     const result = await evidenceCritic(
       { rolePack },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
+            status: "ok" as const,
             notes: ["evidence looks enough"],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
 
@@ -63,14 +64,14 @@ describe("orchestrator evidence_critic", () => {
     const result = await evidenceCritic(
       { rolePack },
       {
-        run: async () => ({
+        run: (async () => ({
           status: "degraded",
           reason: "timeout",
           object: {
-            status: "degraded",
+            status: "degraded" as const,
             notes: ["worker degraded: timeout"],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
 
@@ -83,16 +84,16 @@ describe("orchestrator evidence_critic", () => {
     const result = await evidenceCritic(
       { rolePack },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
+            status: "ok" as const,
             toolRequests: [
-              { kind: "verification", input: "check-a" },
-              { kind: "retrieval", input: "check-b" },
+              { kind: "verification" as const, input: "check-a" },
+              { kind: "retrieval" as const, input: "check-b" },
             ],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
 
@@ -105,13 +106,13 @@ describe("orchestrator evidence_critic", () => {
     const result = await evidenceCritic(
       { rolePack },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
-            toolRequests: [{ kind: "verification", input: "cross-check policy evidence" }],
+            status: "ok" as const,
+            toolRequests: [{ kind: "verification" as const, input: "cross-check policy evidence" }],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
 
@@ -123,20 +124,20 @@ describe("orchestrator evidence_critic", () => {
     const result = await evidenceCritic(
       { rolePack },
       {
-        run: async () => ({
+        run: (async () => ({
           status: "degraded",
           reason: "error",
           object: {
-            status: "degraded",
+            status: "degraded" as const,
             notes: [
               "worker degraded: error",
               "from_model=openai/gpt-5",
               "to_model=opencode/gpt-5-nano",
               "gate_reason=error_degraded",
             ],
-            toolRequests: [{ kind: "retrieval", input: "safe" }],
+            toolRequests: [{ kind: "retrieval" as const, input: "safe" }],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
 

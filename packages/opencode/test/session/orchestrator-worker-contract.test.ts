@@ -5,6 +5,7 @@ import { WorkerRunner } from "../../src/session/orchestrator/worker-runner"
 import { evidenceCritic } from "../../src/session/orchestrator/workers/evidence-critic"
 import { patchPlanner } from "../../src/session/orchestrator/workers/patch-planner"
 import { LlmWorkerRolePack } from "../../src/protocol/llm-worker-role-pack"
+import { runStructured } from "../../src/session/orchestrator/worker-llm"
 
 const pack = (input: { pointers: string[]; planPointer?: string }) =>
   LlmWorkerRolePack.parse({
@@ -23,15 +24,15 @@ describe("orchestrator worker runner", () => {
     const out = await patchPlanner(
       { rolePack, model },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
+            status: "ok" as const,
             steps: ["Run bun test --bail to verify patch"],
             risks: ["No rollback coverage"],
             prerequisites: ["Plan artifacts are available"],
           },
-        }),
+        })) as typeof runStructured,
         resolveModel: async () => model,
       },
     )
@@ -155,13 +156,13 @@ describe("orchestrator worker runner", () => {
     const output = await evidenceCritic(
       { rolePack },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
+            status: "ok" as const,
             notes: ["need evidence"],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
 

@@ -90,12 +90,14 @@ export const runDualPass = async (input: RunDualPassInput) => {
     return toFinal(text)
   }
 
-  const fallback = critic.value.fallback === "draft" && !hasDraft ? "unknown-first" : critic.value.fallback
+  const fallbackRaw = critic.value.fallback ?? "unknown-first"
+  const fallback = fallbackRaw === "draft" && !hasDraft ? "unknown-first" : fallbackRaw
   const text = fallback === "draft" ? draft.text : unknownFirst
+  const reason = critic.value.reason ?? "critic requested degrade"
   return toDegrade({
     text,
     fallback,
-    reason: critic.value.reason,
+    reason,
   })
 }
 
