@@ -6,27 +6,45 @@ import { buildPlan } from "../../src/session/orchestrator/plan"
 import { defer } from "../../src/util/defer"
 
 describe("orchestrator plan", () => {
-  test("write or exec intent forces fork", async () => {
+  const assertWriteExecRoutesToFork = async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({
       directory: fixture.path,
       fn: async () => {
+        const intentText = `请帮我修改 foo.ts 并运行测试，再给出结论与引用 ${"context ".repeat(640)}`
         const features = extractFeatures({
-          uxMode: "fast",
-          intentText: "请帮我修改 foo.ts 并运行测试",
+          uxMode: "deep",
+          intentText,
           hasFileParts: false,
         })
+
+        expect(features.features.hasWriteIntent || features.features.hasExecIntent).toBe(true)
 
         const result = await buildPlan({
           sessionId: "s1",
           messageId: "m1",
           features,
+          scores: {
+            complexity_score: 0.95,
+            risk_score: 0.9,
+            tool_need_score: 0.9,
+          },
           toolsetFingerprint: "toolset-1",
         })
 
         expect(result.plan.orchestratorMode).toBe("fork")
+        expect(result.plan.workers.map((item) => item.id)).toEqual(["retrieval_planner", "evidence_critic"])
+        expect(result.plan.reasons.some((item) => item.code === "ux.deep.high_complexity")).toBe(false)
       },
     })
+  }
+
+  test("write exec intent routes to fork", async () => {
+    await assertWriteExecRoutesToFork()
+  })
+
+  test("write or exec intent forces fork", async () => {
+    await assertWriteExecRoutesToFork()
   })
 
   test("verification intent chooses assist", async () => {

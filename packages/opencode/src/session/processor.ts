@@ -642,6 +642,10 @@ export namespace SessionProcessor {
           const base = { system: streamInput.system, tools: streamInput.tools }
           if (!orchestrator.enabled) return { ...base, degraded: false }
           if (orchestrator.degraded) return { ...base, degraded: true }
+          const runAssistBeforeFork =
+            orchestrator.plan.orchestratorMode === "fork" &&
+            orchestrator.features.hasVerificationIntent === true &&
+            orchestrator.plan.workers.length > 0
           return executeOrchestratorTurnByRollout({
             rollout,
             base,
@@ -650,7 +654,12 @@ export namespace SessionProcessor {
                 sessionId: input.sessionID,
                 messageId: streamInput.user.id,
                 abort: input.abort,
-                plan: orchestrator.plan,
+                plan: runAssistBeforeFork
+                  ? {
+                      ...orchestrator.plan,
+                      orchestratorMode: "assist",
+                    }
+                  : orchestrator.plan,
                 features: orchestrator.features,
                 intentText: orchestrator.intentText,
                 system: streamInput.system,
