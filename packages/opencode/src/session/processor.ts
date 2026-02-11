@@ -644,7 +644,7 @@ export namespace SessionProcessor {
           if (orchestrator.degraded) return { ...base, degraded: true }
           const runAssistBeforeFork =
             orchestrator.plan.orchestratorMode === "fork" &&
-            orchestrator.features.hasVerificationIntent === true &&
+            orchestrator.features.features.hasVerificationIntent === true &&
             orchestrator.plan.workers.length > 0
           return executeOrchestratorTurnByRollout({
             rollout,
