@@ -327,7 +327,10 @@ export namespace SessionPrompt {
         }
       }
 
-      if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+      if (!lastUser) {
+        log.warn("skip loop iteration, no user message in stream", { sessionID })
+        break
+      }
       if (
         lastAssistant?.finish &&
         !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
