@@ -7,6 +7,7 @@ import { buildPlan } from "../../src/session/orchestrator/plan"
 import { WorkerSpec } from "../../src/session/orchestrator/worker-spec"
 import { patchPlanner } from "../../src/session/orchestrator/workers/patch-planner"
 import { retrievalPlanner } from "../../src/session/orchestrator/workers/retrieval-planner"
+import { runStructured } from "../../src/session/orchestrator/worker-llm"
 import { tmpdir } from "../fixture/fixture"
 
 const pack = (input: { pointers: string[]; planPointer?: string }) =>
@@ -29,14 +30,14 @@ describe("orchestrator workers v2", () => {
     const out = await retrievalPlanner(
       { rolePack, model },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
+            status: "ok" as const,
             notes: ["retrieval planned"],
-            toolRequests: [{ kind: "retrieval", input: rolePack.planPointer }],
+            toolRequests: [{ kind: "retrieval" as const, input: rolePack.planPointer }],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
     const result = LlmWorkerResult.parse(out)
@@ -53,14 +54,14 @@ describe("orchestrator workers v2", () => {
     const out = await retrievalPlanner(
       { rolePack, model },
       {
-        run: async () => ({
+        run: (async () => ({
           status: "degraded",
           reason: "schema",
           object: {
-            status: "degraded",
+            status: "degraded" as const,
             notes: ["worker degraded: schema"],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
 
@@ -77,15 +78,15 @@ describe("orchestrator workers v2", () => {
     const out = await patchPlanner(
       { rolePack, model },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
+            status: "ok" as const,
             steps: ["Analyze target files and define edit order."],
             risks: ["Policy drift might invalidate the planned patch scope."],
             prerequisites: ["Role pack pointers are available before drafting edits."],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
     const result = LlmWorkerResult.parse(out)
@@ -107,28 +108,28 @@ describe("orchestrator workers v2", () => {
     await retrievalPlanner(
       { rolePack, model },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
+            status: "ok" as const,
             notes: ["retrieval planned"],
-            toolRequests: [{ kind: "retrieval", input: rolePack.planPointer }],
+            toolRequests: [{ kind: "retrieval" as const, input: rolePack.planPointer }],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
     await patchPlanner(
       { rolePack, model },
       {
-        run: async () => ({
-          status: "ok",
+        run: (async () => ({
+          status: "ok" as const,
           object: {
-            status: "ok",
+            status: "ok" as const,
             steps: ["Outline file-level patch strategy without execution details."],
             risks: ["Scope ambiguity can impact patch precision."],
             prerequisites: ["Policy and evidence pointers are loaded before planning."],
           },
-        }),
+        })) as typeof runStructured,
       },
     )
 

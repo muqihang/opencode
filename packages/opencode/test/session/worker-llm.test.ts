@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test"
 import z from "zod"
 import { runStructured } from "../../src/session/orchestrator/worker-llm"
+import { Provider } from "../../src/provider/provider"
+
+type Model = Awaited<ReturnType<typeof Provider.getModel>>
+
+const fakeModel = (providerID: string, id: string): Model => ({
+  providerID,
+  id,
+}) as Model
+
+const cast = <T,>(value: T): never => value as never
+
+const readReason = (value: Awaited<ReturnType<typeof runStructured>>) => (value.status === "degraded" ? value.reason : undefined)
 
 const schema = z
   .object({
@@ -17,16 +29,16 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 20,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: () => new Promise((resolve) => setTimeout(() => resolve({} as never), 80)),
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: () => new Promise((resolve) => setTimeout(() => resolve(fakeModel("openai", "gpt-5")), 80)),
         getLanguage: async () => ({}) as never,
-        generate: async () => ({ object: { status: "ok" } }),
-      },
+        generate: async () => ({ object: { status: "ok" as const } }),
+      }),
     })
 
     expect(out.status).toBe("degraded")
-    expect(out.reason).toBe("timeout")
+    expect(readReason(out)).toBe("timeout")
     expect(out.object.status).toBe("degraded")
   })
 
@@ -37,16 +49,16 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 20,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: async () => ({}) as never,
-        getLanguage: () => new Promise((resolve) => setTimeout(() => resolve({} as never), 80)),
-        generate: async () => ({ object: { status: "ok" } }),
-      },
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5"),
+        getLanguage: () => new Promise((resolve) => setTimeout(() => resolve({}) as never, 80)),
+        generate: async () => ({ object: { status: "ok" as const } }),
+      }),
     })
 
     expect(out.status).toBe("degraded")
-    expect(out.reason).toBe("timeout")
+    expect(readReason(out)).toBe("timeout")
     expect(out.object.status).toBe("degraded")
   })
 
@@ -57,16 +69,17 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 20,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: async () => ({}) as never,
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5"),
         getLanguage: async () => ({}) as never,
-        generate: () => new Promise((resolve) => setTimeout(() => resolve({ object: { status: "ok" } }), 80)),
-      },
+        generate: () =>
+          new Promise((resolve) => setTimeout(() => resolve({ object: { status: "ok" as const } }), 80)) as never,
+      }),
     })
 
     expect(out.status).toBe("degraded")
-    expect(out.reason).toBe("timeout")
+    expect(readReason(out)).toBe("timeout")
     expect(out.object.status).toBe("degraded")
   })
 
@@ -78,18 +91,18 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 100,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: async () => ({}) as never,
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5"),
         getLanguage: async () => ({}) as never,
         generate: async () => {
           throw err
         },
-      },
+      }),
     })
 
     expect(out.status).toBe("degraded")
-    expect(out.reason).toBe("timeout")
+    expect(readReason(out)).toBe("timeout")
     expect(out.object.status).toBe("degraded")
   })
 
@@ -100,21 +113,21 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 100,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: async () => ({}) as never,
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5"),
         getLanguage: async () => ({}) as never,
         generate: async () => ({
           object: {
-            status: "ok",
+            status: "ok" as const,
             notes: [123],
           },
         }),
-      },
+      }),
     })
 
     expect(out.status).toBe("degraded")
-    expect(out.reason).toBe("schema")
+    expect(readReason(out)).toBe("schema")
     expect(out.object.status).toBe("degraded")
   })
 
@@ -126,18 +139,18 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 100,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: async () => ({}) as never,
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5"),
         getLanguage: async () => ({}) as never,
         generate: async () => {
           throw err
         },
-      },
+      }),
     })
 
     expect(out.status).toBe("degraded")
-    expect(out.reason).toBe("schema")
+    expect(readReason(out)).toBe("schema")
     expect(out.object.status).toBe("degraded")
   })
 
@@ -150,18 +163,18 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 100,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: async () => ({}) as never,
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5"),
         getLanguage: async () => ({}) as never,
         generate: async () => {
           throw err
         },
-      },
+      }),
     })
 
     expect(out.status).toBe("degraded")
-    expect(out.reason).toBe("schema")
+    expect(readReason(out)).toBe("schema")
     expect(out.object.status).toBe("degraded")
   })
 
@@ -172,17 +185,17 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 100,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: async () => ({}) as never,
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5"),
         getLanguage: async () => ({}) as never,
         generate: async () => ({
           object: {
-            status: "ok",
+            status: "ok" as const,
             notes: ["done"],
           },
         }),
-      },
+      }),
     })
 
     expect(out.status).toBe("ok")
@@ -201,14 +214,15 @@ describe("session.orchestrator.worker-llm", () => {
       schema,
       messages: [{ role: "user", content: "hi" }],
       timeoutMs: 100,
-      degraded: (reason) => ({ status: "degraded", notes: [reason] }),
-      deps: {
-        resolveSmallModel: async () => ({ providerID: "openai", id: "gpt-5-nano" }) as never,
-        getModel: async () => ({ providerID: "openai", id: "gpt-5" }) as never,
+      degraded: (reason) => ({ status: "degraded" as const, notes: [reason] }),
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5-nano"),
+        getModel: async () => fakeModel("openai", "gpt-5"),
         getSmallModel: async () => undefined,
-        getLanguage: async (model) => ({ id: (model as { id: string }).id }) as never,
-        generate: async (input) => {
-          const id = (input.model as { id: string }).id
+        getLanguage: async (model: unknown) => ({ id: (model as unknown as { id: string }).id }) as never,
+        generate: async (input: unknown) => {
+          const model = input as { model?: { id?: string } }
+          const id = String(model.model?.id)
           calls.push(id)
           if (id === "gpt-5-nano") {
             throw Object.assign(new Error("request timed out"), { name: "TimeoutError" })
@@ -220,8 +234,8 @@ describe("session.orchestrator.worker-llm", () => {
             },
           }
         },
-        timeout: async (promise) => promise,
-      },
+        timeout: async (promise: Promise<unknown>) => promise,
+      }),
     })
 
     expect(out.status).toBe("ok")
@@ -241,24 +255,24 @@ describe("session.orchestrator.worker-llm", () => {
       degraded: (reason, route) => {
         seen.push(route)
         return {
-          status: "degraded",
+          status: "degraded" as const,
           notes: [`worker degraded: ${reason}`],
         }
       },
-      deps: {
-        resolveSmallModel: async () => ({ providerID: "openai", id: "gpt-5-nano" }) as never,
-        getModel: async () => ({ providerID: "openai", id: "gpt-5" }) as never,
-        getSmallModel: async () => ({ providerID: "opencode", id: "gpt-5-nano" }) as never,
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("openai", "gpt-5-nano"),
+        getModel: async () => fakeModel("openai", "gpt-5"),
+        getSmallModel: async () => fakeModel("opencode", "gpt-5-nano"),
         getLanguage: async () => ({}) as never,
         generate: async () => {
           throw new Error("upstream down")
         },
-        timeout: async (promise) => promise,
-      },
+        timeout: async (promise: Promise<unknown>) => promise,
+      }),
     })
 
     expect(out.status).toBe("degraded")
-    expect(out.reason).toBe("error")
+    expect(readReason(out)).toBe("error")
     expect(seen.length).toBe(1)
     expect(seen[0]).toEqual({
       fromModel: "openai/gpt-5",
