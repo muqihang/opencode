@@ -1,0 +1,252 @@
+{
+  "specVersion": "planned-repeat-samples/1.0",
+  "cardId": "CARD-BLK-02",
+  "phase": "D1-kickoff",
+  "generatedAt": "2026-02-10T00:00:00Z",
+  "sampleCriteria": {
+    "unit": "messageId",
+    "repeatCondition": "cycle>=2",
+    "minRecords": 10,
+    "traceFields": [
+      "messageId",
+      "planId",
+      "cycle",
+      "trigger_source"
+    ]
+  },
+  "causeEnum": [
+    "outer_trigger",
+    "protocol_reentry",
+    "budget_rebound",
+    "unknown"
+  ],
+  "samples": [
+    {
+      "sampleId": "placeholder-001",
+      "messageId": "msg-placeholder-001",
+      "planId": "plan-placeholder-001-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-002",
+      "messageId": "msg-placeholder-002",
+      "planId": "plan-placeholder-002-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-003",
+      "messageId": "msg-placeholder-003",
+      "planId": "plan-placeholder-003-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-004",
+      "messageId": "msg-placeholder-004",
+      "planId": "plan-placeholder-004-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-005",
+      "messageId": "msg-placeholder-005",
+      "planId": "plan-placeholder-005-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-006",
+      "messageId": "msg-placeholder-006",
+      "planId": "plan-placeholder-006-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-007",
+      "messageId": "msg-placeholder-007",
+      "planId": "plan-placeholder-007-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-008",
+      "messageId": "msg-placeholder-008",
+      "planId": "plan-placeholder-008-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-009",
+      "messageId": "msg-placeholder-009",
+      "planId": "plan-placeholder-009-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    },
+    {
+      "sampleId": "placeholder-010",
+      "messageId": "msg-placeholder-010",
+      "planId": "plan-placeholder-010-a",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "unknown",
+          "eventTime": "<to_be_filled>",
+          "evidenceRef": "<to_be_filled>"
+        }
+      ],
+      "first_cause": "unknown",
+      "reproCondition": "<to_be_filled>",
+      "notes": "D1 placeholder"
+    }
+  ],
+  "summary": {
+    "status": "kickoff-only",
+    "validSampleCount": 0,
+    "top1Cause": "unknown",
+    "top1Ratio": "0.00%",
+    "note": "D1 启动版仅提供结构占位，不代表实测结论。"
+  }
+}
