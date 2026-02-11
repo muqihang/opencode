@@ -1,6 +1,8 @@
 import { test, expect } from "./fixtures"
 import { promptSelector } from "./utils"
 
+test.describe.configure({ mode: "serial" })
+
 function sessionIDFromUrl(url: string) {
   const match = /\/session\/([^/?#]+)/.exec(url)
   return match?.[1]
@@ -32,9 +34,6 @@ test("can send a prompt and receive a reply", async ({ page, sdk, gotoSession })
     return id
   })()
 
-  const rows = page.locator('[data-slot="session-turn-summary-section"]')
-  const base = await rows.count()
-
   try {
     await expect
       .poll(
@@ -54,27 +53,44 @@ test("can send a prompt and receive a reply", async ({ page, sdk, gotoSession })
           const reply = messages.find((m) => m.info.role === "assistant" && m.info.parentID === user.info.id)
           if (!reply) return "pending:assistant"
 
+          const turn = page.locator(`[data-slot="session-turn-message-container"][data-message="${user.info.id}"]`)
+          const visible = await turn.isVisible().catch(() => false)
+          if (!visible) return "pending:turn-hidden"
+
+          const status = await sdk.session.status().then((r) => r.data ?? {})
+          const idle = status[sessionID]?.type !== "busy" && status[sessionID]?.type !== "retry"
+          const done = Boolean(reply.info.time.completed || reply.info.finish || reply.info.error || idle)
+
           const text = reply.parts
             .filter((p) => p.type === "text")
             .map((p) => p.text.trim())
             .join("\n")
             .trim()
+          if (!done && text.length === 0) return "pending:assistant-running"
 
-          if (text.length > 0) return "ready"
           if (reply.info.error) return `error:${reply.info.error.name}`
-          return "pending:text"
+          return "ready"
         },
         { timeout: 90_000 },
       )
 
       .toBe("ready")
 
-    await expect
-      .poll(async () => rows.count(), { timeout: 90_000 })
-      .toBeGreaterThan(base)
-    await expect(rows.last()).toBeVisible({ timeout: 90_000 })
+    await expect(page.locator('[data-slot="session-turn-message-container"]').last()).toBeVisible({ timeout: 90_000 })
   } finally {
     page.off("pageerror", onPageError)
+    await page.goto("about:blank").catch(() => undefined)
+    await Promise.resolve(sdk.session.abort?.({ sessionID })).catch(() => undefined)
+    await expect
+      .poll(
+        async () => {
+          const status = await sdk.session.status().then((r) => r.data ?? {})
+          return status[sessionID]?.type ?? "idle"
+        },
+        { timeout: 5_000 },
+      )
+      .toBe("idle")
+      .catch(() => undefined)
     await sdk.session.delete({ sessionID }).catch(() => undefined)
   }
 

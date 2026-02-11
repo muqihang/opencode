@@ -65,7 +65,13 @@ export namespace SessionSummary {
     const messages = input.messages.filter(
       (m) => m.info.id === input.messageID || (m.info.role === "assistant" && m.info.parentID === input.messageID),
     )
-    const msgWithParts = messages.find((m) => m.info.id === input.messageID)!
+    const msgWithParts = messages.find((m) => m.info.id === input.messageID)
+    if (!msgWithParts) {
+      log.warn("skip summarize message, message missing", {
+        messageID: input.messageID,
+      })
+      return
+    }
     const userMsg = msgWithParts.info as MessageV2.User
     const diffs = await computeDiff({ messages })
     userMsg.summary = {
