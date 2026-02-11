@@ -135,7 +135,17 @@ const resolveDualPass = (input: { a1?: A1Features; dualPassSynthesis: boolean })
   }
 }
 
-const resolveWorkers = (input: { orchestratorMode: OrchestratorMode; workerTimeoutMs: number }): PlanWorker[] => {
+const resolveWorkers = (input: {
+  orchestratorMode: OrchestratorMode
+  hasWriteIntent: boolean
+  hasExecIntent: boolean
+  hasVerificationIntent: boolean
+  workerTimeoutMs: number
+}): PlanWorker[] => {
+  const hasWriteExec = input.hasWriteIntent || input.hasExecIntent
+  if (input.orchestratorMode === "fork" && input.hasVerificationIntent && hasWriteExec) {
+    return [worker("retrieval_planner", input.workerTimeoutMs), worker("evidence_critic", input.workerTimeoutMs)]
+  }
   if (input.orchestratorMode === "assist") {
     return [worker("retrieval_planner", input.workerTimeoutMs), worker("evidence_critic", input.workerTimeoutMs)]
   }
@@ -149,11 +159,17 @@ const budgetCap = (maxOutputTokens: number) => Math.max(512, Math.floor(maxOutpu
 
 const adaptiveWorkers = (input: {
   sessionId: string
+  orchestratorMode: OrchestratorMode
   uxMode: OrchestratorUxMode
   intentTokensEstimate: number
   workers: PlanWorker[]
   maxOutputTokens: number
 }) => {
+  if (input.orchestratorMode === "fork") {
+    writeTrips({ sessionId: input.sessionId, trips: 0 })
+    return { workers: input.workers, reasons: [] as PlanReason[] }
+  }
+
   if (input.workers.length === 0) {
     writeTrips({ sessionId: input.sessionId, trips: 0 })
     return { workers: input.workers, reasons: [] as PlanReason[] }
@@ -264,20 +280,21 @@ const resolveReasons = (input: {
   hasVerificationIntent: boolean
   intentTokensEstimate: number
 }): PlanReason[] => {
+  const hasWriteExec = input.hasWriteIntent || input.hasExecIntent
   const primary =
-    input.hasWriteIntent || input.hasExecIntent
+    hasWriteExec
       ? { code: "intent.write_exec", message: "write/exec intent detected" }
       : undefined
   const verification = input.hasVerificationIntent
     ? { code: "intent.verification", message: "verification intent detected" }
     : undefined
   const heavy =
-    input.uxMode === "deep" && input.intentTokensEstimate >= HeavyIntentTokens
+    !hasWriteExec && input.uxMode === "deep" && input.intentTokensEstimate >= HeavyIntentTokens
       ? { code: "ux.deep.high_complexity", message: "deep mode with high complexity intent" }
       : undefined
 
   const deep =
-    input.uxMode === "deep" && input.intentTokensEstimate >= LargeIntentTokens
+    !hasWriteExec && input.uxMode === "deep" && input.intentTokensEstimate >= LargeIntentTokens
       ? { code: "ux.deep.large", message: "deep mode with large intent" }
       : undefined
 
@@ -382,9 +399,16 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
         maxToolCalls: 4,
       }
 
-      const workers = resolveWorkers({ orchestratorMode, workerTimeoutMs })
+      const workers = resolveWorkers({
+        orchestratorMode,
+        hasWriteIntent: feat.hasWriteIntent,
+        hasExecIntent: feat.hasExecIntent,
+        hasVerificationIntent: feat.hasVerificationIntent,
+        workerTimeoutMs,
+      })
       const adaptive = adaptiveWorkers({
         sessionId: input.sessionId,
+        orchestratorMode,
         uxMode: feat.uxMode,
         intentTokensEstimate: feat.intentTokensEstimate,
         workers,
