@@ -18,6 +18,7 @@ import { CompactionFacts, CompactionInput, CompactionReport, CompactionTrigger }
 import fs from "fs/promises"
 import path from "path"
 import { ContextLedger } from "./context-ledger"
+import { AnchorSnapshot } from "./anchor-snapshot"
 import { withTimeout } from "@/util/timeout"
 import { Capsule } from "./capsule"
 import { CapsuleAssistedRunner } from "./capsule-assisted"
@@ -243,6 +244,95 @@ export namespace SessionCompaction {
         const task = parentMsg?.parts.find((p): p is MessageV2.CompactionPart => p.type === "compaction")
         const triggerInfo = task?.trigger
         const contextLedger = await ContextLedger.read(input.sessionID)
+        const baseDir = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+
+        const cancel = async (input2: { reasonZh: string; nextStepsZh: string }) => {
+          const err = await writer.artifact({
+            kind: "compaction-error",
+            path: `${base}/errors/cancelled.json`,
+            data: stableJson({ reason_zh: input2.reasonZh, next_steps_zh: input2.nextStepsZh, parentId: input.parentID }),
+          })
+          await writer.event({
+            specVersion: "event/1.0",
+            ts: new Date().toISOString(),
+            sessionId: input.sessionID,
+            severity: "warn",
+            actor: "session:compaction",
+            type: "compaction.cancelled",
+            summary: "compaction cancelled",
+            data: { reason_zh: input2.reasonZh, next_steps_zh: input2.nextStepsZh, error_artifact: err.path },
+            redaction: { applied: true, policyVersion: "v1" },
+          })
+          return "stop" as const
+        }
+
+        const replay = AnchorSnapshot.checkReplay({
+          sessionId: input.sessionID,
+          lastContextPackId: contextLedger.lastContextPackId,
+          pointer: contextLedger.lastAnchorSnapshot,
+        })
+        if (!replay.ok) {
+          return cancel({ reasonZh: replay.reasonZh, nextStepsZh: replay.nextStepsZh })
+        }
+
+        const previousAnchor = contextLedger.lastAnchorSnapshot
+          ? await AnchorSnapshot.read({
+              baseDir,
+              pointer: contextLedger.lastAnchorSnapshot,
+            })
+          : undefined
+
+        if (contextLedger.lastAnchorSnapshot && !previousAnchor) {
+          return cancel({
+            reasonZh: "恢复链路 fail-closed：anchor-snapshot 不可读或不可解析。",
+            nextStepsZh: "请重建 context-pack 与 anchor-snapshot，再重试恢复链路。",
+          })
+        }
+
+        const anchor = AnchorSnapshot.build({
+          sessionId: input.sessionID,
+          messageId: input.parentID,
+          planId: "unknown",
+          generatedAtUtc: now,
+          repo: previousAnchor?.repo ?? { head: "unknown", dirty: false },
+          model: { providerId: user.model.providerID, modelId: user.model.modelID },
+          context: {
+            lastContextPackId: contextLedger.lastContextPackId,
+            orchestratorMode: previousAnchor?.context.orchestratorMode ?? "unknown",
+          },
+          toolsetFingerprint: previousAnchor?.toolsetFingerprint ?? "unknown",
+        })
+        const anchorEntry = await writer.artifact({
+          kind: "anchor-snapshot",
+          path: `${base}/anchor.snapshot.json`,
+          data: stableJson(anchor),
+        })
+
+        await writer.event({
+          specVersion: "event/1.0",
+          ts: now,
+          sessionId: input.sessionID,
+          severity: "info",
+          actor: "session:compaction",
+          type: "anchor.snapshot",
+          summary: "anchor snapshot recorded",
+          data: {
+            specVersion: anchor.specVersion,
+            compactionId,
+            messageId: anchor.messageId,
+            planId: anchor.planId,
+            toolsetFingerprint: anchor.toolsetFingerprint,
+            anchor_artifact: anchorEntry.path,
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        })
+
+        await ContextLedger.update({
+          sessionId: input.sessionID,
+          patch: {
+            lastAnchorSnapshot: { path: anchorEntry.path, sha256: anchorEntry.sha256 },
+          },
+        })
 
         const startedInput = CompactionInput.parse({
           specVersion: "compaction-input/1.0",
@@ -279,27 +369,11 @@ export namespace SessionCompaction {
           redaction: { applied: true, policyVersion: "v1" },
         })
 
-        if (input.abort.aborted) {
-          const reason = "压缩已取消：处理中途收到取消信号（AbortSignal）。"
-          const next = "请重试；若频繁触发取消，可检查是否有并发请求或手动取消行为。"
-          const err = await writer.artifact({
-            kind: "compaction-error",
-            path: `${base}/errors/cancelled.json`,
-            data: stableJson({ reason_zh: reason, next_steps_zh: next, parentId: input.parentID }),
+        if (input.abort.aborted)
+          return cancel({
+            reasonZh: "压缩已取消：处理中途收到取消信号（AbortSignal）。",
+            nextStepsZh: "请重试；若频繁触发取消，可检查是否有并发请求或手动取消行为。",
           })
-          await writer.event({
-            specVersion: "event/1.0",
-            ts: new Date().toISOString(),
-            sessionId: input.sessionID,
-            severity: "warn",
-            actor: "session:compaction",
-            type: "compaction.cancelled",
-            summary: "compaction cancelled",
-            data: { reason_zh: reason, next_steps_zh: next, error_artifact: err.path },
-            redaction: { applied: true, policyVersion: "v1" },
-          })
-          return "stop" as const
-        }
 
         const lastUserText =
           input.messages
@@ -368,7 +442,6 @@ export namespace SessionCompaction {
           },
         })
 
-        const baseDir = Instance.worktree === "/" ? Instance.directory : Instance.worktree
         const statePath = path.join(baseDir, ".opencode", "compaction", input.sessionID, "state.json")
         const prevText = await Bun.file(statePath).text().catch(() => "")
         const prev = (() => {

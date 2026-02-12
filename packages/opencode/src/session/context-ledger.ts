@@ -36,6 +36,7 @@ const Ledger = z
     sessionId: z.string().min(1),
     updatedAtUtc: z.string().min(1),
     lastContextPackId: z.string().min(1).optional(),
+    lastAnchorSnapshot: CapsulePtr.optional(),
     lastCapsuleSession: CapsulePtr.optional(),
     lastCapsuleRendered: CapsulePtr.optional(),
     lastCapsuleAssisted: CapsulePtr.optional(),
@@ -51,6 +52,7 @@ type Patch = Partial<
   Pick<
     Ledger,
     | "lastContextPackId"
+    | "lastAnchorSnapshot"
     | "lastCapsuleSession"
     | "lastCapsuleRendered"
     | "lastCapsuleAssisted"
@@ -98,6 +100,7 @@ export const ContextLedger = {
     const next = Ledger.parse({
       ...prev,
       ...(input.patch.lastContextPackId === undefined ? {} : { lastContextPackId: input.patch.lastContextPackId }),
+      ...(input.patch.lastAnchorSnapshot === undefined ? {} : { lastAnchorSnapshot: input.patch.lastAnchorSnapshot }),
       ...(input.patch.lastCapsuleSession === undefined ? {} : { lastCapsuleSession: input.patch.lastCapsuleSession }),
       ...(input.patch.lastCapsuleRendered === undefined ? {} : { lastCapsuleRendered: input.patch.lastCapsuleRendered }),
       ...(input.patch.lastCapsuleAssisted === undefined ? {} : { lastCapsuleAssisted: input.patch.lastCapsuleAssisted }),
@@ -119,10 +122,13 @@ export const ContextLedger = {
     return next
   },
 
-  async write(input: { sessionId: string; lastContextPackId: string }) {
+  async write(input: { sessionId: string; lastContextPackId: string; lastAnchorSnapshot?: z.infer<typeof CapsulePtr> }) {
     await ContextLedger.update({
       sessionId: input.sessionId,
-      patch: { lastContextPackId: input.lastContextPackId },
+      patch: {
+        lastContextPackId: input.lastContextPackId,
+        lastAnchorSnapshot: input.lastAnchorSnapshot,
+      },
     })
   },
 }
