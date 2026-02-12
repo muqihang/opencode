@@ -1,5 +1,13 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（2026-02-12 online-gate closeout 追加）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p1-wave-closeout-2026-02-12-online-gate.md`
+- 本轮 commit 链：`0ef097f4 -> e717bd24 -> 727e04d8`
+- P1 总门禁结果：`C2/C3/C4/C5/C6/G1/G2` 命令均 `exit code = 0`
+- 当前状态结论：`GO（本地）`
+- 声明：历史 `No-Go` 仅为时点证据，本条为增量覆盖说明（append-only，不删改历史）
+
 ## P1 波次已闭环（2026-02-12 追加）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p1-wave-closeout-2026-02-12.md`
