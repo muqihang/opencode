@@ -1,5 +1,14 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（P3 final closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p3-wave-final-closeout-2026-02-12.md`
+- 覆盖范围：`I.1/I.2/I.3/I.4/I.5/I.6/I.7/I.8/I.9/I.10/I.12`
+- 显式延后：`I.11 deferred`（按既有决策继续 out-of-scope）
+- 当前状态：`P3 执行闭环：GO（带外部阻塞说明）`
+- 阻断口径：`I.1` 仍为外部阻塞（`provider-wire 20/20 unknown/pending`），最终签收未解除。
+- 声明：历史 `No-Go/Blocked` 条目全部保留，本条仅做 append-only 当前状态覆盖说明。
+
 ## 最新状态（P2 final closeout）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-final-closeout-2026-02-12.md`

@@ -1,5 +1,14 @@
 # CARD-BLK-06 治理口径 Canonical Index
 
+## 最新状态（P3 final closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p3-wave-final-closeout-2026-02-12.md`
+- 覆盖范围：`I.1/I.2/I.3/I.4/I.5/I.6/I.7/I.8/I.9/I.10/I.12`
+- 显式延后：`I.11 deferred`（延后决策维持不变）
+- 当前结论：`P3 执行闭环：GO（带外部阻塞说明）`
+- 外部阻塞：`I.1` 仍受 `provider-wire 20/20 unknown/pending` 约束，Final 签收未解除。
+- 声明：本条为 append-only 当前状态覆盖说明；历史 `No-Go/Blocked` 记录保留，不改写历史正文。
+
 ## 最新状态（P2 final closeout）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-final-closeout-2026-02-12.md`
