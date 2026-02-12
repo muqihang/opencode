@@ -39,6 +39,10 @@ test("code retrieval produces stable hits with anchors", async () => {
       for (const hit of first.hits) {
         expect(hit.pointer.path).toContain("retrieval/retrieval-test/snippets/")
         expect(hit.pointer.anchor?.lineStart).toBeGreaterThan(0)
+        expect(typeof hit.observed_at).toBe("string")
+        expect(Number.isNaN(Date.parse(hit.observed_at))).toBe(false)
+        expect(typeof hit.freshness_score).toBe("number")
+        expect(typeof hit.stale_reason).toBe("string")
       }
     },
   })

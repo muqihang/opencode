@@ -23,6 +23,9 @@ type CodeHit = {
   score_bps: number
   source: "rg" | "lsp" | "tree"
   origin: { path: string; lineStart: number; lineEnd: number }
+  observed_at: string
+  freshness_score: number
+  stale_reason: string
 }
 
 type CodeResult = {
@@ -66,6 +69,12 @@ const listFiles = async (root: string, limit: number) => {
     if (items.length >= limit) break
   }
   return items
+}
+
+const freshness = (input: { source: "rg" | "lsp" | "tree"; observedAt: string }) => {
+  if (input.source === "lsp") return { observed_at: input.observedAt, freshness_score: 0.95, stale_reason: "" }
+  if (input.source === "rg") return { observed_at: input.observedAt, freshness_score: 0.9, stale_reason: "" }
+  return { observed_at: input.observedAt, freshness_score: 0.6, stale_reason: "source_tree_only" }
 }
 
 export const runCodeRetrieval = async (input: {
@@ -169,6 +178,8 @@ export const runCodeRetrieval = async (input: {
   const deduped = dedupeHits(hits).slice(0, input.budget.topK)
   const results = await Promise.all(
     deduped.map(async (item, index) => {
+      const observedAt = new Date().toISOString()
+      const meta = freshness({ source: item.source, observedAt })
       const entry = await writer.artifact({
         kind: "retrieval-snippet",
         path: `retrieval/${input.retrievalId}/snippets/${String(index + 1).padStart(4, "0")}.txt`,
@@ -184,6 +195,9 @@ export const runCodeRetrieval = async (input: {
         score_bps: item.scoreBps,
         source: item.source,
         origin: { path: item.path, lineStart: item.lineStart, lineEnd: item.lineEnd },
+        observed_at: meta.observed_at,
+        freshness_score: meta.freshness_score,
+        stale_reason: meta.stale_reason,
       }
     }),
   )
