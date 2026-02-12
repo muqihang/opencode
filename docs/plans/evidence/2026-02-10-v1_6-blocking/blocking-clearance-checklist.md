@@ -9,6 +9,27 @@
 - 风险与噪音处理：`packages/opencode/offline-eval-nightly-report.json` 与 `packages/opencode/offline-eval-nightly-summary.md` 已移动到 `/tmp/opencode-premerge-stash/p2-final/`，未纳入版本库
 - 声明：历史 `No-Go` 仅为时点证据；本条为 append-only 覆盖说明，不改写历史正文与既有阻断判定条目。
 
+## 最新状态（P3 plan established）
+
+- 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p3-wave-plan-2026-02-12.md`
+- 增量目录骨架：
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-1/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-2/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-3/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-4/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-5/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-6/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-7/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-8/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-9/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-10/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p3-11/README.md`
+- 执行范围：`I.1 I.2 I.3 I.4 I.5 I.6 I.7 I.8 I.9 I.10 I.12`
+- 显式排除：`I.11（存储拓扑）`
+- 当前状态：`P3 plan established（可派发，待逐项签收）`
+- 门禁说明：本条仅建立执行计划与证据落盘路径，不构成任一 I 项签收。
+- 声明：本条为 append-only 增量说明，不改写历史正文与既有阻断判定条目。
+
 ## 最新状态（P2 wave-a closeout）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-a-closeout-2026-02-12.md`
