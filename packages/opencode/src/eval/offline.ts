@@ -743,10 +743,14 @@ export type OfflineEvalDimensions = {
   cache: {
     cacheHitRatio: number
   }
+  sample: {
+    sampleCount: number
+  }
 }
 
 export type OfflineEvalSuiteResult = {
   id: string
+  sampleCount: number
   baselineTaskCompletion: number
   totals: OfflineEvalSuite["totals"]
   metrics: OfflineEvalMetrics
@@ -760,6 +764,7 @@ export type OfflineEvalReport = {
   suiteDir: string
   suites: OfflineEvalSuiteResult[]
   aggregate: {
+    sampleCount: number
     baselineTaskCompletion: number
     totals: OfflineEvalSuite["totals"]
     metrics: OfflineEvalMetrics
@@ -781,17 +786,20 @@ const calcMetrics = (totals: OfflineEvalSuite["totals"]): OfflineEvalMetrics => 
   taskCompletion: ratio(totals.completedTasks, totals.tasks, 0),
 })
 
-const calcDimensions = (metrics: OfflineEvalMetrics): OfflineEvalDimensions => ({
+const calcDimensions = (input: { metrics: OfflineEvalMetrics; sampleCount: number }): OfflineEvalDimensions => ({
   claim: {
-    unsupportedClaimRate: metrics.unsupportedClaimRate,
-    keyClaimEvidenceIntegrity: metrics.keyClaimEvidenceIntegrity,
+    unsupportedClaimRate: input.metrics.unsupportedClaimRate,
+    keyClaimEvidenceIntegrity: input.metrics.keyClaimEvidenceIntegrity,
   },
   citation: {
-    unknownPrecision: metrics.unknownPrecision,
-    citationIntegrity: metrics.citationIntegrity,
+    unknownPrecision: input.metrics.unknownPrecision,
+    citationIntegrity: input.metrics.citationIntegrity,
   },
   cache: {
-    cacheHitRatio: metrics.cacheHitRatio,
+    cacheHitRatio: input.metrics.cacheHitRatio,
+  },
+  sample: {
+    sampleCount: input.sampleCount,
   },
 })
 
@@ -891,6 +899,11 @@ export const renderOfflineEvalSummary = (report: OfflineEvalReport) => {
     "",
     `- cacheHitRatio: ${fmt(report.aggregate.dimensions.cache.cacheHitRatio)}`,
     "",
+    "## Sample Count",
+    "",
+    `- sampleCount: ${report.aggregate.sampleCount}`,
+    `- minSampleCount: ${report.gate.thresholds.minSampleCount}`,
+    "",
     "## Task Completion",
     "",
     `- taskCompletion: ${fmt(report.aggregate.metrics.taskCompletion)} (baseline ${fmt(report.aggregate.baselineTaskCompletion)})`,
@@ -904,6 +917,7 @@ export const renderOfflineEvalSummary = (report: OfflineEvalReport) => {
     checkRow({ metric: "unknownPrecision", check: report.gate.checks.unknownPrecision }),
     checkRow({ metric: "citationIntegrity", check: report.gate.checks.citationIntegrity }),
     checkRow({ metric: "cacheHitRatio", check: report.gate.checks.cacheHitRatio }),
+    checkRow({ metric: "sampleCount", check: report.gate.checks.sampleCount }),
     checkRow({ metric: "taskCompletion", check: report.gate.checks.taskCompletion }),
   ]
   return `${lines.join("\n")}\n`
@@ -913,12 +927,14 @@ export const runOfflineGateEval = async (input: {
   suiteDir: string
   reportPath: string
   summaryPath: string
+  minSampleCount?: number
   enforceCacheHitRatio?: boolean
 }) => {
   const suites = await loadOfflineEvalSuites({ suiteDir: input.suiteDir })
   const suiteResults = suites.map((suite) => {
     const metrics = calcMetrics(suite.totals)
-    const dimensions = calcDimensions(metrics)
+    const sampleCount = suite.totals.tasks
+    const dimensions = calcDimensions({ metrics, sampleCount })
     const gate = evaluateOfflineGate({
       unsupportedClaimRate: metrics.unsupportedClaimRate,
       keyClaimEvidenceIntegrity: metrics.keyClaimEvidenceIntegrity,
@@ -927,10 +943,13 @@ export const runOfflineGateEval = async (input: {
       cacheHitRatio: metrics.cacheHitRatio,
       taskCompletion: metrics.taskCompletion,
       baselineTaskCompletion: suite.baselineTaskCompletion,
+      sampleCount,
+      minSampleCount: input.minSampleCount,
       enforceCacheHitRatio: input.enforceCacheHitRatio,
     })
     return {
       id: suite.id,
+      sampleCount,
       baselineTaskCompletion: suite.baselineTaskCompletion,
       totals: suite.totals,
       metrics,
@@ -940,9 +959,10 @@ export const runOfflineGateEval = async (input: {
   })
 
   const totals = reduceTotals(suites)
+  const sampleCount = totals.tasks
   const baselineTaskCompletion = weightedBaseline(suites)
   const aggregateMetrics = calcMetrics(totals)
-  const aggregateDimensions = calcDimensions(aggregateMetrics)
+  const aggregateDimensions = calcDimensions({ metrics: aggregateMetrics, sampleCount })
   const gate = evaluateOfflineGate({
     unsupportedClaimRate: aggregateMetrics.unsupportedClaimRate,
     keyClaimEvidenceIntegrity: aggregateMetrics.keyClaimEvidenceIntegrity,
@@ -951,6 +971,8 @@ export const runOfflineGateEval = async (input: {
     cacheHitRatio: aggregateMetrics.cacheHitRatio,
     taskCompletion: aggregateMetrics.taskCompletion,
     baselineTaskCompletion,
+    sampleCount,
+    minSampleCount: input.minSampleCount,
     enforceCacheHitRatio: input.enforceCacheHitRatio,
   })
 
@@ -960,6 +982,7 @@ export const runOfflineGateEval = async (input: {
     suiteDir: path.resolve(input.suiteDir),
     suites: suiteResults,
     aggregate: {
+      sampleCount,
       baselineTaskCompletion,
       totals,
       metrics: aggregateMetrics,
