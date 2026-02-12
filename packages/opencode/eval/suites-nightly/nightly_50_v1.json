@@ -1,0 +1,19 @@
+{
+  "specVersion": "offline-eval/1.0",
+  "id": "nightly_50_v1",
+  "baselineTaskCompletion": 0.9,
+  "totals": {
+    "claims": 100,
+    "unsupportedClaims": 5,
+    "unknownPredictions": 20,
+    "correctUnknownPredictions": 17,
+    "citationChecks": 40,
+    "validCitations": 38,
+    "keyClaims": 20,
+    "keyClaimsWithEvidence": 20,
+    "cacheRequests": 20,
+    "cacheHits": 14,
+    "tasks": 50,
+    "completedTasks": 44
+  }
+}

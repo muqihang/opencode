@@ -74,6 +74,9 @@ describe("eval.offline", () => {
     expect(report.aggregate.dimensions.citation.citationIntegrity).toBeCloseTo(0.958333)
     expect(report.aggregate.dimensions.cache.cacheHitRatio).toBeCloseTo(0.785714)
     expect(report.gate.checks.cacheHitRatio.status).toBe("pass")
+    expect(report.aggregate.sampleCount).toBe(100)
+    expect(report.gate.checks.sampleCount.ok).toBe(true)
+    expect(report.gate.checks.sampleCount.threshold).toBe(0)
 
     const disk = (await Bun.file(reportPath).json()) as typeof report
     expect(disk.aggregate.dimensions.cache.cacheHitRatio).toBeCloseTo(0.785714)
@@ -84,6 +87,87 @@ describe("eval.offline", () => {
     expect(summary.includes("## Claim Dimensions")).toBe(true)
     expect(summary.includes("## Citation Dimensions")).toBe(true)
     expect(summary.includes("## Cache Dimensions")).toBe(true)
+    expect(summary.includes("## Sample Count")).toBe(true)
+  })
+
+  test("fails gate when nightly sample count is below minimum", async () => {
+    await using tmp = await tmpdir()
+    const suiteDir = await writeSuites(tmp.path, [
+      {
+        specVersion: "offline-eval/1.0",
+        id: "nightly_49",
+        baselineTaskCompletion: 0.9,
+        totals: {
+          claims: 80,
+          unsupportedClaims: 2,
+          unknownPredictions: 20,
+          correctUnknownPredictions: 18,
+          citationChecks: 40,
+          validCitations: 39,
+          keyClaims: 20,
+          keyClaimsWithEvidence: 20,
+          cacheRequests: 10,
+          cacheHits: 8,
+          tasks: 49,
+          completedTasks: 45,
+        },
+      },
+    ])
+
+    const report = await runOfflineGateEval({
+      suiteDir,
+      reportPath: path.join(tmp.path, "nightly-49-report.json"),
+      summaryPath: path.join(tmp.path, "nightly-49-summary.md"),
+      minSampleCount: 50,
+      enforceCacheHitRatio: true,
+    })
+
+    expect(report.aggregate.sampleCount).toBe(49)
+    expect(report.gate.passed).toBe(false)
+    expect(report.gate.checks.sampleCount.ok).toBe(false)
+    expect(report.gate.checks.sampleCount.threshold).toBe(50)
+    expect(report.suites[0]?.sampleCount).toBe(49)
+    expect(report.suites[0]?.gate.checks.sampleCount.ok).toBe(false)
+  })
+
+  test("passes gate when nightly sample count reaches minimum", async () => {
+    await using tmp = await tmpdir()
+    const suiteDir = await writeSuites(tmp.path, [
+      {
+        specVersion: "offline-eval/1.0",
+        id: "nightly_50",
+        baselineTaskCompletion: 0.9,
+        totals: {
+          claims: 80,
+          unsupportedClaims: 2,
+          unknownPredictions: 20,
+          correctUnknownPredictions: 18,
+          citationChecks: 40,
+          validCitations: 39,
+          keyClaims: 20,
+          keyClaimsWithEvidence: 20,
+          cacheRequests: 10,
+          cacheHits: 8,
+          tasks: 50,
+          completedTasks: 46,
+        },
+      },
+    ])
+
+    const report = await runOfflineGateEval({
+      suiteDir,
+      reportPath: path.join(tmp.path, "nightly-50-report.json"),
+      summaryPath: path.join(tmp.path, "nightly-50-summary.md"),
+      minSampleCount: 50,
+      enforceCacheHitRatio: true,
+    })
+
+    expect(report.aggregate.sampleCount).toBe(50)
+    expect(report.gate.passed).toBe(true)
+    expect(report.gate.checks.sampleCount.ok).toBe(true)
+    expect(report.gate.checks.sampleCount.threshold).toBe(50)
+    expect(report.suites[0]?.sampleCount).toBe(50)
+    expect(report.suites[0]?.gate.checks.sampleCount.ok).toBe(true)
   })
 
   test("cache hit ratio below threshold warns or blocks based on gate flag", async () => {

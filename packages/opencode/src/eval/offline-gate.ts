@@ -7,6 +7,7 @@ export const OFFLINE_GATE = {
   keyClaimEvidenceIntegrity: 1,
   cacheHitRatio: 0.7,
   taskCompletionDelta: 0.03,
+  minSampleCount: 0,
 } as const
 
 type Cmp = "<=" | ">="
@@ -22,6 +23,7 @@ export type GateCheck = {
     | "keyClaimEvidenceIntegrity"
     | "cacheHitRatio"
     | "taskCompletion"
+    | "sampleCount"
   cmp: Cmp
   actual: number
   threshold: number
@@ -35,6 +37,8 @@ export type OfflineGateInput = {
   cacheHitRatio: number
   taskCompletion: number
   baselineTaskCompletion: number
+  sampleCount?: number
+  minSampleCount?: number
   enforceCacheHitRatio?: boolean
 }
 
@@ -48,6 +52,7 @@ export type OfflineGateResult = {
     keyClaimEvidenceIntegrity: number
     cacheHitRatio: number
     taskCompletionFloor: number
+    minSampleCount: number
   }
   checks: {
     unsupportedClaimRate: GateCheck
@@ -56,6 +61,7 @@ export type OfflineGateResult = {
     keyClaimEvidenceIntegrity: GateCheck
     cacheHitRatio: GateCheck
     taskCompletion: GateCheck
+    sampleCount: GateCheck
   }
 }
 
@@ -109,6 +115,8 @@ const warnable = (input: { check: GateCheck; enforce: boolean }) => {
 
 export const evaluateOfflineGate = (input: OfflineGateInput): OfflineGateResult => {
   const taskFloor = round(input.baselineTaskCompletion - OFFLINE_GATE.taskCompletionDelta)
+  const sampleCount = Math.max(0, Math.floor(input.sampleCount ?? 0))
+  const minSampleCount = Math.max(0, Math.floor(input.minSampleCount ?? OFFLINE_GATE.minSampleCount))
   const checks = {
     unsupportedClaimRate: checkLe({
       metric: "unsupportedClaimRate",
@@ -143,6 +151,11 @@ export const evaluateOfflineGate = (input: OfflineGateInput): OfflineGateResult 
       actual: input.taskCompletion,
       threshold: taskFloor,
     }),
+    sampleCount: checkGe({
+      metric: "sampleCount",
+      actual: sampleCount,
+      threshold: minSampleCount,
+    }),
   }
   const passed = Object.values(checks).every((item) => item.status !== "fail")
 
@@ -156,6 +169,7 @@ export const evaluateOfflineGate = (input: OfflineGateInput): OfflineGateResult 
       keyClaimEvidenceIntegrity: OFFLINE_GATE.keyClaimEvidenceIntegrity,
       cacheHitRatio: OFFLINE_GATE.cacheHitRatio,
       taskCompletionFloor: taskFloor,
+      minSampleCount,
     },
     checks,
   }
