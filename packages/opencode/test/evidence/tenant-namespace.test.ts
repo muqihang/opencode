@@ -4,10 +4,14 @@ import path from "path"
 import { verifyEvidenceChain } from "../../src/evidence/chain"
 import { EvidenceReader } from "../../src/evidence/reader"
 import { EvidenceWriter } from "../../src/evidence/writer"
+import { resolveStorageLayering } from "../../src/evidence/storage-layering"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
 const A2_FLAG = "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"
+const STORAGE_LAYERING_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_LAYERING"
+const STORAGE_DUAL_WRITE_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_DUAL_WRITE"
+const STORAGE_RECONCILE_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_RECONCILE"
 
 const withA2 = async (value: string | undefined, fn: () => Promise<void>) => {
   const prev = process.env[A2_FLAG]
@@ -27,7 +31,114 @@ const withA2 = async (value: string | undefined, fn: () => Promise<void>) => {
   })
 }
 
+const withStorageFlags = async (
+  value: {
+    layering?: string
+    dualWrite?: string
+    reconcile?: string
+  },
+  fn: () => Promise<void>,
+) => {
+  const prevLayering = process.env[STORAGE_LAYERING_FLAG]
+  const prevDualWrite = process.env[STORAGE_DUAL_WRITE_FLAG]
+  const prevReconcile = process.env[STORAGE_RECONCILE_FLAG]
+
+  const set = (key: string, next: string | undefined) => {
+    if (next === undefined) {
+      delete process.env[key]
+      return
+    }
+    process.env[key] = next
+  }
+
+  set(STORAGE_LAYERING_FLAG, value.layering)
+  set(STORAGE_DUAL_WRITE_FLAG, value.dualWrite)
+  set(STORAGE_RECONCILE_FLAG, value.reconcile)
+
+  return Promise.resolve(fn()).finally(() => {
+    set(STORAGE_LAYERING_FLAG, prevLayering)
+    set(STORAGE_DUAL_WRITE_FLAG, prevDualWrite)
+    set(STORAGE_RECONCILE_FLAG, prevReconcile)
+  })
+}
+
 describe("evidence tenant namespace", () => {
+  test("exposes L0/L1/L2 storage layering strategy with legacy fallback", async () => {
+    await withA2("1", async () => {
+      await withStorageFlags(
+        {
+          layering: undefined,
+          dualWrite: undefined,
+          reconcile: undefined,
+        },
+        async () => {
+          const plan = resolveStorageLayering({
+            base: "/tmp/worktree",
+            sessionId: "storage_fallback",
+            tenantId: "tenant_acme",
+            orgId: "org_ops",
+            namespaced: true,
+          })
+
+          expect(plan.mode).toBe("legacy")
+          expect(plan.primary.layer).toBe("L1")
+          expect(plan.mirror).toBeUndefined()
+          expect(plan.read.evidence).toEqual([
+            path.join("/tmp/worktree", ".opencode", "evidence", "tenant_acme", "org_ops", "storage_fallback"),
+            path.join("/tmp/worktree", ".opencode", "evidence", "storage_fallback"),
+          ])
+          expect(plan.l2.evidenceDir).toBe(
+            path.join(
+              "/tmp/worktree",
+              ".opencode",
+              "evidence-layering",
+              "tenant_acme",
+              "org_ops",
+              "storage_fallback",
+            ),
+          )
+        },
+      )
+    })
+  })
+
+  test("enables dual-write mirror and reconcile report path in layered mode", async () => {
+    await withA2("1", async () => {
+      await withStorageFlags(
+        {
+          layering: "1",
+          dualWrite: "1",
+          reconcile: "1",
+        },
+        async () => {
+          const plan = resolveStorageLayering({
+            base: "/tmp/worktree",
+            sessionId: "storage_dual",
+            tenantId: "tenant_acme",
+            orgId: "org_ops",
+            namespaced: true,
+          })
+
+          expect(plan.mode).toBe("layered")
+          expect(plan.primary.layer).toBe("L1")
+          expect(plan.mirror?.layer).toBe("L0")
+          expect(plan.reconcile.enabled).toBe(true)
+          expect(plan.reconcile.reportPath).toBe(
+            path.join(
+              "/tmp/worktree",
+              ".opencode",
+              "evidence-layering",
+              "tenant_acme",
+              "org_ops",
+              "storage_dual",
+              "dual-write-reconcile.json",
+            ),
+          )
+        },
+      )
+    })
+  })
+
   test("writes evidence and artifacts under tenant namespace when A2 is enabled", async () => {
     await withA2("1", async () => {
       await using tmp = await tmpdir({ git: true })

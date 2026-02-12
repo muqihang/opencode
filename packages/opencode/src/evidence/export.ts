@@ -13,6 +13,7 @@ import {
   isA2TenantNamespaceEnabled,
   resolveTenantScope,
 } from "@/util/tenant-context"
+import { resolveStorageLayering } from "@/evidence/storage-layering"
 
 const ExportInput = z
   .object({
@@ -190,6 +191,13 @@ export async function exportEvidence(input: z.infer<typeof ExportInput>) {
   })
 
   const base = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+  const layering = resolveStorageLayering({
+    base,
+    sessionId: data.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+    namespaced,
+  })
   const evidenceDirs = evidenceCandidates({
     base,
     sessionId: data.sessionId,
@@ -205,6 +213,7 @@ export async function exportEvidence(input: z.infer<typeof ExportInput>) {
     orgId: scope.orgId,
   })
   const outDir = path.resolve(base, data.outDir)
+  const reconcilePath = layering.reconcile.reportPath
 
   const evidencePrefixes = [
     evidenceSessionPrefix({
@@ -290,6 +299,20 @@ export async function exportEvidence(input: z.infer<typeof ExportInput>) {
         destinationPath,
       })
       exported += 1
+    }
+
+    if (layering.reconcile.enabled) {
+      const sourcePath = reconcilePath
+      const destinationPath = path.join(outDir, "reconcile", "dual-write-reconcile.json")
+      const exists = await Bun.file(sourcePath).exists()
+      if (exists) {
+        await copyChecked({
+          base,
+          sourcePath,
+          destinationPath,
+        })
+        exported += 1
+      }
     }
 
     await writeExportEvent(writer, data.sessionId, {
