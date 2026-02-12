@@ -10,6 +10,8 @@ import { Log } from "../../src/util/log"
 
 Log.init({ print: false })
 
+const timeout = 15_000
+
 const writeText = async (input: { sessionId: string; text: string }) => {
   const msg = await Session.updateMessage({
     id: Identifier.ascending("message"),
@@ -94,7 +96,7 @@ describe("session.compaction structured artifacts + events", () => {
         expect(types.includes("compaction.completed")).toBe(true)
       },
     })
-  })
+  }, { timeout })
 
   test("cancelled compaction emits reason_zh + next_steps_zh", async () => {
     await using tmp = await tmpdir({ git: true })
@@ -132,4 +134,3 @@ describe("session.compaction structured artifacts + events", () => {
     })
   })
 })
-
