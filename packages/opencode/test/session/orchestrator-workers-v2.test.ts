@@ -6,6 +6,7 @@ import { extractFeatures } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
 import { WorkerSpec } from "../../src/session/orchestrator/worker-spec"
 import { patchPlanner } from "../../src/session/orchestrator/workers/patch-planner"
+import { buildWorkerSystemPrompt, WorkerPromptRegistry } from "../../src/session/orchestrator/workers/prompt-registry"
 import { retrievalPlanner } from "../../src/session/orchestrator/workers/retrieval-planner"
 import { runStructured } from "../../src/session/orchestrator/worker-llm"
 import { tmpdir } from "../fixture/fixture"
@@ -25,19 +26,32 @@ const model = {
 }
 
 describe("orchestrator workers v2", () => {
+  test("planner prompt templates are versioned in registry", () => {
+    expect(WorkerPromptRegistry.retrieval_planner.version).toBe("v1")
+    expect(WorkerPromptRegistry.patch_planner.version).toBe("v1")
+    expect(WorkerPromptRegistry.evidence_critic.version).toBe("v1")
+  })
+
   test("retrieval_planner output is valid", async () => {
     const rolePack = pack({ pointers: [], planPointer: "orchestrator/retrieval-planner/plan.json" })
+    const seen: string[] = []
     const out = await retrievalPlanner(
       { rolePack, model },
       {
-        run: (async () => ({
-          status: "ok" as const,
-          object: {
+        run: (async (req) => {
+          const data = req as { messages: Array<{ role: string; content: string }> }
+          const system = data.messages.find((item) => item.role === "system")
+          seen.push(system?.content ?? "")
+
+          return {
             status: "ok" as const,
-            notes: ["retrieval planned"],
-            toolRequests: [{ kind: "retrieval" as const, input: rolePack.planPointer }],
-          },
-        })) as typeof runStructured,
+            object: {
+              status: "ok" as const,
+              notes: ["retrieval planned"],
+              toolRequests: [{ kind: "retrieval" as const, input: rolePack.planPointer }],
+            },
+          }
+        }) as typeof runStructured,
       },
     )
     const result = LlmWorkerResult.parse(out)
@@ -47,6 +61,8 @@ describe("orchestrator workers v2", () => {
       kind: "retrieval",
       input: "orchestrator/retrieval-planner/plan.json",
     })
+    expect(seen[0]).toBe(buildWorkerSystemPrompt("retrieval_planner"))
+    expect(seen[0]).toContain("template_version=v1")
   })
 
   test("retrieval planner llm fallback", async () => {
@@ -75,18 +91,25 @@ describe("orchestrator workers v2", () => {
 
   test("patch_planner output is valid", async () => {
     const rolePack = pack({ pointers: ["ptr-a"], planPointer: "orchestrator/patch-planner/plan.json" })
+    const seen: string[] = []
     const out = await patchPlanner(
       { rolePack, model },
       {
-        run: (async () => ({
-          status: "ok" as const,
-          object: {
+        run: (async (req) => {
+          const data = req as { messages: Array<{ role: string; content: string }> }
+          const system = data.messages.find((item) => item.role === "system")
+          seen.push(system?.content ?? "")
+
+          return {
             status: "ok" as const,
-            steps: ["Analyze target files and define edit order."],
-            risks: ["Policy drift might invalidate the planned patch scope."],
-            prerequisites: ["Role pack pointers are available before drafting edits."],
-          },
-        })) as typeof runStructured,
+            object: {
+              status: "ok" as const,
+              steps: ["Analyze target files and define edit order."],
+              risks: ["Policy drift might invalidate the planned patch scope."],
+              prerequisites: ["Role pack pointers are available before drafting edits."],
+            },
+          }
+        }) as typeof runStructured,
       },
     )
     const result = LlmWorkerResult.parse(out)
@@ -97,6 +120,8 @@ describe("orchestrator workers v2", () => {
     expect(result.notes?.some((item) => item.startsWith("prerequisites:"))).toBe(true)
     expect(result.notes?.some((item) => item.includes("```"))).toBe(false)
     expect(result.notes?.some((item) => /\b(?:bun|npm|pnpm|yarn|git)\b/i.test(item))).toBe(false)
+    expect(seen[0]).toBe(buildWorkerSystemPrompt("patch_planner"))
+    expect(seen[0]).toContain("template_version=v1")
   })
 
   test("planner workers do not perform direct side effects", async () => {

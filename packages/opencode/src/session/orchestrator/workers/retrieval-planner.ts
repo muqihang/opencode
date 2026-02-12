@@ -6,6 +6,7 @@ import { withTimeout } from "@/util/timeout"
 import { runStructured } from "../worker-llm"
 import type { WorkerComputeInput, WorkerModel } from "../worker-spec"
 import type { ToolRequest } from "@/protocol/llm-worker-result"
+import { buildWorkerSystemPrompt } from "./prompt-registry"
 
 const Retrieval = z
   .object({
@@ -132,8 +133,7 @@ export const retrievalPlanner = async (input: WorkerComputeInput, deps?: Partial
     messages: [
       {
         role: "system",
-        content:
-          "You are retrieval_planner. Return JSON only. Generate focused retrieval requests for missing evidence.",
+        content: buildWorkerSystemPrompt("retrieval_planner"),
       },
       {
         role: "user",

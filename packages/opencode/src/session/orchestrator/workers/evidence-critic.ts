@@ -6,6 +6,7 @@ import { withTimeout } from "@/util/timeout"
 import { runStructured } from "../worker-llm"
 import type { WorkerComputeInput, WorkerModel } from "../worker-spec"
 import type { ToolRequest } from "@/protocol/llm-worker-result"
+import { buildWorkerSystemPrompt } from "./prompt-registry"
 
 const Critic = z
   .object({
@@ -133,8 +134,7 @@ export const evidenceCritic = async (input: WorkerComputeInput, deps?: Partial<C
     messages: [
       {
         role: "system",
-        content:
-          "You are evidence_critic. Return JSON only. Keep output concise. If evidence is missing, request retrieval.",
+        content: buildWorkerSystemPrompt("evidence_critic"),
       },
       {
         role: "user",
