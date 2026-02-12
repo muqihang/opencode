@@ -39,6 +39,7 @@ import { ulid } from "ulid"
 import { ContextLedger } from "./context-ledger"
 import { GeminiCachedContent } from "@/provider/gemini-cached-content"
 import { packPromptSections } from "@/session/orchestrator/prepare"
+import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -64,9 +65,53 @@ export namespace LLM {
     retries?: number
     permission?: PermissionNext.Ruleset
     historySummary?: string
+    retrievalRoute?: RetrievalRoute
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
+
+  export type RetrievalRoute = {
+    main?: {
+      source: "orchestrator"
+      enabled: boolean
+      mode: OrchestratorMode
+      degraded: boolean
+    }
+  }
+
+  type RetrievalRunInput = Parameters<typeof runRetrieval>[0]
+  type RetrievalRunOutput = Awaited<ReturnType<typeof runRetrieval>>
+
+  const isMainRetrievalMode = (mode: OrchestratorMode) => mode === "assist" || mode === "heavy"
+
+  export const shouldRunCompensationRetrieval = (input: { route?: RetrievalRoute }) => {
+    const main = input.route?.main
+    if (!main) return true
+    if (main.source !== "orchestrator") return true
+    if (!main.enabled) return true
+    if (main.degraded) return true
+    return !isMainRetrievalMode(main.mode)
+  }
+
+  export async function runCompensationRetrieval<T = RetrievalRunOutput>(input: {
+    sessionID: string
+    messageID: string
+    intentText: string
+    abort: AbortSignal
+    route?: RetrievalRoute
+    execute?: (input: RetrievalRunInput) => Promise<T>
+  }): Promise<T | undefined> {
+    const intent = input.intentText.trim()
+    if (!intent) return
+    if (!shouldRunCompensationRetrieval({ route: input.route })) return
+    const execute = input.execute ?? (runRetrieval as (value: RetrievalRunInput) => Promise<T>)
+    return execute({
+      sessionId: input.sessionID,
+      messageId: input.messageID,
+      intentText: intent,
+      abort: input.abort,
+    })
+  }
 
   export function buildSystemSections(input: {
     providerPrompt: string
@@ -344,14 +389,13 @@ export namespace LLM {
       return ""
     })()
 
-    const retrieval = intentText
-      ? await runRetrieval({
-          sessionId: input.sessionID,
-          messageId: input.user.id,
-          intentText,
-          abort: input.abort,
-        })
-      : undefined
+    const retrieval = await runCompensationRetrieval({
+      sessionID: input.sessionID,
+      messageID: input.user.id,
+      intentText,
+      abort: input.abort,
+      route: input.retrievalRoute,
+    })
     const writer = await EvidenceWriter.open({ sessionId: input.sessionID })
     const ledger = await ContextLedger.read(input.sessionID)
 

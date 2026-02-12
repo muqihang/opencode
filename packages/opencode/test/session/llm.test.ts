@@ -88,3 +88,57 @@ describe("session.llm.hasToolCalls", () => {
     expect(LLM.hasToolCalls(messages)).toBe(true)
   })
 })
+
+describe("session.llm.compensation-retrieval", () => {
+  test("orchestrator assist main chain suppresses compensation retrieval", async () => {
+    const calls: string[] = []
+
+    const result = await LLM.runCompensationRetrieval({
+      sessionID: "s-main-chain",
+      messageID: "m-main-chain",
+      intentText: "need retrieval",
+      abort: new AbortController().signal,
+      route: {
+        main: {
+          source: "orchestrator",
+          enabled: true,
+          mode: "assist",
+          degraded: false,
+        },
+      },
+      execute: async (input) => {
+        calls.push(input.intentText)
+        return "ok"
+      },
+    })
+
+    expect(result).toBeUndefined()
+    expect(calls.length).toBe(0)
+  })
+
+  test("orchestrator degraded allows compensation retrieval fallback", async () => {
+    const calls: string[] = []
+
+    const result = await LLM.runCompensationRetrieval({
+      sessionID: "s-main-chain-degraded",
+      messageID: "m-main-chain-degraded",
+      intentText: "need retrieval",
+      abort: new AbortController().signal,
+      route: {
+        main: {
+          source: "orchestrator",
+          enabled: true,
+          mode: "assist",
+          degraded: true,
+        },
+      },
+      execute: async (input) => {
+        calls.push(input.intentText)
+        return "ok"
+      },
+    })
+
+    expect(result).toBe("ok")
+    expect(calls.length).toBe(1)
+  })
+})
