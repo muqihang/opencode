@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { LlmWorkerRolePack } from "../../src/protocol/llm-worker-role-pack"
+import { buildWorkerSystemPrompt, WorkerPromptRegistry } from "../../src/session/orchestrator/workers/prompt-registry"
 import { evidenceCritic } from "../../src/session/orchestrator/workers/evidence-critic"
 import { runStructured } from "../../src/session/orchestrator/worker-llm"
 
@@ -17,6 +18,34 @@ const pack = (input: { pointers: string[]; maxToolCalls?: number; maxOutputToken
   })
 
 describe("orchestrator evidence_critic", () => {
+  test("evidence critic prompt template is versioned and registry-driven", async () => {
+    const rolePack = pack({ pointers: ["ptr-1"] })
+    const seen: string[] = []
+    const result = await evidenceCritic(
+      { rolePack },
+      {
+        run: (async (req) => {
+          const data = req as { messages: Array<{ role: string; content: string }> }
+          const system = data.messages.find((item) => item.role === "system")
+          seen.push(system?.content ?? "")
+
+          return {
+            status: "ok" as const,
+            object: {
+              status: "ok" as const,
+              notes: ["evidence looks enough"],
+            },
+          }
+        }) as typeof runStructured,
+      },
+    )
+
+    expect(result.status).toBe("ok")
+    expect(WorkerPromptRegistry.evidence_critic.version).toBe("v1")
+    expect(seen[0]).toBe(buildWorkerSystemPrompt("evidence_critic"))
+    expect(seen[0]).toContain("template_version=v1")
+  })
+
   test("empty pointers force retrieval request", async () => {
     let hits = 0
     const rolePack = pack({ pointers: [] })

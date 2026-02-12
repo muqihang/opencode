@@ -5,6 +5,7 @@ import { LlmWorkerResult } from "@/protocol/llm-worker-result"
 import { withTimeout } from "@/util/timeout"
 import { runStructured } from "../worker-llm"
 import type { WorkerComputeInput, WorkerModel } from "../worker-spec"
+import { buildWorkerSystemPrompt } from "./prompt-registry"
 
 const text = z.string().min(1).max(400)
 
@@ -182,8 +183,7 @@ export const patchPlanner = async (input: WorkerComputeInput, deps?: Partial<Pla
     messages: [
       {
         role: "system",
-        content:
-          "You are patch_planner. Return JSON only with fields status, steps, risks, prerequisites, and optional notes. Provide strategy-only planning. Never emit code fences, shell commands, or direct execution instructions.",
+        content: buildWorkerSystemPrompt("patch_planner"),
       },
       {
         role: "user",
