@@ -442,14 +442,16 @@ export const buildOnlineGateAlert = (input: { dashboard: OnlineGateDashboard }):
   if (sixHourDuplicateBreach) breaches.push("h2.duplicate_retrieval_rate_6h")
 
   const baselineCritic = dashboard.baseline?.critic_degraded_rate
+  const criticHasWindow = dashboard.metrics.critic_degraded_rate.total24h > 0
   const criticDelta = baselineCritic === undefined ? undefined : round(dashboard.metrics.critic_degraded_rate.value24h - baselineCritic)
-  if (criticDelta !== undefined && criticDelta > dashboard.thresholds.h2.critic_degraded_rate_worse_pp) {
+  if (criticHasWindow && criticDelta !== undefined && criticDelta > dashboard.thresholds.h2.critic_degraded_rate_worse_pp) {
     breaches.push("h2.critic_degraded_rate_worse")
   }
 
   const baselineSecure = dashboard.baseline?.secure_output_pass_rate
+  const secureHasWindow = dashboard.metrics.secure_output_pass_rate.completed24h + dashboard.metrics.secure_output_pass_rate.degraded24h > 0
   const secureDrop = baselineSecure === undefined ? undefined : round(baselineSecure - dashboard.metrics.secure_output_pass_rate.value24h)
-  if (secureDrop !== undefined && secureDrop > dashboard.thresholds.h2.secure_output_pass_rate_drop_pp) {
+  if (secureHasWindow && secureDrop !== undefined && secureDrop > dashboard.thresholds.h2.secure_output_pass_rate_drop_pp) {
     breaches.push("h2.secure_output_pass_rate_drop")
   }
 
@@ -469,6 +471,14 @@ export const buildOnlineGateAlert = (input: { dashboard: OnlineGateDashboard }):
 
   if (baselineCritic === undefined || baselineSecure === undefined) {
     notes.push("baseline missing for full h2 relative checks")
+  }
+
+  if (baselineCritic !== undefined && !criticHasWindow) {
+    notes.push("insufficient window data for baseline-relative check: critic_degraded_rate(24h)")
+  }
+
+  if (baselineSecure !== undefined && !secureHasWindow) {
+    notes.push("insufficient window data for baseline-relative check: secure_output_pass_rate(24h)")
   }
 
   const status: MetricStatus = breaches.length > 0 ? "fail" : notes.some((item) => item.startsWith("insufficient window data:")) ? "warn" : "pass"

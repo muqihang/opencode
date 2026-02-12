@@ -245,4 +245,32 @@ describe("eval.online gate", () => {
     expect(alert.status).toBe("warn")
     expect(alert.notes.some((item) => item.includes("insufficient window data"))).toBe(true)
   })
+
+  test("keeps empty window + baseline as warn without h2 baseline breaches", async () => {
+    await using tmp = await tmpdir()
+    const fx = emptyFixture()
+    await writeFixture(tmp.path, fx)
+
+    const dashboardPath = path.join(tmp.path, "online-gate-dashboard.json")
+    const summaryPath = path.join(tmp.path, "online-gate-dashboard.md")
+    const alertPath = path.join(tmp.path, "online-gate-alert.json")
+
+    const result = await runOnlineGateDashboard({
+      evidenceDir: path.join(tmp.path, ".opencode", "evidence"),
+      artifactsDir: path.join(tmp.path, ".opencode", "artifacts"),
+      now: fx.now,
+      dashboardPath,
+      summaryPath,
+      alertPath,
+      baseline: {
+        secure_output_pass_rate: 0.95,
+        critic_degraded_rate: 0.1,
+      },
+    })
+
+    expect(result.alert.status).toBe("warn")
+    expect(result.alert.breaches.includes("h2.secure_output_pass_rate_drop")).toBe(false)
+    expect(result.alert.breaches.includes("h2.critic_degraded_rate_worse")).toBe(false)
+    expect(result.alert.notes.some((item) => item.includes("insufficient window data for baseline-relative check"))).toBe(true)
+  })
 })
