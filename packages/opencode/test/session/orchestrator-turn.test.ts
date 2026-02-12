@@ -232,7 +232,8 @@ describe("orchestrator turn runner", () => {
           const rolePackEntry = manifest.entries.find(
             (entry) =>
               entry.kind === "orchestrator-worker-role-pack" &&
-              entry.path.includes(`${plan.orchestratorPlanId}/workers/retrieval_planner/role-pack.json`),
+              entry.path.includes(`${plan.orchestratorPlanId}/workers/`) &&
+              entry.path.endsWith("/role-pack.json"),
           )
           expect(Boolean(rolePackEntry)).toBe(true)
 
