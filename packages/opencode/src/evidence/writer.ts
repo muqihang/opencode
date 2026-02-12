@@ -13,13 +13,10 @@ import { renderEvidencePackViewMarkdown } from "@/evidence/pack-view"
 import { stableJson } from "@/util/stable-json"
 import { TurnTraceContext } from "@/util/turn-trace"
 import {
-  artifactSessionDir,
-  artifactSessionPrefix,
-  evidenceSessionDir,
-  evidenceSessionPrefix,
   isA2TenantNamespaceEnabled,
   resolveTenantScope,
 } from "@/util/tenant-context"
+import { resolveMirrorPath, resolveStorageLayering } from "@/evidence/storage-layering"
 
 const OpenInput = z
   .object({
@@ -168,6 +165,10 @@ function sha(input: string | Uint8Array) {
   return hash.digest("hex")
 }
 
+function normalizePath(value: string) {
+  return value.replace(/\\/g, "/")
+}
+
 function toRelativePath(raw: string) {
   if (!path.isAbsolute(raw)) return raw
   const root = path.parse(raw).root || "/"
@@ -178,7 +179,7 @@ function pointerPath(sessionPrefix: string, entryPath: string) {
   if (entryPath.startsWith(".opencode/") || entryPath.startsWith(".opencode\\")) {
     return entryPath
   }
-  const normalized = entryPath.replace(/\\/g, "/")
+  const normalized = normalizePath(entryPath)
   return `${sessionPrefix}${normalized}`
 }
 
@@ -291,33 +292,18 @@ export const EvidenceWriter = {
     const scope = resolveTenantScope({ tenantId: input.tenantId, orgId: input.orgId })
     const namespaced = isA2TenantNamespaceEnabled()
     const base = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+    const layering = resolveStorageLayering({
+      base,
+      sessionId,
+      tenantId: scope.tenantId,
+      orgId: scope.orgId,
+      namespaced,
+    })
     const root = path.join(base, ".opencode")
-    const evidence = evidenceSessionDir({
-      base,
-      sessionId,
-      tenantId: scope.tenantId,
-      orgId: scope.orgId,
-      namespaced,
-    })
-    const artifacts = artifactSessionDir({
-      base,
-      sessionId,
-      tenantId: scope.tenantId,
-      orgId: scope.orgId,
-      namespaced,
-    })
-    const evidencePrefix = evidenceSessionPrefix({
-      sessionId,
-      tenantId: scope.tenantId,
-      orgId: scope.orgId,
-      namespaced,
-    })
-    const artifactPrefix = artifactSessionPrefix({
-      sessionId,
-      tenantId: scope.tenantId,
-      orgId: scope.orgId,
-      namespaced,
-    })
+    const evidence = layering.primary.evidenceDir
+    const artifacts = layering.primary.artifactDir
+    const evidencePrefix = layering.primary.evidencePrefix
+    const artifactPrefix = layering.primary.artifactPrefix
     const eventsPath = path.join(evidence, "events.jsonl")
     const manifestPath = path.join(evidence, "manifest.json")
     const packPath = path.join(evidence, "pack.json")
@@ -355,6 +341,42 @@ export const EvidenceWriter = {
       environment = parsed.environment
     }
 
+    async function writeDual(file: string, data: string | Uint8Array) {
+      const result = await writeAtomic(file, data)
+      const mirror = layering.mirror
+      if (!mirror) return result
+
+      const relative = normalizePath(path.relative(base, file))
+      const mirrorPath = resolveMirrorPath({
+        sourcePath: relative,
+        primary: layering.primary,
+        mirror,
+      })
+      if (!mirrorPath) return result
+
+      await writeAtomic(mirrorPath, data)
+      return result
+    }
+
+    async function appendDual(file: string, line: string) {
+      await fs.mkdir(path.dirname(file), { recursive: true })
+      await fs.appendFile(file, line)
+
+      const mirror = layering.mirror
+      if (!mirror) return
+
+      const relative = normalizePath(path.relative(base, file))
+      const mirrorPath = resolveMirrorPath({
+        sourcePath: relative,
+        primary: layering.primary,
+        mirror,
+      })
+      if (!mirrorPath) return
+
+      await fs.mkdir(path.dirname(mirrorPath), { recursive: true })
+      await fs.appendFile(mirrorPath, line)
+    }
+
     async function writeManifest(packId: string) {
       const sortedEntries = [...entries].sort((a, b) => a.path.localeCompare(b.path))
       const manifest = EvidenceManifest.parse({
@@ -363,7 +385,7 @@ export const EvidenceWriter = {
         generatedAtUtc: new Date().toISOString(),
         entries: sortedEntries,
       })
-      await writeAtomic(manifestPath, stableJson(manifest))
+      await writeDual(manifestPath, stableJson(manifest))
       return manifest
     }
 
@@ -390,8 +412,7 @@ export const EvidenceWriter = {
           data: context?.messageId && !hasMessageId ? { ...data, messageId: context.messageId } : inputEvent.data,
         })
         events.push(eventData)
-        await fs.mkdir(path.dirname(eventsPath), { recursive: true })
-        await fs.appendFile(eventsPath, JSON.stringify(eventData) + "\n")
+        await appendDual(eventsPath, JSON.stringify(eventData) + "\n")
         const text = await Bun.file(eventsPath).text()
         const hash = sha(text)
         const size = Buffer.byteLength(text, "utf-8")
@@ -435,8 +456,7 @@ export const EvidenceWriter = {
           redaction: { applied: true, policyVersion: "v1" },
         })
         events.push(violation)
-        await fs.mkdir(path.dirname(eventsPath), { recursive: true })
-        await fs.appendFile(eventsPath, JSON.stringify(violation) + "\n")
+        await appendDual(eventsPath, JSON.stringify(violation) + "\n")
         const text = await Bun.file(eventsPath).text()
         const hash = sha(text)
         const size = Buffer.byteLength(text, "utf-8")
@@ -459,7 +479,7 @@ export const EvidenceWriter = {
       const requestedPath = toRelativePath(name)
       try {
         const target = await safePath(artifacts, name)
-        const result = await writeAtomic(target, data.data)
+        const result = await writeDual(target, data.data)
         const manifestPath = data.manifestPath
           ? safeManifestPath(data.manifestPath)
           : path.relative(base, target)
@@ -482,7 +502,7 @@ export const EvidenceWriter = {
           kind: data.kind,
           requested_path: requestedPath,
         })
-        const failureWrite = await writeAtomic(failurePath, failureData)
+        const failureWrite = await writeDual(failurePath, failureData)
         const failureEntry = Entry.parse({
           path: path.relative(base, failurePath),
           sha256: failureWrite.hash,
@@ -613,7 +633,7 @@ export const EvidenceWriter = {
         rollback,
       })
       const packText = stableJson(pack)
-      const packWrite = await writeAtomic(packPath, packText)
+      const packWrite = await writeDual(packPath, packText)
       await upsert(
         Entry.parse({
           path: path.relative(base, packPath),
@@ -641,7 +661,7 @@ export const EvidenceWriter = {
         enforcement: execution.enforcement ?? "soft",
         pointers,
       })
-      const packViewWrite = await writeAtomic(packViewPath, packView)
+      const packViewWrite = await writeDual(packViewPath, packView)
       await upsert(
         Entry.parse({
           path: path.relative(base, packViewPath),
@@ -678,7 +698,7 @@ export const EvidenceWriter = {
       })
       const microPath = path.join(evidence, "micro-pack.json")
       const microText = stableJson(micro)
-      const microWrite = await writeAtomic(microPath, microText)
+      const microWrite = await writeDual(microPath, microText)
       await upsert(
         Entry.parse({
           path: path.relative(base, microPath),
@@ -693,6 +713,144 @@ export const EvidenceWriter = {
 
     async function manifest() {
       return writeManifest(packId)
+    }
+
+    async function reconcile() {
+      const tracked = new Map(entries.map((entry) => [normalizePath(entry.path), entry.sha256]))
+      const rootEvidence = [eventsPath, manifestPath, packPath, packViewPath, path.join(evidence, "micro-pack.json")]
+      const all = new Set(tracked.keys())
+
+      for (const file of rootEvidence) {
+        const exists = await Bun.file(file).exists()
+        if (!exists) continue
+        all.add(normalizePath(path.relative(base, file)))
+      }
+
+      const rows = [] as Array<{
+        path: string
+        primaryPath: string
+        mirrorPath?: string
+        expectedSha256?: string
+        primarySha256?: string
+        mirrorSha256?: string
+        status: "match" | "mismatch" | "missing_primary" | "missing_mirror" | "mirror_disabled" | "unmapped"
+        match: boolean
+      }>
+
+      for (const rel of [...all].sort()) {
+        const primaryPath = path.join(base, ...rel.split("/"))
+        const mirrorPath = layering.mirror
+          ? resolveMirrorPath({
+              sourcePath: rel,
+              primary: layering.primary,
+              mirror: layering.mirror,
+            })
+          : undefined
+        const expectedSha256 = tracked.get(rel)
+
+        const primaryExists = await Bun.file(primaryPath).exists()
+        const mirrorExists = mirrorPath ? await Bun.file(mirrorPath).exists() : false
+        const primarySha256 = primaryExists ? sha(await Bun.file(primaryPath).bytes()) : undefined
+        const mirrorSha256 = mirrorExists && mirrorPath ? sha(await Bun.file(mirrorPath).bytes()) : undefined
+
+        if (!layering.mirror) {
+          rows.push({
+            path: rel,
+            primaryPath,
+            expectedSha256,
+            primarySha256,
+            status: "mirror_disabled",
+            match: true,
+          })
+          continue
+        }
+
+        if (!mirrorPath) {
+          rows.push({
+            path: rel,
+            primaryPath,
+            expectedSha256,
+            primarySha256,
+            status: "unmapped",
+            match: true,
+          })
+          continue
+        }
+
+        if (!primaryExists) {
+          rows.push({
+            path: rel,
+            primaryPath,
+            mirrorPath,
+            expectedSha256,
+            mirrorSha256,
+            status: "missing_primary",
+            match: false,
+          })
+          continue
+        }
+
+        if (!mirrorExists) {
+          rows.push({
+            path: rel,
+            primaryPath,
+            mirrorPath,
+            expectedSha256,
+            primarySha256,
+            status: "missing_mirror",
+            match: false,
+          })
+          continue
+        }
+
+        const expectedMismatch = expectedSha256 && expectedSha256 !== primarySha256
+        if (expectedMismatch) {
+          rows.push({
+            path: rel,
+            primaryPath,
+            mirrorPath,
+            expectedSha256,
+            primarySha256,
+            mirrorSha256,
+            status: "mismatch",
+            match: false,
+          })
+          continue
+        }
+
+        const matched = primarySha256 === mirrorSha256
+        rows.push({
+          path: rel,
+          primaryPath,
+          mirrorPath,
+          expectedSha256,
+          primarySha256,
+          mirrorSha256,
+          status: matched ? "match" : "mismatch",
+          match: matched,
+        })
+      }
+
+      const report = {
+        specVersion: "storage-dual-write-reconcile/1.0",
+        generatedAtUtc: new Date().toISOString(),
+        sessionId,
+        mode: layering.mode,
+        primary: layering.primary.layer,
+        mirror: layering.mirror?.layer,
+        summary: {
+          total: rows.length,
+          matched: rows.filter((row) => row.match).length,
+          mismatched: rows.filter((row) => !row.match).length,
+        },
+        results: rows,
+      }
+
+      if (layering.reconcile.enabled) {
+        await writeDual(layering.reconcile.reportPath, stableJson(report))
+      }
+
+      return report
     }
 
     return {
@@ -746,6 +904,7 @@ export const EvidenceWriter = {
       pack,
       microPack,
       manifest,
+      reconcile,
     }
   },
 }

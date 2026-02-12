@@ -6,6 +6,9 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
 const A2_FLAG = "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2"
+const STORAGE_LAYERING_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_LAYERING"
+const STORAGE_DUAL_WRITE_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_DUAL_WRITE"
+const STORAGE_RECONCILE_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_RECONCILE"
 
 const withA2 = async (value: string | undefined, fn: () => Promise<void>) => {
   const prev = process.env[A2_FLAG]
@@ -25,7 +28,98 @@ const withA2 = async (value: string | undefined, fn: () => Promise<void>) => {
   })
 }
 
+const withStorage = async (
+  value: {
+    layering?: string
+    dualWrite?: string
+    reconcile?: string
+  },
+  fn: () => Promise<void>,
+) => {
+  const prevLayering = process.env[STORAGE_LAYERING_FLAG]
+  const prevDualWrite = process.env[STORAGE_DUAL_WRITE_FLAG]
+  const prevReconcile = process.env[STORAGE_RECONCILE_FLAG]
+
+  const set = (key: string, next: string | undefined) => {
+    if (next === undefined) {
+      delete process.env[key]
+      return
+    }
+    process.env[key] = next
+  }
+
+  set(STORAGE_LAYERING_FLAG, value.layering)
+  set(STORAGE_DUAL_WRITE_FLAG, value.dualWrite)
+  set(STORAGE_RECONCILE_FLAG, value.reconcile)
+
+  return Promise.resolve(fn()).finally(() => {
+    set(STORAGE_LAYERING_FLAG, prevLayering)
+    set(STORAGE_DUAL_WRITE_FLAG, prevDualWrite)
+    set(STORAGE_RECONCILE_FLAG, prevReconcile)
+  })
+}
+
 describe("evidence export tenant compat", () => {
+  test("writes auditable dual-write reconcile report when storage layering is enabled", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "export_reconcile"
+        const tenantId = "tenant_acme"
+        const orgId = "org_ops"
+
+        await withA2("1", async () => {
+          await withStorage(
+            {
+              layering: "1",
+              dualWrite: "1",
+              reconcile: "1",
+            },
+            async () => {
+              const writer = await EvidenceWriter.open({ sessionId, tenantId, orgId })
+              await writer.event({
+                specVersion: "event/1.0",
+                ts: "2026-02-12T00:00:00.000Z",
+                sessionId,
+                severity: "info",
+                actor: "test:tenant",
+                type: "tenant.namespaced",
+                summary: "dual-write",
+                redaction: { applied: true, policyVersion: "v1" },
+              })
+              await writer.artifact({
+                kind: "worktree-patch",
+                path: "worktree/changes.patch",
+                data: "diff --git a/a b/a",
+              })
+              await writer.pack({ handoff: "tenant" })
+              await writer.reconcile()
+
+              const report = path.join(
+                tmp.path,
+                ".opencode",
+                "evidence-layering",
+                tenantId,
+                orgId,
+                sessionId,
+                "dual-write-reconcile.json",
+              )
+
+              expect(await Bun.file(report).exists()).toBe(true)
+              const payload = JSON.parse(await Bun.file(report).text()) as {
+                summary?: { mismatched?: number }
+                results?: Array<{ match?: boolean }>
+              }
+              expect(payload.summary?.mismatched).toBe(0)
+              expect((payload.results ?? []).some((item) => item.match === true)).toBe(true)
+            },
+          )
+        })
+      },
+    })
+  })
+
   test("prefers tenant namespaced evidence when both namespaced and legacy manifests exist", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
