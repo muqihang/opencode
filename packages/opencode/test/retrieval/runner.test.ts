@@ -38,6 +38,10 @@ test("retrieval events are call-scoped and context pack includes evidence pointe
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
+      const derivedRoot = path.join(Instance.worktree, ".opencode", "artifacts", "session_r", "derived", "input-freshness")
+      await fs.mkdir(path.join(derivedRoot, "unpacked"), { recursive: true })
+      await Bun.write(path.join(derivedRoot, "chunks.json"), JSON.stringify([{ chunk_index: 0 }]))
+
       const run = await runRetrieval({
         sessionId: "session_r",
         messageId: "msg_r",
@@ -47,6 +51,17 @@ test("retrieval events are call-scoped and context pack includes evidence pointe
 
       expect(run.retrievalId.length).toBeGreaterThan(0)
       expect(run.artifacts.hits.endsWith(`retrieval/${run.retrievalId}/hits.json`)).toBe(true)
+
+      const hitsFile = path.join(Instance.worktree, run.artifacts.hits)
+      const hits = JSON.parse(await Bun.file(hitsFile).text()) as Array<Record<string, unknown>>
+      expect(hits.length).toBeGreaterThan(0)
+      expect(hits.some((item) => item.source === "workbench")).toBe(true)
+      for (const hit of hits) {
+        expect(typeof hit.observed_at).toBe("string")
+        expect(Number.isNaN(Date.parse(hit.observed_at as string))).toBe(false)
+        expect(typeof hit.freshness_score).toBe("number")
+        expect(typeof hit.stale_reason).toBe("string")
+      }
 
       const eventsPathValue = await eventsPath("session_r")
       const events = (await Bun.file(eventsPathValue).text())

@@ -18,6 +18,9 @@ export type WorkbenchHit = {
   score_bps: number
   source: "workbench"
   origin: { inputId: string; kind: string }
+  observed_at: string
+  freshness_score: number
+  stale_reason: string
 }
 
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
@@ -89,6 +92,11 @@ const firstChunkAnchor = async (file: string) => {
   return { chunkIndex: index }
 }
 
+const stale = (kind: string) => {
+  if (kind === "archive") return "archive_snapshot"
+  return ""
+}
+
 export const runWorkbenchRetrieval = async (input: {
   sessionId: string
   inputId: string
@@ -105,6 +113,7 @@ export const runWorkbenchRetrieval = async (input: {
   ]
 
   const hits: WorkbenchHit[] = []
+  const observedAt = new Date().toISOString()
   for (const item of items) {
     const exists = await Bun.file(item.file).exists()
     if (!exists) continue
@@ -121,6 +130,9 @@ export const runWorkbenchRetrieval = async (input: {
       score_bps: 8000,
       source: "workbench",
       origin: { inputId: input.inputId, kind: item.kind },
+      observed_at: observedAt,
+      freshness_score: item.kind === "archive" ? 0.7 : 0.85,
+      stale_reason: stale(item.kind),
     })
   }
 
