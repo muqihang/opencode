@@ -314,11 +314,12 @@ const rerunCriticWithPointers = async (input: {
   model?: WorkerModel
   runs: WorkerEntry[]
   broker?: BrokerOutput
-  workingSetPointers: string[]
+  workingSetPointers?: string[]
 }) => {
   const critic = input.runs.find((item) => item.workerId === "evidence_critic")
   if (!critic) return input.runs
   if (critic.run.result.status === "ok") return input.runs
+  if (input.workingSetPointers !== undefined) return input.runs
 
   const pointers = await extractWorkingSetPointers(input.broker)
   if (pointers.length === 0) return input.runs
@@ -333,7 +334,7 @@ const rerunCriticWithPointers = async (input: {
     sessionId: input.sessionId,
     plan: input.plan,
     intentText: input.intentText,
-    workingSetPointers: [...input.workingSetPointers, planPreview, ...pointers],
+    workingSetPointers: [...(input.workingSetPointers ?? []), planPreview, ...pointers],
   })
 
   const rerun = await WorkerRunner.run({
@@ -382,12 +383,12 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
   if (cached) return cached
 
   const task = async () => {
-    const basePointers = input.workingSetPointers ?? []
+    const basePointers = input.workingSetPointers
     const rolePack = buildRolePack({
       sessionId: input.sessionId,
       plan: input.plan,
       intentText: input.intentText,
-      workingSetPointers: basePointers,
+      workingSetPointers: basePointers ?? [],
     })
     const workers = input.plan.workers
     const runs = await Promise.all(
