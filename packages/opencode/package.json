@@ -9,6 +9,7 @@
     "typecheck": "node node_modules/@typescript/native-preview/bin/tsgo.js --noEmit",
     "test": "bun test",
     "test:offline-eval": "bun run script/test-offline-eval.ts",
+    "build:online-gate-dashboard": "bun run script/build-online-gate-dashboard.ts",
     "build": "bun run script/build.ts",
     "dev": "bun run --conditions=browser ./src/index.ts",
     "random": "echo 'Random script updated at $(date)' && echo 'Change queued successfully' && echo 'Another change made' && echo 'Yet another change' && echo 'One more change' && echo 'Final change' && echo 'Another final change' && echo 'Yet another final change'",
