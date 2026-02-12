@@ -4,6 +4,12 @@
 - 目的：收敛并行看板/日报口径，固定后续执行与检查的唯一依据
 - 范围：仅 `CARD-BLK-06` 执行治理，不跨卡改口径
 
+## 最新状态（2026-02-12 closeout 追加）
+
+- `superseded by final-gate-closeout-2026-02-12.md`：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/final-gate-closeout-2026-02-12.md`
+- 当前最终门禁结论：`GO（本地）`，`A→E` 全通过，生效基线为 `1868f3c179f37d3634c357d09ea1d47997d2a26a`。
+- 历史 `Final No-Go` / `ND-I1-PROVIDER-WIRE-01 open` 条目属于时点证据，保留原文，不删除，仅由本次 closeout 结论覆盖说明。
+
 ## 1) 结论（口径收敛）
 
 - 后续治理判定采用“`6张卡进度` + `13项任务进度` 双维显示”，但判定规则仅认 canonical 文档集合。
@@ -151,4 +157,3 @@
 - 回退触发：到期未达到 provider-wire `20/20 complete` => 维持 `Red + Final No-Go`
 - 口径边界：本例外放行不改变阈值/规则，不得将 `CARD-BLK-01` 标记为 Final Go
 - Waiver 主文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-01/exception-waiver-2026-02-11.md`
-

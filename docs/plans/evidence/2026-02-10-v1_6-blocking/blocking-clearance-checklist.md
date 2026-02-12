@@ -4,6 +4,12 @@
 - 适用范围：`P0-A1~P0-A8` 与 `I.1/I.3/I.2/I.4/I.5`
 - 判定规则：任一项缺失 `Owner/DoD/EvidencePath/ETA/RollbackAction` 或未签收，结论必须为 `阻断未解除`
 
+## 最新状态（2026-02-12 closeout 追加）
+
+- `superseded by final-gate-closeout-2026-02-12.md`：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/final-gate-closeout-2026-02-12.md`
+- 当前最终门禁结论：`GO（本地）`，`A→E` 全通过，最终基线 commit：`1868f3c179f37d3634c357d09ea1d47997d2a26a`。
+- 历史 `Final No-Go` 及相关 open 条目保留为时点审计证据，不删改历史，仅由本次 closeout 对“当前状态”做覆盖说明。
+
 ## 0) Need-Decision（信息不足先升级）
 
 | ID | Need-Decision | 建议负责人 | SLA | 对阻断判定影响 |
@@ -151,4 +157,3 @@
 - 回退条件：到期未补齐 provider-wire `20/20` 即恢复并维持 `Red + Final No-Go`
 - 引用文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-01/exception-waiver-2026-02-11.md`
 - 边界声明：例外放行只影响 D2 统计执行，不等于 `CARD-BLK-01` Final 主因签收
-

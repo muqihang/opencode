@@ -4,6 +4,12 @@
 - 追踪目标：`P0-A1~P0-A8 + I前5` 的实名映射与签收状态回填
 - 不变约束：不改阈值，不改决策口径，不改业务代码
 
+## 最新状态（2026-02-12 closeout 追加）
+
+- `superseded by final-gate-closeout-2026-02-12.md`：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/final-gate-closeout-2026-02-12.md`
+- 当前最终门禁结论：`GO（本地）`，`A→E` 全通过，最终合并基线为 `1868f3c179f37d3634c357d09ea1d47997d2a26a`。
+- 本文档历史 `Final No-Go` / `ND-I1-PROVIDER-WIRE-01 open` 记录保留为时点证据，不删旧条目，仅由 2026-02-12 closeout 覆盖当前状态解释。
+
 ## 时间轴追踪
 
 | 时间点 | 检查动作 | 检查范围 | 通过标准 | 未通过动作 | 升级路径 | 证据落盘 |
@@ -199,4 +205,3 @@
 - 回退触发：到期仍未 `20/20 complete` 即恢复并维持 `Red + Final No-Go`
 - Waiver 文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-01/exception-waiver-2026-02-11.md`
 - 口径提醒：本例外放行不等于 Final 签收，不得标记 `CARD-BLK-01 Final Go`
-
