@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { ContextPack } from "../../src/protocol/context-pack"
 import { ContextPackBuilder } from "../../src/session/context-pack"
 import { ContextBlocks } from "../../src/session/context-blocks"
+import { AnchorSnapshot } from "../../src/session/anchor-snapshot"
 
 const model = {
   providerID: "openai",
@@ -159,5 +160,42 @@ describe("context-pack determinism", () => {
 
     expect(ids).toEqual(expected)
     expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  test("anchor-snapshot/1.0 has required core fields", () => {
+    const snapshot = AnchorSnapshot.build({
+      sessionId: "session_a",
+      messageId: "message_a",
+      planId: "plan_a",
+      toolsetFingerprint: "toolset_fp_a",
+      model: { providerId: model.providerID, modelId: model.id },
+      repo: { head: "HEAD", dirty: true },
+      context: {
+        lastContextPackId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        orchestratorMode: "assist",
+      },
+      generatedAtUtc: "2026-02-12T00:00:00.000Z",
+    })
+
+    const parsed = AnchorSnapshot.Schema.parse(snapshot)
+
+    expect(parsed.specVersion).toBe("anchor-snapshot/1.0")
+    expect(parsed.sessionId).toBe("session_a")
+    expect(parsed.messageId).toBe("message_a")
+    expect(parsed.planId).toBe("plan_a")
+    expect(parsed.toolsetFingerprint).toBe("toolset_fp_a")
+  })
+
+  test("missing anchor snapshot is fail-closed for replay", () => {
+    const check = AnchorSnapshot.checkReplay({
+      sessionId: "session_a",
+      lastContextPackId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      pointer: undefined,
+    })
+
+    expect(check.ok).toBe(false)
+    if (check.ok) return
+    expect(check.reasonZh.includes("fail-closed")).toBe(true)
+    expect(check.nextStepsZh.length).toBeGreaterThan(0)
   })
 })

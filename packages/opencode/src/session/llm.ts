@@ -37,6 +37,7 @@ import { SecureOutputContract } from "./secure-output-contract"
 import { runRetrieval } from "@/retrieval/runner"
 import { ulid } from "ulid"
 import { ContextLedger } from "./context-ledger"
+import { AnchorSnapshot } from "./anchor-snapshot"
 import { GeminiCachedContent } from "@/provider/gemini-cached-content"
 import { packPromptSections } from "@/session/orchestrator/prepare"
 import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
@@ -677,6 +678,25 @@ export namespace LLM {
       path: ["context", pack.contextPackId, "context-pack.json"].join("/"),
       data: stableJson(pack),
     })
+    const anchor = AnchorSnapshot.build({
+      sessionId: input.sessionID,
+      messageId: input.user.id,
+      planId: "unknown",
+      generatedAtUtc: new Date().toISOString(),
+      repo: { head: "unknown", dirty: false },
+      model: { providerId: input.model.providerID, modelId: input.model.id },
+      context: {
+        lastContextPackId: ledger.lastContextPackId,
+        orchestratorMode: input.retrievalRoute?.main?.mode ?? "unknown",
+      },
+      toolsetFingerprint: blocks.toolsetFingerprint,
+    })
+    const anchorEntry = await writer.artifact({
+      kind: "anchor-snapshot",
+      path: ["context", pack.contextPackId, "anchor.snapshot.json"].join("/"),
+      data: stableJson(anchor),
+    })
+
     await writer.event({
       specVersion: "event/1.0",
       ts: new Date().toISOString(),
@@ -702,7 +722,29 @@ export namespace LLM {
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
-    await ContextLedger.write({ sessionId: input.sessionID, lastContextPackId: pack.contextPackId })
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: input.sessionID,
+      severity: "info",
+      actor: "session:llm",
+      type: "anchor.snapshot",
+      summary: "anchor snapshot recorded",
+      data: {
+        specVersion: anchor.specVersion,
+        contextPackId: pack.contextPackId,
+        messageId: anchor.messageId,
+        planId: anchor.planId,
+        toolsetFingerprint: anchor.toolsetFingerprint,
+        artifact: anchorEntry.path,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    await ContextLedger.write({
+      sessionId: input.sessionID,
+      lastContextPackId: pack.contextPackId,
+      lastAnchorSnapshot: { path: anchorEntry.path, sha256: anchorEntry.sha256 },
+    })
 
     const paramsOptions = geminiCached?.cachedContentId ? { ...params.options, cachedContent: geminiCached.cachedContentId } : params.options
     const systemForModel = iife(() => {
