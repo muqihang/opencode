@@ -1,5 +1,14 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（P2 final closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-final-closeout-2026-02-12.md`
+- P2 全链路主线：`0e9de905e -> a5228a796 -> 4b76387dc -> a8f67fc4c -> 0802345e3 -> 79fdd5ce8`
+- P2-FINAL-GATE-01 门禁摘要：`B2~B9`、`C1~C12`、`D1~D2` 全部 `exit code = 0`
+- 当前结论：`GO（本地）`
+- 风险与噪音处理：`packages/opencode/offline-eval-nightly-report.json` 与 `packages/opencode/offline-eval-nightly-summary.md` 已移动到 `/tmp/opencode-premerge-stash/p2-final/`，未纳入版本库
+- 声明：历史 `No-Go` 仅为时点证据；本条为 append-only 覆盖说明，不改写历史正文与既有阻断判定条目。
+
 ## 最新状态（P2 wave-a closeout）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-a-closeout-2026-02-12.md`
