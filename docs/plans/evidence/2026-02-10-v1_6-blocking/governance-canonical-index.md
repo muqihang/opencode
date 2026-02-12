@@ -1,5 +1,17 @@
 # CARD-BLK-06 治理口径 Canonical Index
 
+## 最新状态（P4 plan established）
+
+- 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p4-wave-plan-2026-02-12.md`
+- 增量目录骨架：
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p4-1/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p4-2/README.md`
+- 前置状态：`P3 已闭环`
+- 执行范围：`P4 仅处理 I.1 + I.11`
+- 执行边界：`I.1 外部阻塞闭环；I.11 仅 deferred 治理（本波次不做代码实现）`
+- 当前结论：`P4 plan established（可执行，最终签收严格受 I.1 结果约束）`
+- 声明：本条为 append-only 当前状态覆盖说明；历史 `No-Go/Blocked` 记录保留，不改写历史正文。
+
 ## 最新状态（P3 final closeout）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p3-wave-final-closeout-2026-02-12.md`

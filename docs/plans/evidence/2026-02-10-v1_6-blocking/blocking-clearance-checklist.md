@@ -1,5 +1,17 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（P4 plan established）
+
+- 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p4-wave-plan-2026-02-12.md`
+- 增量目录骨架：
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p4-1/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p4-2/README.md`
+- 前置状态：`P3 已闭环`
+- 执行范围：`P4 仅处理 I.1 + I.11`
+- 门禁说明：`P4 执行可 GO（带 I.1 外部阻塞说明）；最终签收是否放行严格受 I.1 结果约束`
+- 执行边界：`I.11 本波次仅治理，不进入代码实现`
+- 声明：本条为 append-only 当前状态覆盖说明，不改写历史正文与既有阻断判定条目。
+
 ## 最新状态（P3 final closeout）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p3-wave-final-closeout-2026-02-12.md`
