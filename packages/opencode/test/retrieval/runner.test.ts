@@ -195,3 +195,89 @@ test("retrieval cache can be disabled via env and then heavy work runs again", a
     },
   })
 })
+
+test("retrieval writes probe journal and marks duplicate probe by message+key", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      await fs.mkdir(path.join(dir, "src"), { recursive: true })
+      await Bun.write(path.join(dir, "src", "alpha.ts"), "export const alpha = 1\n")
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const sessionId = "session_probe"
+      const messageId = "msg_probe"
+
+      const one = await runRetrieval({
+        sessionId,
+        messageId,
+        intentText: "alpha",
+        abort: new AbortController().signal,
+      })
+      const two = await runRetrieval({
+        sessionId,
+        messageId,
+        intentText: "alpha",
+        abort: new AbortController().signal,
+      })
+
+      const onePath = path.join(
+        Instance.worktree,
+        ".opencode",
+        "artifacts",
+        sessionId,
+        "retrieval",
+        one.retrievalId,
+        "probe.journal.json",
+      )
+      const twoPath = path.join(
+        Instance.worktree,
+        ".opencode",
+        "artifacts",
+        sessionId,
+        "retrieval",
+        two.retrievalId,
+        "probe.journal.json",
+      )
+
+      const oneProbe = JSON.parse(await Bun.file(onePath).text()) as {
+        specVersion?: string
+        messageId?: string
+        probeId?: string
+        dedupeKey?: string
+        why?: string
+        queries?: unknown
+        expectedEvidence?: { artifacts?: unknown }
+        dedupe?: { duplicate?: boolean; seen?: number }
+      }
+      const twoProbe = JSON.parse(await Bun.file(twoPath).text()) as {
+        specVersion?: string
+        messageId?: string
+        probeId?: string
+        dedupeKey?: string
+        why?: string
+        queries?: unknown
+        expectedEvidence?: { artifacts?: unknown }
+        dedupe?: { duplicate?: boolean; seen?: number }
+      }
+
+      expect(oneProbe.specVersion).toBe("probe-journal/1.0")
+      expect(oneProbe.messageId).toBe(messageId)
+      expect(typeof oneProbe.probeId).toBe("string")
+      expect(typeof oneProbe.dedupeKey).toBe("string")
+      expect(typeof oneProbe.why).toBe("string")
+      expect(Array.isArray(oneProbe.queries)).toBe(true)
+      expect(Array.isArray(oneProbe.expectedEvidence?.artifacts)).toBe(true)
+
+      expect(twoProbe.specVersion).toBe("probe-journal/1.0")
+      expect(twoProbe.messageId).toBe(messageId)
+      expect(twoProbe.dedupeKey).toBe(oneProbe.dedupeKey)
+      expect(oneProbe.dedupe?.duplicate).toBe(false)
+      expect(twoProbe.dedupe?.duplicate).toBe(true)
+      expect(twoProbe.dedupe?.seen).toBeGreaterThanOrEqual(2)
+    },
+  })
+})

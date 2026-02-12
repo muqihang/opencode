@@ -32,6 +32,7 @@ type RetrievalArtifacts = {
   spec: string
   hits: string
   dedupe: string
+  probe: string
   errors?: string
 }
 
@@ -235,6 +236,37 @@ const buildPlan = (intentText: string): RetrievalPlanForKey => {
     sources: ["code", "workbench"],
     versions: { rules: "v1", stableJson: "v1" },
   }
+}
+
+type ProbeJournal = {
+  specVersion: "probe-journal/1.0"
+  probeId: string
+  retrievalId: string
+  sessionId: string
+  messageId: string
+  dedupeKey: string
+  why: string
+  queries: RetrievalPlanForKey["queries"]
+  expectedEvidence: {
+    artifacts: string[]
+    topK: number
+  }
+  dedupe: {
+    by: "messageId+dedupeKey"
+    duplicate: boolean
+    seen: number
+  }
+  createdAtUtc: string
+}
+
+const probeRoot = (sessionId: string) => path.join(baseDir(), ".opencode", "artifacts", sessionId, "retrieval")
+
+const countProbeMatches = async (input: { sessionId: string; messageId: string; dedupeKey: string }) => {
+  const root = probeRoot(input.sessionId)
+  const dirs = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
+  const files = dirs.filter((item) => item.isDirectory()).map((item) => path.join(root, item.name, "probe.journal.json"))
+  const rows = await Promise.all(files.map((item) => Bun.file(item).json().catch(() => undefined)))
+  return rows.filter((item) => isRecord(item) && item.messageId === input.messageId && item.dedupeKey === input.dedupeKey).length
 }
 
 const writeErrorArtifact = async (writer: Awaited<ReturnType<typeof EvidenceWriter.open>>, input: { retrievalId: string; errors: Array<{ stage: string; error: string }> }) => {
@@ -591,6 +623,42 @@ export const RetrievalRunner = {
     })
     const errorEntry = await writeErrorArtifact(writer, { retrievalId, errors })
 
+    const expectedArtifacts = [strip(specEntry.path), strip(hitsEntry.path), strip(dedupeEntry.path)]
+    if (errorEntry) expectedArtifacts.push(strip(errorEntry.path))
+
+    const seen = (await countProbeMatches({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      dedupeKey: cacheKey,
+    })) + 1
+
+    const probe: ProbeJournal = {
+      specVersion: "probe-journal/1.0",
+      probeId: retrievalId,
+      retrievalId,
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      dedupeKey: cacheKey,
+      why: "retrieval runner probe for evidence planning and message-level dedupe audit",
+      queries: plan.queries,
+      expectedEvidence: {
+        artifacts: expectedArtifacts,
+        topK: 5,
+      },
+      dedupe: {
+        by: "messageId+dedupeKey",
+        duplicate: seen > 1,
+        seen,
+      },
+      createdAtUtc: new Date().toISOString(),
+    }
+
+    const probeEntry = await writer.artifact({
+      kind: "retrieval-probe-journal",
+      path: `retrieval/${retrievalId}/probe.journal.json`,
+      data: stableJson(probe),
+    })
+
     const topK = finalizedHits
       .slice(0, 5)
       .map((item) => pointerFromHit(item))
@@ -600,6 +668,7 @@ export const RetrievalRunner = {
       { path: strip(specEntry.path), sha256: specEntry.sha256, kind: specEntry.kind },
       { path: strip(hitsEntry.path), sha256: hitsEntry.sha256, kind: hitsEntry.kind },
       { path: strip(dedupeEntry.path), sha256: dedupeEntry.sha256, kind: dedupeEntry.kind },
+      { path: strip(probeEntry.path), sha256: probeEntry.sha256, kind: probeEntry.kind },
     ]
     if (errorEntry) artifacts.push({ path: strip(errorEntry.path), sha256: errorEntry.sha256, kind: errorEntry.kind })
 
@@ -635,7 +704,13 @@ export const RetrievalRunner = {
           spec: strip(specEntry.path),
           hits: strip(hitsEntry.path),
           dedupe: strip(dedupeEntry.path),
+          probe: strip(probeEntry.path),
           errors: errorEntry ? strip(errorEntry.path) : undefined,
+        },
+        probe: {
+          dedupeKey: probe.dedupeKey,
+          duplicate: probe.dedupe.duplicate,
+          seen: probe.dedupe.seen,
         },
         reason: state.reason || (input.abort.aborted ? "user_abort" : budgetState.timedOut ? "timeout" : ""),
       },
@@ -649,6 +724,7 @@ export const RetrievalRunner = {
         spec: strip(specEntry.path),
         hits: strip(hitsEntry.path),
         dedupe: strip(dedupeEntry.path),
+        probe: strip(probeEntry.path),
         errors: errorEntry ? strip(errorEntry.path) : undefined,
       },
       evidencePointers,
