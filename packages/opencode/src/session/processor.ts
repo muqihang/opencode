@@ -24,6 +24,7 @@ import { prepareOrchestratorPlan } from "./orchestrator/prepare"
 import { runOrchestratorTurn } from "./orchestrator"
 import { renderForkNotice, runForkTask } from "./orchestrator/fork"
 import { resolveForkStrategy, resolveSecureOutputMode } from "./orchestrator/policy"
+import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
 
 export type OrchestratorRollout = {
   enabled: boolean
@@ -82,6 +83,10 @@ type OrchestratorTurnShape = {
   system: string[]
   tools: Record<string, Tool>
   degraded: boolean
+  retrievalMain?: {
+    enabled: boolean
+    mode: OrchestratorMode
+  }
 }
 
 const withV16Rollout = <T extends object>(input: {
@@ -638,18 +643,42 @@ export namespace SessionProcessor {
           })
           return { enabled: true as const, degraded: true as const }
         })
-        const orchestratorTurn = await (async () => {
+        const orchestratorTurn: OrchestratorTurnShape = await (async () => {
           const base = { system: streamInput.system, tools: streamInput.tools }
-          if (!orchestrator.enabled) return { ...base, degraded: false }
-          if (orchestrator.degraded) return { ...base, degraded: true }
+          if (!orchestrator.enabled) {
+            return {
+              ...base,
+              degraded: false,
+              retrievalMain: {
+                enabled: false,
+                mode: "chat" as OrchestratorMode,
+              },
+            }
+          }
+          if (orchestrator.degraded) {
+            return {
+              ...base,
+              degraded: true,
+              retrievalMain: {
+                enabled: false,
+                mode: "chat" as OrchestratorMode,
+              },
+            }
+          }
+          const main = {
+            enabled: false,
+            mode: "chat" as OrchestratorMode,
+          }
           const runAssistBeforeFork =
             orchestrator.plan.orchestratorMode === "fork" &&
             orchestrator.features.features.hasVerificationIntent === true &&
             orchestrator.plan.workers.length > 0
-          return executeOrchestratorTurnByRollout({
+          const turn = await executeOrchestratorTurnByRollout({
             rollout,
             base,
             run: async (gate) =>
+              (main.enabled = true,
+              main.mode = runAssistBeforeFork ? "assist" : orchestrator.plan.orchestratorMode,
               runOrchestratorTurn({
                 sessionId: input.sessionID,
                 messageId: streamInput.user.id,
@@ -669,8 +698,12 @@ export namespace SessionProcessor {
                   providerID: streamInput.model.providerID,
                   modelID: streamInput.model.id,
                 },
-              }),
+              })),
           })
+          return {
+            ...turn,
+            retrievalMain: main,
+          }
         })().catch(async (error) => {
           await writeOrchestratorDegraded({
             sessionId: input.sessionID,
@@ -678,7 +711,15 @@ export namespace SessionProcessor {
             stage: "turn",
             reason: errorText(error),
           })
-          return { system: streamInput.system, tools: streamInput.tools, degraded: true }
+          return {
+            system: streamInput.system,
+            tools: streamInput.tools,
+            degraded: true,
+            retrievalMain: {
+              enabled: false,
+              mode: "chat" as OrchestratorMode,
+            },
+          }
         })
         const forkNotice = await (async () => {
           if (!orchestrator.enabled) return
@@ -740,6 +781,14 @@ export namespace SessionProcessor {
               ...streamInput,
               system: forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system,
               tools: orchestratorTurn.tools,
+              retrievalRoute: {
+                main: {
+                  source: "orchestrator" as const,
+                  enabled: orchestratorTurn.retrievalMain?.enabled ?? false,
+                  mode: orchestratorTurn.retrievalMain?.mode ?? "chat",
+                  degraded: orchestratorTurn.degraded,
+                },
+              },
             }
             const stream = await LLM.stream(orchestratedInput)
 
