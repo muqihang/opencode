@@ -25,6 +25,7 @@ import { runOrchestratorTurn } from "./orchestrator"
 import { renderForkNotice, runForkTask } from "./orchestrator/fork"
 import { resolveForkStrategy, resolveSecureOutputMode } from "./orchestrator/policy"
 import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
+import { resolveHybridRoutingPolicy } from "./hybrid-routing-policy"
 
 export type OrchestratorRollout = {
   enabled: boolean
@@ -85,6 +86,7 @@ type OrchestratorTurnShape = {
   degraded: boolean
   retrievalMain?: {
     enabled: boolean
+    coversRetrieval?: boolean
     mode: OrchestratorMode
   }
 }
@@ -777,14 +779,24 @@ export namespace SessionProcessor {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
+            const routingPolicy = resolveHybridRoutingPolicy({
+              strategy: config.experimental?.retrieval_hybrid_strategy,
+              gate: config.experimental?.retrieval_hybrid_compensation_gate,
+              rollback: config.experimental?.retrieval_hybrid_rollback,
+              envStrategy: Flag.OPENCODE_RETRIEVAL_HYBRID_STRATEGY,
+              envGate: Flag.OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE,
+              envRollback: Flag.OPENCODE_RETRIEVAL_HYBRID_ROLLBACK,
+            })
             const orchestratedInput = {
               ...streamInput,
               system: forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system,
               tools: orchestratorTurn.tools,
               retrievalRoute: {
+                policy: routingPolicy,
                 main: {
                   source: "orchestrator" as const,
                   enabled: orchestratorTurn.retrievalMain?.enabled ?? false,
+                  coversRetrieval: orchestratorTurn.retrievalMain?.coversRetrieval,
                   mode: orchestratorTurn.retrievalMain?.mode ?? "chat",
                   degraded: orchestratorTurn.degraded,
                 },

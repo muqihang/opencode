@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { LLM } from "../../src/session/llm"
+import { resolveHybridRoutingPolicy } from "../../src/session/hybrid-routing-policy"
 import type { ModelMessage } from "ai"
 
 describe("session.llm.hasToolCalls", () => {
@@ -93,15 +94,17 @@ describe("session.llm.compensation-retrieval", () => {
   test("orchestrator assist main chain suppresses compensation retrieval", async () => {
     const calls: string[] = []
 
-    const result = await LLM.runCompensationRetrieval({
+    const result = await LLM.runCompensationRetrieval<string>({
       sessionID: "s-main-chain",
       messageID: "m-main-chain",
       intentText: "need retrieval",
       abort: new AbortController().signal,
       route: {
+        policy: resolveHybridRoutingPolicy({ gate: "balanced" }),
         main: {
           source: "orchestrator",
           enabled: true,
+          coversRetrieval: true,
           mode: "assist",
           degraded: false,
         },
@@ -119,15 +122,17 @@ describe("session.llm.compensation-retrieval", () => {
   test("orchestrator degraded allows compensation retrieval fallback", async () => {
     const calls: string[] = []
 
-    const result = await LLM.runCompensationRetrieval({
+    const result = await LLM.runCompensationRetrieval<string>({
       sessionID: "s-main-chain-degraded",
       messageID: "m-main-chain-degraded",
       intentText: "need retrieval",
       abort: new AbortController().signal,
       route: {
+        policy: resolveHybridRoutingPolicy({ gate: "balanced" }),
         main: {
           source: "orchestrator",
           enabled: true,
+          coversRetrieval: true,
           mode: "assist",
           degraded: true,
         },
@@ -140,5 +145,136 @@ describe("session.llm.compensation-retrieval", () => {
 
     expect(result).toBe("ok")
     expect(calls.length).toBe(1)
+  })
+
+  test("strict gate keeps orchestrator main-chain priority when main is healthy", async () => {
+    const calls: string[] = []
+
+    const result = await LLM.runCompensationRetrieval<string>({
+      sessionID: "s-main-chain-strict",
+      messageID: "m-main-chain-strict",
+      intentText: "need retrieval",
+      abort: new AbortController().signal,
+      route: {
+        policy: resolveHybridRoutingPolicy({ gate: "strict" }),
+        main: {
+          source: "orchestrator",
+          enabled: true,
+          coversRetrieval: false,
+          mode: "chat",
+          degraded: false,
+        },
+      },
+      execute: async (input) => {
+        calls.push(input.intentText)
+        return "ok"
+      },
+    })
+
+    expect(result).toBeUndefined()
+    expect(calls.length).toBe(0)
+  })
+
+  test("balanced gate runs compensation when orchestrator main cannot cover retrieval", async () => {
+    const calls: string[] = []
+
+    const result = await LLM.runCompensationRetrieval<string>({
+      sessionID: "s-main-chain-balanced",
+      messageID: "m-main-chain-balanced",
+      intentText: "need retrieval",
+      abort: new AbortController().signal,
+      route: {
+        policy: resolveHybridRoutingPolicy({ gate: "balanced" }),
+        main: {
+          source: "orchestrator",
+          enabled: true,
+          coversRetrieval: false,
+          mode: "chat",
+          degraded: false,
+        },
+      },
+      execute: async (input) => {
+        calls.push(input.intentText)
+        return "ok"
+      },
+    })
+
+    expect(result).toBe("ok")
+    expect(calls.length).toBe(1)
+  })
+
+  test("off gate disables compensation even when main is degraded", async () => {
+    const calls: string[] = []
+
+    const result = await LLM.runCompensationRetrieval<string>({
+      sessionID: "s-main-chain-off",
+      messageID: "m-main-chain-off",
+      intentText: "need retrieval",
+      abort: new AbortController().signal,
+      route: {
+        policy: resolveHybridRoutingPolicy({ gate: "off" }),
+        main: {
+          source: "orchestrator",
+          enabled: true,
+          coversRetrieval: true,
+          mode: "assist",
+          degraded: true,
+        },
+      },
+      execute: async (input) => {
+        calls.push(input.intentText)
+        return "ok"
+      },
+    })
+
+    expect(result).toBeUndefined()
+    expect(calls.length).toBe(0)
+  })
+})
+
+describe("session.hybrid-routing-policy", () => {
+  test("invalid gate falls back to orchestrator-main rollback policy", () => {
+    const policy = resolveHybridRoutingPolicy({
+      gate: "broken",
+    })
+
+    expect(policy.source).toBe("fallback")
+    expect(policy.compensationGate).toBe("strict")
+    expect(policy.rollback).toBe("orchestrator_main")
+  })
+
+  test("config policy is explicit and valid", () => {
+    const policy = resolveHybridRoutingPolicy({
+      strategy: "main_first",
+      gate: "strict",
+      rollback: "orchestrator_main",
+    })
+
+    expect(policy.source).toBe("config")
+    expect(policy.strategy).toBe("main_first")
+    expect(policy.compensationGate).toBe("strict")
+    expect(policy.rollback).toBe("orchestrator_main")
+  })
+
+  test("invalid env strategy triggers fallback policy", () => {
+    const policy = resolveHybridRoutingPolicy({
+      envStrategy: "legacy",
+    })
+
+    expect(policy.source).toBe("fallback")
+    expect(policy.compensationGate).toBe("strict")
+    expect(policy.rollback).toBe("orchestrator_main")
+  })
+
+  test("env values override config policy", () => {
+    const policy = resolveHybridRoutingPolicy({
+      strategy: "main_first",
+      gate: "off",
+      rollback: "orchestrator_main",
+      envGate: "balanced",
+    })
+
+    expect(policy.source).toBe("env")
+    expect(policy.compensationGate).toBe("balanced")
   })
 })

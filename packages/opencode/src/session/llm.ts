@@ -40,6 +40,11 @@ import { ContextLedger } from "./context-ledger"
 import { GeminiCachedContent } from "@/provider/gemini-cached-content"
 import { packPromptSections } from "@/session/orchestrator/prepare"
 import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
+import {
+  resolveHybridRoutingPolicy,
+  shouldRunCompensationByPolicy,
+  type HybridRoutingPolicy,
+} from "./hybrid-routing-policy"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -71,9 +76,11 @@ export namespace LLM {
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
 
   export type RetrievalRoute = {
+    policy?: HybridRoutingPolicy
     main?: {
       source: "orchestrator"
       enabled: boolean
+      coversRetrieval?: boolean
       mode: OrchestratorMode
       degraded: boolean
     }
@@ -82,15 +89,13 @@ export namespace LLM {
   type RetrievalRunInput = Parameters<typeof runRetrieval>[0]
   type RetrievalRunOutput = Awaited<ReturnType<typeof runRetrieval>>
 
-  const isMainRetrievalMode = (mode: OrchestratorMode) => mode === "assist" || mode === "heavy"
-
   export const shouldRunCompensationRetrieval = (input: { route?: RetrievalRoute }) => {
-    const main = input.route?.main
-    if (!main) return true
-    if (main.source !== "orchestrator") return true
-    if (!main.enabled) return true
-    if (main.degraded) return true
-    return !isMainRetrievalMode(main.mode)
+    const route = input.route
+    const policy = route?.policy ?? resolveHybridRoutingPolicy()
+    return shouldRunCompensationByPolicy({
+      policy,
+      main: route?.main,
+    })
   }
 
   export async function runCompensationRetrieval<T = RetrievalRunOutput>(input: {

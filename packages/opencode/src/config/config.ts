@@ -201,6 +201,21 @@ export namespace Config {
       result.compaction = { ...result.compaction, prune: false }
     }
 
+    const hybridStrategyFlag = (() => {
+      if (Flag.OPENCODE_RETRIEVAL_HYBRID_STRATEGY === "main_first") return "main_first" as const
+      return
+    })()
+    const hybridGateFlag = (() => {
+      if (Flag.OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE === "strict") return "strict" as const
+      if (Flag.OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE === "balanced") return "balanced" as const
+      if (Flag.OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE === "off") return "off" as const
+      return
+    })()
+    const hybridRollbackFlag = (() => {
+      if (Flag.OPENCODE_RETRIEVAL_HYBRID_ROLLBACK === "orchestrator_main") return "orchestrator_main" as const
+      return
+    })()
+
     const experimental = result.experimental ?? {}
     result.experimental = {
       ...experimental,
@@ -222,6 +237,12 @@ export namespace Config {
         experimental.orchestrator_worker_timeout_ms ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS,
       orchestrator_worker_debug_summary:
         experimental.orchestrator_worker_debug_summary ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY,
+      retrieval_hybrid_strategy:
+        experimental.retrieval_hybrid_strategy ?? hybridStrategyFlag,
+      retrieval_hybrid_compensation_gate:
+        experimental.retrieval_hybrid_compensation_gate ?? hybridGateFlag,
+      retrieval_hybrid_rollback:
+        experimental.retrieval_hybrid_rollback ?? hybridRollbackFlag,
     }
 
     result.plugin = deduplicatePlugins(result.plugin ?? [])
@@ -1299,6 +1320,18 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Show worker summary text in TUI assist progress (debug-only)"),
+          retrieval_hybrid_strategy: z
+            .enum(["main_first"])
+            .optional()
+            .describe("Hybrid LC/RAG routing strategy (explicit, orchestrator main-chain first)"),
+          retrieval_hybrid_compensation_gate: z
+            .enum(["strict", "balanced", "off"])
+            .optional()
+            .describe("Hybrid LC/RAG compensation retrieval gate"),
+          retrieval_hybrid_rollback: z
+            .enum(["orchestrator_main"])
+            .optional()
+            .describe("Hybrid LC/RAG rollback target when policy fails"),
           offline_eval_gates: z
             .boolean()
             .optional()
