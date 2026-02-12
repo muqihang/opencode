@@ -1,0 +1,706 @@
+{
+  "specVersion": "planned-repeat-samples/1.1",
+  "cardId": "CARD-BLK-06",
+  "phase": "P3-3",
+  "generatedAt": "2026-02-12T13:19:00.404Z",
+  "generatedFrom": {
+    "source": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default",
+    "fileCount": 10,
+    "selection": "top10_by_plannedCount_with_repeat"
+  },
+  "sampleCriteria": {
+    "unit": "messageId",
+    "repeatCondition": "cycle>=2",
+    "minRecords": 10,
+    "traceFields": [
+      "messageId",
+      "planId",
+      "cycle",
+      "trigger_source"
+    ],
+    "triggerSourceRule": {
+      "protocol_reentry": [
+        "protocol.violation",
+        "secure_output.degraded",
+        "secure_output.requested"
+      ],
+      "budget_rebound": [
+        "retrieval.degraded",
+        "orchestrator.degraded(stage=adaptive_ttc|dual_pass)",
+        "orchestrator.degraded(reason contains adaptive.ttc|fallback=)"
+      ],
+      "outer_trigger": [
+        "orchestrator.requested",
+        "chat.user",
+        "session.user_message"
+      ],
+      "unknown": "no bridge event matched"
+    }
+  },
+  "causeEnum": [
+    "outer_trigger",
+    "protocol_reentry",
+    "budget_rebound",
+    "unknown"
+  ],
+  "samples": [
+    {
+      "sampleId": "P3-3-001",
+      "sessionId": "ses_3b9622573ffejMRJFrytlZ5nbO",
+      "messageId": "msg_c469dda90001QKDQjpou3Fpgk0",
+      "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+      "first_cause": "budget_rebound",
+      "plannedCount": 16,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b9622573ffejMRJFrytlZ5nbO/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-10T08:14:39.350Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:15:10.559Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "retrieval.degraded",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 3,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:15:48.200Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "retrieval.degraded",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 4,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:16:08.923Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 5,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:16:33.747Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 6,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:17:00.559Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 7,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:17:36.659Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 8,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:18:02.133Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 9,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:18:27.144Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 10,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:19:02.570Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 11,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:19:39.557Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 12,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:20:05.133Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 13,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:20:33.293Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "retrieval.degraded",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 14,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:20:53.521Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 15,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:21:18.690Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 16,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:21:49.392Z",
+          "planId": "01KH39VSQHW69C3F3FF3DQNDA4",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-002",
+      "sessionId": "ses_3b51283d0ffeWbeAOjPM3NUMPy",
+      "messageId": "msg_c4afccdd70015wpQNZI5xYT5R7",
+      "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+      "first_cause": "budget_rebound",
+      "plannedCount": 10,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b51283d0ffeWbeAOjPM3NUMPy/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-11T04:36:49.508Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-11T04:37:31.776Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": [
+            "retrieval.degraded"
+          ]
+        },
+        {
+          "cycle": 3,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:37:40.717Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        },
+        {
+          "cycle": 4,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:37:47.895Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        },
+        {
+          "cycle": 5,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:37:58.678Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        },
+        {
+          "cycle": 6,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:38:06.104Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        },
+        {
+          "cycle": 7,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:38:13.640Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        },
+        {
+          "cycle": 8,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:38:19.675Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        },
+        {
+          "cycle": 9,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:38:49.296Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        },
+        {
+          "cycle": 10,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:38:56.669Z",
+          "planId": "01KH5FSN6ZFH20R6XJK180DK61",
+          "bridge_events": []
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-003",
+      "sessionId": "ses_3b4f22623ffe5MZHLFRUupYZZl",
+      "messageId": "msg_c4b10fc95001F75HfPAhR5167o",
+      "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+      "first_cause": "budget_rebound",
+      "plannedCount": 8,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b4f22623ffe5MZHLFRUupYZZl/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-11T04:58:50.968Z",
+          "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-11T04:59:18.617Z",
+          "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+          "bridge_events": [
+            "retrieval.degraded"
+          ]
+        },
+        {
+          "cycle": 3,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:59:30.281Z",
+          "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+          "bridge_events": []
+        },
+        {
+          "cycle": 4,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:59:42.352Z",
+          "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+          "bridge_events": []
+        },
+        {
+          "cycle": 5,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:59:50.972Z",
+          "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+          "bridge_events": []
+        },
+        {
+          "cycle": 6,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:00:01.917Z",
+          "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+          "bridge_events": []
+        },
+        {
+          "cycle": 7,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:00:11.231Z",
+          "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+          "bridge_events": []
+        },
+        {
+          "cycle": 8,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:00:18.703Z",
+          "planId": "01KH5H1ZPKK6A41GRA5QMCSGX3",
+          "bridge_events": []
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-004",
+      "sessionId": "ses_3b51283d0ffeWbeAOjPM3NUMPy",
+      "messageId": "msg_c4af69bdb001pDTy8nBnuEro6Y",
+      "planId": "01KH5FD8XV8XKEWG175DF9V7DV",
+      "first_cause": "budget_rebound",
+      "plannedCount": 7,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b51283d0ffeWbeAOjPM3NUMPy/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-11T04:30:03.716Z",
+          "planId": "01KH5FD8XV8XKEWG175DF9V7DV",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-11T04:30:38.955Z",
+          "planId": "01KH5FD8XV8XKEWG175DF9V7DV",
+          "bridge_events": [
+            "retrieval.degraded"
+          ]
+        },
+        {
+          "cycle": 3,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:30:51.277Z",
+          "planId": "01KH5FD8XV8XKEWG175DF9V7DV",
+          "bridge_events": []
+        },
+        {
+          "cycle": 4,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:30:57.437Z",
+          "planId": "01KH5FD8XV8XKEWG175DF9V7DV",
+          "bridge_events": []
+        },
+        {
+          "cycle": 5,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:31:05.621Z",
+          "planId": "01KH5FD8XV8XKEWG175DF9V7DV",
+          "bridge_events": []
+        },
+        {
+          "cycle": 6,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:31:11.991Z",
+          "planId": "01KH5FD8XV8XKEWG175DF9V7DV",
+          "bridge_events": []
+        },
+        {
+          "cycle": 7,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T04:31:20.916Z",
+          "planId": "01KH5FD8XV8XKEWG175DF9V7DV",
+          "bridge_events": []
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-005",
+      "sessionId": "ses_3b4f22623ffe5MZHLFRUupYZZl",
+      "messageId": "msg_c4b2661fd001ROME876qiAbbzY",
+      "planId": "01KH5JCS00H62Q1DNCPA94EEGJ",
+      "first_cause": "budget_rebound",
+      "plannedCount": 7,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b4f22623ffe5MZHLFRUupYZZl/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-11T05:22:13.127Z",
+          "planId": "01KH5JCS00H62Q1DNCPA94EEGJ",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-11T05:22:41.726Z",
+          "planId": "01KH5JCS00H62Q1DNCPA94EEGJ",
+          "bridge_events": [
+            "retrieval.degraded"
+          ]
+        },
+        {
+          "cycle": 3,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:22:46.805Z",
+          "planId": "01KH5JCS00H62Q1DNCPA94EEGJ",
+          "bridge_events": []
+        },
+        {
+          "cycle": 4,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:22:54.058Z",
+          "planId": "01KH5JCS00H62Q1DNCPA94EEGJ",
+          "bridge_events": []
+        },
+        {
+          "cycle": 5,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:22:59.972Z",
+          "planId": "01KH5JCS00H62Q1DNCPA94EEGJ",
+          "bridge_events": []
+        },
+        {
+          "cycle": 6,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:23:06.363Z",
+          "planId": "01KH5JCS00H62Q1DNCPA94EEGJ",
+          "bridge_events": []
+        },
+        {
+          "cycle": 7,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:23:10.235Z",
+          "planId": "01KH5JCS00H62Q1DNCPA94EEGJ",
+          "bridge_events": []
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-006",
+      "sessionId": "ses_3b94395d0ffeC634iIBFEBTwWj",
+      "messageId": "msg_c46bc6a4c001nkCj9853ZDTii3",
+      "planId": "01KH3BRWMHV5GHMAJ5MZXDX807",
+      "first_cause": "budget_rebound",
+      "plannedCount": 6,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b94395d0ffeC634iIBFEBTwWj/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-10T08:48:01.176Z",
+          "planId": "01KH3BRWMHV5GHMAJ5MZXDX807",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:49:09.289Z",
+          "planId": "01KH3BRWMHV5GHMAJ5MZXDX807",
+          "bridge_events": [
+            "retrieval.degraded",
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 3,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:50:06.332Z",
+          "planId": "01KH3BRWMHV5GHMAJ5MZXDX807",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 4,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:51:11.242Z",
+          "planId": "01KH3BRWMHV5GHMAJ5MZXDX807",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 5,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:52:03.687Z",
+          "planId": "01KH3BRWMHV5GHMAJ5MZXDX807",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        },
+        {
+          "cycle": 6,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T08:53:10.301Z",
+          "planId": "01KH3BRWMHV5GHMAJ5MZXDX807",
+          "bridge_events": [
+            "orchestrator.degraded:adaptive_ttc:adaptive.ttc.default_2",
+            "orchestrator.degraded:dual_pass:fallback=draft; worker status degraded"
+          ]
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-007",
+      "sessionId": "ses_3b97154bcffeBP7uJXTIKkhQA0",
+      "messageId": "msg_c468eab4b001r6PuIIc11LJ3JC",
+      "planId": "01KH38XCH2E9MNS80AA0CQSSJC",
+      "first_cause": "budget_rebound",
+      "plannedCount": 4,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b97154bcffeBP7uJXTIKkhQA0/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-10T07:58:02.792Z",
+          "planId": "01KH38XCH2E9MNS80AA0CQSSJC",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-10T07:59:53.065Z",
+          "planId": "01KH38XCH2E9MNS80AA0CQSSJC",
+          "bridge_events": [
+            "retrieval.degraded"
+          ]
+        },
+        {
+          "cycle": 3,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-10T08:01:45.860Z",
+          "planId": "01KH38XCH2E9MNS80AA0CQSSJC",
+          "bridge_events": []
+        },
+        {
+          "cycle": 4,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-10T08:03:49.276Z",
+          "planId": "01KH38XCH2E9MNS80AA0CQSSJC",
+          "bridge_events": []
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-008",
+      "sessionId": "ses_3b4f22623ffe5MZHLFRUupYZZl",
+      "messageId": "msg_c4b2210b0001GFBAvzP56zqJKN",
+      "planId": "01KH5J4640AXVHGFER2P6TCHJZ",
+      "first_cause": "budget_rebound",
+      "plannedCount": 3,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b4f22623ffe5MZHLFRUupYZZl/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-11T05:17:31.653Z",
+          "planId": "01KH5J4640AXVHGFER2P6TCHJZ",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-11T05:17:57.014Z",
+          "planId": "01KH5J4640AXVHGFER2P6TCHJZ",
+          "bridge_events": [
+            "retrieval.degraded"
+          ]
+        },
+        {
+          "cycle": 3,
+          "trigger_source": "unknown",
+          "eventTime": "2026-02-11T05:18:03.938Z",
+          "planId": "01KH5J4640AXVHGFER2P6TCHJZ",
+          "bridge_events": []
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-009",
+      "sessionId": "ses_3b4f22623ffe5MZHLFRUupYZZl",
+      "messageId": "msg_c4b12f36b001dBksp3t7aGx8U5",
+      "planId": "01KH5H5XAFTYD5SN4Y137DKTRN",
+      "first_cause": "budget_rebound",
+      "plannedCount": 2,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b4f22623ffe5MZHLFRUupYZZl/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-11T05:00:59.603Z",
+          "planId": "01KH5H5XAFTYD5SN4Y137DKTRN",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-11T05:01:53.528Z",
+          "planId": "01KH5H5XAFTYD5SN4Y137DKTRN",
+          "bridge_events": [
+            "retrieval.degraded",
+            "orchestrator.degraded:dual_pass:fallback=unknown-first; worker status degraded"
+          ]
+        }
+      ]
+    },
+    {
+      "sampleId": "P3-3-010",
+      "sessionId": "ses_3b4f22623ffe5MZHLFRUupYZZl",
+      "messageId": "msg_c4b140720001aoHswvVc3oIswN",
+      "planId": "01KH5H8284E3BBRWPBA6TQ7FGM",
+      "first_cause": "budget_rebound",
+      "plannedCount": 2,
+      "evidenceRef": "/Users/muqihang/chelingxi_workspace/test/.opencode/evidence/local/default/ses_3b4f22623ffe5MZHLFRUupYZZl/events.jsonl",
+      "events": [
+        {
+          "cycle": 1,
+          "trigger_source": "outer_trigger",
+          "eventTime": "2026-02-11T05:02:10.186Z",
+          "planId": "01KH5H8284E3BBRWPBA6TQ7FGM",
+          "bridge_events": []
+        },
+        {
+          "cycle": 2,
+          "trigger_source": "budget_rebound",
+          "eventTime": "2026-02-11T05:03:22.769Z",
+          "planId": "01KH5H8284E3BBRWPBA6TQ7FGM",
+          "bridge_events": [
+            "retrieval.degraded",
+            "orchestrator.degraded:dual_pass:fallback=unknown-first; worker status degraded"
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "repeatedSampleCount": 10,
+    "validSampleCount": 10,
+    "firstCauseCount": {
+      "budget_rebound": 10
+    },
+    "top1Cause": "budget_rebound",
+    "top1Count": 10,
+    "top1Ratio": "100.00%",
+    "note": "trigger_source 为回放归因；原始 orchestrator.planned 事件未直接携带 cycle/trigger_source 字段。"
+  }
+}
