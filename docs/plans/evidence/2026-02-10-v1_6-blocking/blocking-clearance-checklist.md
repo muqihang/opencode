@@ -1,5 +1,13 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## P1 波次已闭环（2026-02-12 追加）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p1-wave-closeout-2026-02-12.md`
+- 本轮合并链路：`4b013eac -> 1d23cc4b -> 447e2861 -> 65684f09`
+- 复核状态：`C2/C3/C4 最新复核通过`
+- 当前状态结论：`GO（本地）`
+- 声明：历史 `No-Go` 为时点证据，本条为增量覆盖说明（append-only，不删改历史）
+
 - 日期：`2026-02-10`
 - 适用范围：`P0-A1~P0-A8` 与 `I.1/I.3/I.2/I.4/I.5`
 - 判定规则：任一项缺失 `Owner/DoD/EvidencePath/ETA/RollbackAction` 或未签收，结论必须为 `阻断未解除`
