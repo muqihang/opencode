@@ -1,5 +1,12 @@
 # CARD-BLK-06 治理口径 Canonical Index
 
+## 最新状态（2026-02-12 P2 计划建立追加）
+
+- 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-plan-2026-02-12.md`
+- 当前状态：`P2 计划已建立（P2-1~P2-5）`
+- 生效口径：沿用 `CARD-BLK-06`（EvidencePath + DoD + RollbackAction），本条仅做治理追加。
+- 声明：本条为 append-only 增量说明，不改写历史正文与既有审计结论。
+
 ## 最新状态（2026-02-12 online-gate closeout 追加）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p1-wave-closeout-2026-02-12-online-gate.md`

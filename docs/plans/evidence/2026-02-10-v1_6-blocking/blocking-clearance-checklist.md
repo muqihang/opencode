@@ -1,5 +1,12 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（2026-02-12 P2 计划建立追加）
+
+- 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-plan-2026-02-12.md`
+- 当前状态：`P2 计划已建立（P2-1~P2-5）`
+- 执行约束：`P2` 采用 append-only 证据落盘，沿用 `BLK-06` 目录口径与最小验收命令。
+- 声明：本条为 append-only 增量说明，不改写历史正文与既有阻断判定条目。
+
 ## 最新状态（2026-02-12 online-gate closeout 追加）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p1-wave-closeout-2026-02-12-online-gate.md`
