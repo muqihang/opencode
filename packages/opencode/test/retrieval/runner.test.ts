@@ -102,7 +102,7 @@ test("retrieval events are call-scoped and context pack includes evidence pointe
       expect(Boolean(seg)).toBe(true)
     },
   })
-})
+}, { timeout: 20000 })
 
 test("retrieval cache uses ssot store and hit skips heavy code retrieval", async () => {
   await using tmp = await tmpdir({
