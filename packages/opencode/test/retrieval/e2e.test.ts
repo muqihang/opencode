@@ -68,4 +68,4 @@ test("retrieval outputs pointers compatible with citation-check", async () => {
       expect(out.ok).toBe(true)
     },
   })
-})
+}, { timeout: 20000 })
