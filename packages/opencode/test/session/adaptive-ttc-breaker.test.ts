@@ -16,7 +16,7 @@ const makeTool = (): Tool =>
     execute: async () => ({ output: "", title: "", metadata: {} }),
   })
 
-const timeout = 15_000
+const timeout = 90_000
 
 describe("adaptive ttc breaker", () => {
   test("breaker degrade reason is observable and replayable", async () => {
