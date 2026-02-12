@@ -1,5 +1,18 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（P0/P1 backfill + P2 skeleton）
+
+- 增量回填（P0）：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p0-wave-plan-backfill-2026-02-12.md`
+- 增量回填（P1）：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p1-wave-plan-backfill-2026-02-12.md`
+- 增量骨架（P2 evidence dirs）：
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p2-1/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p2-2/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p2-3/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p2-4/README.md`
+  - `/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/p2-5/README.md`
+- 当前状态：`P0/P1 计划回填已补齐，P2 证据目录骨架已就位（状态=todo，待派发）`
+- 声明：本段为 append-only 增量说明，不改写历史正文与既有阻断判定条目。
+
 ## 最新状态（2026-02-12 P2 计划建立追加）
 
 - 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-plan-2026-02-12.md`
