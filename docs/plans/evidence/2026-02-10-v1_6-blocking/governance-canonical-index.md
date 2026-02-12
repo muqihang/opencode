@@ -1,5 +1,14 @@
 # CARD-BLK-06 治理口径 Canonical Index
 
+## 最新状态（F4 full engineering plan established）
+
+- 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/f4-wave-plan-2026-02-12.md`
+- 增量执行卡：`P0-A6~P0-A8` 与 `P0-B1~P0-B5`（共 8 卡）已补齐 `README.md`，用于 F.4 V1/V2 全量工程化派发
+- 执行策略：`能力落地优先，BLK-06 最终闭环后置`
+- 发布口径：`Dev GO` 可继续；`Final GO` 仍受 `I.1 provider-wire` 外部阻塞约束
+- 当前结论：`F4 计划已建立（可并行派发执行）`
+- 声明：本条为 append-only 当前状态覆盖说明；历史 `No-Go/Blocked` 记录保留，不改写历史正文。
+
 ## 最新状态（P4 final closeout）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p4-wave-final-closeout-2026-02-12.md`

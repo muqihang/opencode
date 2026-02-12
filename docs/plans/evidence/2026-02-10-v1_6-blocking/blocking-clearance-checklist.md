@@ -1,5 +1,14 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（F4 full engineering plan established）
+
+- 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/f4-wave-plan-2026-02-12.md`
+- 增量执行卡：`P0-A6~P0-A8` 与 `P0-B1~P0-B5`（8 卡）已补齐执行说明与验收命令
+- 执行口径：`先完成 F4 功能落地，再统一做 BLK-06 最终闭环`
+- 阻断口径：`I.1` 维持外部阻塞，不影响 F4 开发推进，但继续阻断 `Final GO`
+- 当前状态：`F4 计划已建立（可并行派发）`
+- 声明：本条为 append-only 当前状态覆盖说明，不改写历史正文与既有阻断判定条目。
+
 ## 最新状态（P4 final closeout）
 
 - 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p4-wave-final-closeout-2026-02-12.md`
