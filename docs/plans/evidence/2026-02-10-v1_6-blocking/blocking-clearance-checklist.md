@@ -1,5 +1,14 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（P2 wave-a closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-a-closeout-2026-02-12.md`
+- 当前阶段范围：`P2-1 + P2-2 + P2-4`
+- 当前阶段判定：`GO（P2 wave-a，本地）`
+- 门禁摘要：`P2-1/P2-2/P2-4` 命令均 `exit code = 0`
+- 剩余待办：`P2-5`、`P2-3`
+- 声明：本条为 append-only 增量说明，不改写历史正文与既有阻断判定条目。
+
 ## 最新状态（P0/P1 backfill + P2 skeleton）
 
 - 增量回填（P0）：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p0-wave-plan-backfill-2026-02-12.md`

@@ -1,5 +1,14 @@
 # CARD-BLK-06 治理口径 Canonical Index
 
+## 最新状态（P2 wave-a closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p2-wave-a-closeout-2026-02-12.md`
+- 当前阶段范围：`P2-1 + P2-2 + P2-4`
+- 当前阶段判定：`GO（P2 wave-a，本地）`
+- 关键链路：`0e9de905e -> a5228a796 -> 4b76387dc`（关键功能 commit：`8f4e6b2802...`、`8aa8e95652...`）
+- 剩余待办：`P2-5`、`P2-3`
+- 声明：本条为 append-only 增量说明，不改写历史正文与既有审计结论。
+
 ## 最新状态（P0/P1 backfill + P2 skeleton）
 
 - 增量回填（P0）：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p0-wave-plan-backfill-2026-02-12.md`
