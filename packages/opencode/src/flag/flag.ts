@@ -41,6 +41,9 @@ export namespace Flag {
   export declare const OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES: boolean
   export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS: number | undefined
   export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY: boolean
+  export declare const OPENCODE_RETRIEVAL_HYBRID_STRATEGY: string | undefined
+  export declare const OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE: string | undefined
+  export declare const OPENCODE_RETRIEVAL_HYBRID_ROLLBACK: string | undefined
   export const OPENCODE_FAKE_VCS = process.env["OPENCODE_FAKE_VCS"]
   export const OPENCODE_CLIENT = process.env["OPENCODE_CLIENT"] ?? "cli"
   export const OPENCODE_SERVER_PASSWORD = process.env["OPENCODE_SERVER_PASSWORD"]
@@ -154,6 +157,30 @@ export namespace Flag {
     return value === "allow" || value === "ask" || value === "deny"
   }
 }
+
+Object.defineProperty(Flag, "OPENCODE_RETRIEVAL_HYBRID_STRATEGY", {
+  get() {
+    return process.env["OPENCODE_RETRIEVAL_HYBRID_STRATEGY"]
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+Object.defineProperty(Flag, "OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE", {
+  get() {
+    return process.env["OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE"]
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+Object.defineProperty(Flag, "OPENCODE_RETRIEVAL_HYBRID_ROLLBACK", {
+  get() {
+    return process.env["OPENCODE_RETRIEVAL_HYBRID_ROLLBACK"]
+  },
+  enumerable: true,
+  configurable: false,
+})
 
 // Dynamic getter for OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES
 // This must be evaluated at access time to support runtime env overrides in CLI/tests
