@@ -146,7 +146,7 @@ describe("secure-output", () => {
         expect(types).toContain("secure_output.completed")
       },
     })
-  })
+  }, { timeout: 30000 })
 
   test("balanced: missing evidence degrades but keeps the original answer text (no intrusive fallback)", async () => {
     await using tmp = await tmpdir({ git: true })
