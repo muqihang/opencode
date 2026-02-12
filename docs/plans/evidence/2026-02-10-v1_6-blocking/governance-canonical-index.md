@@ -1,5 +1,16 @@
 # CARD-BLK-06 治理口径 Canonical Index
 
+## 最新状态（P4 final closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p4-wave-final-closeout-2026-02-12.md`
+- P4 关键链路：`d61d8e2a4 -> dd3ab46ed -> ef248e5fd`
+- P4 卡片结果：
+  - `P4-1 / I.1`：`BLOCKED`（`unknown_count=20`、`pending_count=20`、`hash_reconcile_fail=20`）
+  - `P4-2 / I.11`：`DEFERRED-GOVERNED`（治理闭环完成，本波次不做代码实现）
+- 当前结论：`P4 执行闭环：GO（治理执行层）`
+- 最终放行：`仍受 I.1 外部阻塞约束，Final 维持 BLOCKED`
+- 声明：本条为 append-only 当前状态覆盖说明；历史 `No-Go/Blocked` 记录保留，不改写历史正文。
+
 ## 最新状态（P4 plan established）
 
 - 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p4-wave-plan-2026-02-12.md`

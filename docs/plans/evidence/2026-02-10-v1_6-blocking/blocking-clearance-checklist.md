@@ -1,5 +1,17 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（P4 final closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p4-wave-final-closeout-2026-02-12.md`
+- P4 关键链路：`d61d8e2a4 -> dd3ab46ed -> ef248e5fd`
+- 卡片状态：
+  - `I.1 / P4-1`：`BLOCKED`（`unknown_count=20`、`pending_count=20`、`hash_reconcile_fail=20`）
+  - `I.11 / P4-2`：`DEFERRED-GOVERNED`（deferred 治理已闭环，本波次不进入实现）
+- 判定口径：
+  - `P4 执行层`：`GO（治理执行完成）`
+  - `Final 放行层`：`BLOCKED（严格受 I.1 外部闭环结果约束）`
+- 声明：本条为 append-only 当前状态覆盖说明，不改写历史正文与既有阻断判定条目。
+
 ## 最新状态（P4 plan established）
 
 - 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/p4-wave-plan-2026-02-12.md`
