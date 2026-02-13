@@ -28,6 +28,9 @@ export const LifecyclePayload = z.object({
   fromModel: z.string().min(1).optional(),
   toModel: z.string().min(1).optional(),
   gateReason: z.string().min(1).optional(),
+  routeFromModel: z.string().min(1).optional(),
+  routeToModel: z.string().min(1).optional(),
+  routeGateReason: z.string().min(1).optional(),
 })
 export type LifecyclePayload = z.infer<typeof LifecyclePayload>
 

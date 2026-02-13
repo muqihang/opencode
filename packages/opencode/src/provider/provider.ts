@@ -1206,7 +1206,10 @@ export namespace Provider {
 
     if (cfg.small_model) {
       const parsed = parseModel(cfg.small_model)
-      return getModel(parsed.providerID, parsed.modelID)
+      const crossProvider = parsed.providerID !== providerID
+      if (!isWorkerRole(role) || !crossProvider) {
+        return getModel(parsed.providerID, parsed.modelID)
+      }
     }
 
     if (provider) {

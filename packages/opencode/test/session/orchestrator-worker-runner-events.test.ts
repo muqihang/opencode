@@ -261,7 +261,7 @@ describe("orchestrator worker runner lifecycle events", () => {
     })
   })
 
-  test("degraded lifecycle uses safe reason code and omits model debug routing", async () => {
+test("degraded lifecycle includes model route observability fields", async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({
       directory: fixture.path,
@@ -275,6 +275,9 @@ describe("orchestrator worker runner lifecycle events", () => {
           fromModel?: string
           toModel?: string
           gateReason?: string
+          routeFromModel?: string
+          routeToModel?: string
+          routeGateReason?: string
           summary?: string
         }> = []
         const unsub = Bus.subscribe(OrchestratorEvent.WorkerLifecycle, (event) => {
@@ -286,6 +289,9 @@ describe("orchestrator worker runner lifecycle events", () => {
             fromModel: event.properties.fromModel,
             toModel: event.properties.toModel,
             gateReason: event.properties.gateReason,
+            routeFromModel: event.properties.routeFromModel,
+            routeToModel: event.properties.routeToModel,
+            routeGateReason: event.properties.routeGateReason,
             summary: event.properties.summary,
           })
         })
@@ -313,9 +319,24 @@ describe("orchestrator worker runner lifecycle events", () => {
         const degraded = events.find((item) => item.phase === "degraded")
         expect(degraded?.reason).toBe("worker_degraded")
         expect(degraded?.summary).toBe("worker degraded: error")
-        expect(degraded?.fromModel).toBeUndefined()
-        expect(degraded?.toModel).toBeUndefined()
-        expect(degraded?.gateReason).toBeUndefined()
+        expect(degraded?.fromModel).toBe("openai/gpt-5")
+        expect(degraded?.toModel).toBe("opencode/gpt-5-nano")
+        expect(degraded?.gateReason).toBe("error_degraded")
+        expect(degraded?.routeFromModel).toBe("openai/gpt-5")
+        expect(degraded?.routeToModel).toBe("opencode/gpt-5-nano")
+        expect(degraded?.routeGateReason).toBe("error_degraded")
+
+        const evidence = await EvidenceReader.readEvents(sessionID, { cursor: 0, limit: 200 })
+        const lifecycle = evidence.events.filter((item) => item.type === "orchestrator.worker.lifecycle")
+        const record = lifecycle
+          .map((item) => item.data)
+          .find((item) => item?.phase === "degraded" && item?.workerID === workerID)
+        expect(record?.fromModel).toBe("openai/gpt-5")
+        expect(record?.toModel).toBe("opencode/gpt-5-nano")
+        expect(record?.gateReason).toBe("error_degraded")
+        expect(record?.routeFromModel).toBe("openai/gpt-5")
+        expect(record?.routeToModel).toBe("opencode/gpt-5-nano")
+        expect(record?.routeGateReason).toBe("error_degraded")
       },
     })
   })

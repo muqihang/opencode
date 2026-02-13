@@ -282,4 +282,55 @@ describe("session.orchestrator.worker-llm", () => {
     expect(out.object.notes?.some((note) => note.includes("from_model="))).toBe(true)
     expect(out.object.notes?.some((note) => note.includes("gate_reason="))).toBe(true)
   })
+
+  test("deepseek worker fallback stays on session provider", async () => {
+    const seen: Array<{ fromModel: string; toModel: string; gateReason: string }> = []
+    const requested: Array<{ providerID: string; role?: string; activeModelID?: string }> = []
+    const calls: string[] = []
+    const out = await runStructured({
+      providerID: "deepseek",
+      modelID: "deepseek-reasoner",
+      role: "evidence_critic",
+      schema,
+      messages: [{ role: "user", content: "hi" }],
+      timeoutMs: 100,
+      degraded: (reason, route) => {
+        seen.push(route)
+        return {
+          status: "degraded" as const,
+          notes: [`worker degraded: ${reason}`],
+        }
+      },
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("deepseek", "deepseek-reasoner"),
+        getModel: async () => fakeModel("deepseek", "deepseek-reasoner"),
+        getSmallModel: async (providerID: string, role?: string, activeModelID?: string) => {
+          requested.push({ providerID, role, activeModelID })
+          if (providerID === "deepseek") return fakeModel("deepseek", "deepseek-chat")
+          if (providerID === "opencode") return fakeModel("opencode", "gpt-5-nano")
+          return undefined
+        },
+        getLanguage: async (model: unknown) => model as never,
+        generate: async (input: unknown) => {
+          const model = input as { model?: { providerID?: string; id?: string } }
+          calls.push(`${String(model.model?.providerID)}/${String(model.model?.id)}`)
+          throw new Error("upstream down")
+        },
+        timeout: async (promise: Promise<unknown>) => promise,
+      }),
+    })
+
+    expect(out.status).toBe("degraded")
+    expect(readReason(out)).toBe("error")
+    expect(requested).toEqual([
+      {
+        providerID: "deepseek",
+        role: "evidence_critic",
+        activeModelID: "deepseek-reasoner",
+      },
+    ])
+    expect(calls).toEqual(["deepseek/deepseek-reasoner", "deepseek/deepseek-chat"])
+    expect(seen.length).toBe(1)
+    expect(seen[0]?.toModel).toBe("deepseek/deepseek-chat")
+  })
 })
