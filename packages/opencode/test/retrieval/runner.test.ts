@@ -7,6 +7,7 @@ import { runRetrieval } from "../../src/retrieval/runner"
 import { ContextPackBuilder } from "../../src/session/context-pack"
 import { ContextBlocks } from "../../src/session/context-blocks"
 import { EventV1 } from "../../src/protocol/event"
+import { EvidenceBundleCompatV2, EvidenceBundleV2 } from "../../src/protocol/evidence-bundle"
 import { CodeRetrievalStats } from "../../src/retrieval/code"
 import { defer } from "../../src/util/defer"
 import { evidenceCandidates, resolveTenantScope } from "../../src/util/tenant-context"
@@ -58,6 +59,14 @@ test("retrieval events are call-scoped and context pack includes evidence pointe
 
       expect(run.retrievalId.length).toBeGreaterThan(0)
       expect(run.artifacts.hits.endsWith(`retrieval/${run.retrievalId}/hits.json`)).toBe(true)
+      expect(run.artifacts.bundle.endsWith(`retrieval/${run.retrievalId}/evidence.bundle.v2.json`)).toBe(true)
+      expect(run.evidencePointers.bundle.specVersion).toBe("evidence-bundle/2.0")
+      expect(run.evidencePointers.bundle.retrievalId).toBe(run.retrievalId)
+      EvidenceBundleCompatV2.parse(run.evidencePointers.compat)
+      expect(run.evidencePointers.compat.v1Total).toBe(run.evidencePointers.compat.v2Total)
+      expect(run.evidencePointers.compat.v1TopK).toBe(run.evidencePointers.compat.v2TopEvidence)
+      expect(run.evidencePointers.rerank.fallback.condition).toBe("density_missing_or_invalid")
+      expect(typeof run.evidencePointers.rerank.fallback.triggered).toBe("boolean")
 
       const hitsFile = path.join(Instance.worktree, run.artifacts.hits)
       const hits = JSON.parse(await Bun.file(hitsFile).text()) as Array<Record<string, unknown>>
@@ -68,7 +77,21 @@ test("retrieval events are call-scoped and context pack includes evidence pointe
         expect(Number.isNaN(Date.parse(hit.observed_at as string))).toBe(false)
         expect(typeof hit.freshness_score).toBe("number")
         expect(typeof hit.stale_reason).toBe("string")
+        expect(typeof hit.densityScore).toBe("number")
+        expect((hit.densityScore as number) >= 0).toBe(true)
+        expect((hit.densityScore as number) <= 1).toBe(true)
       }
+
+      const bundleFile = path.join(Instance.worktree, run.artifacts.bundle)
+      const bundle = JSON.parse(await Bun.file(bundleFile).text()) as {
+        specVersion?: string
+        hits?: Array<{ densityScore?: unknown }>
+      }
+      const parsedBundle = EvidenceBundleV2.parse(bundle)
+      expect(bundle.specVersion).toBe("evidence-bundle/2.0")
+      expect(Array.isArray(bundle.hits)).toBe(true)
+      expect(bundle.hits?.every((item) => typeof item.densityScore === "number")).toBe(true)
+      expect(parsedBundle.rerank.fallback.condition).toBe("density_missing_or_invalid")
 
       const eventsPathValue = await eventsPath("session_r")
       const events = (await Bun.file(eventsPathValue).text())

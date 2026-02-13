@@ -5,6 +5,7 @@ import { $ } from "bun"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { runRetrieval } from "../../src/retrieval/runner"
+import { EvidenceBundleV2 } from "../../src/protocol/evidence-bundle"
 import { artifactCandidates, resolveTenantScope } from "../../src/util/tenant-context"
 
 
@@ -43,6 +44,17 @@ test("retrieval outputs pointers compatible with citation-check", async () => {
       })
 
       expect(run.evidencePointers.topK.length).toBeGreaterThan(0)
+      expect(run.evidencePointers.bundle.specVersion).toBe("evidence-bundle/2.0")
+      expect(run.evidencePointers.compat.v1TopK).toBe(run.evidencePointers.topK.length)
+      expect(run.evidencePointers.compat.v2TopEvidence).toBe(run.evidencePointers.bundle.topEvidence.length)
+      expect(run.evidencePointers.rerank.fallback.condition).toBe("density_missing_or_invalid")
+
+      const bundlePath = path.join(Instance.worktree, run.artifacts.bundle)
+      const bundle = JSON.parse(await Bun.file(bundlePath).text()) as {
+        hits?: Array<{ densityScore?: unknown }>
+      }
+      EvidenceBundleV2.parse(bundle)
+      expect(bundle.hits?.every((item) => typeof item.densityScore === "number")).toBe(true)
 
       const first = run.evidencePointers.topK[0]?.path ?? ""
       const root = first.startsWith(".opencode/") ? Instance.worktree : await artifactRoot("session_e2e")
