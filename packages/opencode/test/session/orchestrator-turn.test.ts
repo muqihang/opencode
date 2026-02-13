@@ -7,6 +7,7 @@ import { EvidenceReader } from "../../src/evidence/reader"
 import { extractFeatures } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
 import { runOrchestratorTurn } from "../../src/session/orchestrator"
+import { writeOrchestratorArtifacts } from "../../src/session/orchestrator/writer"
 import type { Tool } from "ai"
 import { tool, jsonSchema } from "ai"
 
@@ -217,6 +218,12 @@ describe("orchestrator turn runner", () => {
             toolsetFingerprint: "toolset-a2",
           }).then((res) => res.plan)
 
+          await writeOrchestratorArtifacts({
+            sessionId,
+            plan,
+            features,
+          })
+
           await runOrchestratorTurn({
             sessionId,
             messageId,
@@ -243,6 +250,20 @@ describe("orchestrator turn runner", () => {
 
           expect(planPointer.includes(`.opencode/artifacts/local/default/${sessionId}/orchestrator/${plan.orchestratorPlanId}/orchestrator.plan.json`)).toBe(true)
           expect(planPointer.includes("plan_meta:")).toBe(true)
+
+          const events = await EvidenceReader.readEvents(sessionId, { cursor: 0 })
+          const planned = events.events.find(
+            (event) => event.type === "orchestrator.planned" && event.data?.["messageId"] === messageId,
+          )
+          expect(Boolean(planned)).toBe(true)
+          expect(planned?.data?.["specVersion"]).toBe("progress-ledger/1.0")
+          expect(typeof planned?.data?.["cycle"]).toBe("number")
+          expect(typeof planned?.data?.["coverageGain"]).toBe("number")
+          expect(typeof planned?.data?.["newEvidenceCount"]).toBe("number")
+          expect(typeof planned?.data?.["duplicateProbeRate"]).toBe("number")
+          expect(["continue", "stop"].includes(String(planned?.data?.["decision"] ?? ""))).toBe(true)
+          expect(typeof planned?.data?.["stopReason"]).toBe("string")
+          expect(typeof planned?.data?.["evidence_gain_per_cycle"]).toBe("number")
         },
       })
     })

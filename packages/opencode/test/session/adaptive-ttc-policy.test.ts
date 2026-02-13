@@ -1,10 +1,20 @@
 import { describe, expect, test } from "bun:test"
+import { tool, jsonSchema, type Tool } from "ai"
+import { EvidenceReader } from "../../src/evidence/reader"
 import { Instance } from "../../src/project/instance"
 import { extractFeatures } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
+import { prepareOrchestratorPlan } from "../../src/session/orchestrator/prepare"
 import { tmpdir } from "../fixture/fixture"
 
 const deep = (n: number) => `请深度分析并给出方案 ${"context ".repeat(n)}`
+
+const makeTool = (): Tool =>
+  tool({
+    description: "test tool",
+    inputSchema: jsonSchema({ type: "object", properties: {} }),
+    execute: async () => ({ output: "", title: "", metadata: {} }),
+  })
 
 describe("adaptive ttc policy", () => {
   test("default keeps worker=2 for assist", async () => {
@@ -80,6 +90,39 @@ describe("adaptive ttc policy", () => {
         expect(out.plan.workers.length).toBe(2)
         expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.scale_blocked_budget")).toBe(true)
         expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.degrade_3_to_2")).toBe(true)
+      },
+    })
+  })
+
+  test("adaptive policy emits progress-ledger fields in planned event", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const sessionId = "s-adaptive-policy-progress-ledger"
+        const messageId = "m-adaptive-policy-progress-ledger"
+        await prepareOrchestratorPlan({
+          sessionId,
+          messageId,
+          uxMode: "auto",
+          messages: [{ role: "user", content: "请引用证据并验证结论" }],
+          tools: { read: makeTool() },
+        })
+
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0 })
+        const planned = events.events.find(
+          (item) => item.type === "orchestrator.planned" && item.data?.["messageId"] === messageId,
+        )
+
+        expect(Boolean(planned)).toBe(true)
+        expect(planned?.data?.["specVersion"]).toBe("progress-ledger/1.0")
+        expect(typeof planned?.data?.["messageId"]).toBe("string")
+        expect(typeof planned?.data?.["cycle"]).toBe("number")
+        expect(typeof planned?.data?.["coverageGain"]).toBe("number")
+        expect(typeof planned?.data?.["newEvidenceCount"]).toBe("number")
+        expect(typeof planned?.data?.["duplicateProbeRate"]).toBe("number")
+        expect(typeof planned?.data?.["evidence_gain_per_cycle"]).toBe("number")
+        expect(String(planned?.data?.["decision"])).toBe("continue")
       },
     })
   })
