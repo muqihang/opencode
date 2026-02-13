@@ -123,6 +123,8 @@ describe("adaptive ttc policy", () => {
         expect(typeof planned?.data?.["duplicateProbeRate"]).toBe("number")
         expect(typeof planned?.data?.["evidence_gain_per_cycle"]).toBe("number")
         expect(String(planned?.data?.["decision"])).toBe("continue")
+        expect(String(planned?.data?.["fallbackPath"] ?? "").includes("dual_pass")).toBe(true)
+        expect(String(planned?.data?.["fallbackPath"] ?? "").includes("continue")).toBe(true)
       },
     })
   })

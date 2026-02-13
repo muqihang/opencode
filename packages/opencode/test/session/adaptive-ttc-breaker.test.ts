@@ -54,6 +54,19 @@ describe("adaptive ttc breaker", () => {
           tools,
         })
 
+        const replay = await runOrchestratorTurn({
+          sessionId,
+          messageId: "m-adaptive-breaker-observe-2",
+          abort: new AbortController().signal,
+          plan: prepared.plan,
+          features: prepared.features,
+          intentText: prepared.intentText,
+          system: [],
+          tools,
+        })
+
+        expect(replay).toEqual(turn)
+
         expect(typeof turn.degraded).toBe("boolean")
         const events = await EvidenceReader.readEvents(sessionId, { cursor: 0 })
         const degraded = events.events.find(
@@ -67,6 +80,16 @@ describe("adaptive ttc breaker", () => {
         expect(Boolean(degraded)).toBe(true)
         expect(String(degraded?.data?.["reason"] ?? "").includes("adaptive.ttc.degrade_2_to_1")).toBe(true)
         expect(String(degraded?.data?.["reason"] ?? "").includes("adaptive.ttc.breaker.active")).toBe(true)
+
+        const idem = events.events.find(
+          (item) => item.type === "orchestrator.idempotent" && item.data?.["messageId"] === "m-adaptive-breaker-observe-2",
+        )
+
+        expect(Boolean(idem)).toBe(true)
+        expect(String(idem?.data?.["decision"] ?? "")).toBe("reuse_cached_turn")
+        expect(String(idem?.data?.["idempotencyKey"] ?? "")).toBe(
+          `${sessionId}:m-adaptive-breaker-observe-2:${prepared.plan.orchestratorPlanId}`,
+        )
 
         const planned = events.events.find(
           (item) => item.type === "orchestrator.planned" && item.data?.["messageId"] === "m-adaptive-breaker-observe-2",

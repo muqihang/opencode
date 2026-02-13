@@ -72,6 +72,36 @@ const writeOrchestratorDegraded = async (input: {
     .catch(() => {})
 }
 
+const writeOrchestratorIdempotent = async (input: {
+  sessionId: string
+  messageId: string
+  planId: string
+  idempotencyKey: string
+  fallbackPath: string
+}) => {
+  const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
+  if (!writer) return
+  await writer
+    .event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: input.sessionId,
+      severity: "info",
+      actor: "orchestrator:runner",
+      type: "orchestrator.idempotent",
+      summary: "orchestrator turn cache replay",
+      data: {
+        messageId: input.messageId,
+        planId: input.planId,
+        idempotencyKey: input.idempotencyKey,
+        decision: "reuse_cached_turn",
+        fallbackPath: input.fallbackPath,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+    .catch(() => {})
+}
+
 const planPointerPath = (input: { sessionId: string; planId: string }) => {
   const scope = resolveTenantScope()
   const prefix = artifactSessionPrefix({
@@ -468,7 +498,7 @@ const TurnCacheLimit = 256
 const turnCache = new Map<string, TurnResult>()
 
 const turnCacheKey = (input: TurnInput) =>
-  `${input.sessionId}:${input.messageId}:${input.plan.orchestratorPlanId}:${input.plan.orchestratorMode}`
+  `${input.sessionId}:${input.messageId}:${input.plan.orchestratorPlanId}`
 
 const rememberTurn = (input: { key: string; result: TurnResult }) => {
   turnCache.set(input.key, input.result)
@@ -495,7 +525,16 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
 
   const cacheKey = turnCacheKey(input)
   const cached = turnCache.get(cacheKey)
-  if (cached) return cached
+  if (cached) {
+    await writeOrchestratorIdempotent({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      planId: input.plan.orchestratorPlanId,
+      idempotencyKey: cacheKey,
+      fallbackPath: "cache-hit -> dual_pass.unknown-first",
+    })
+    return cached
+  }
 
   const task = async () => {
     const basePointers = input.workingSetPointers
