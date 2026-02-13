@@ -6,6 +6,7 @@ import { EvidenceWriter } from "@/evidence/writer"
 import { AssistantClaims } from "@/protocol/assistant-claims"
 import { runVerification } from "@/verification"
 import { VerificationReport } from "@/protocol/verification-report"
+import { artifactCandidates, resolveTenantScope } from "@/util/tenant-context"
 import type { Tool } from "@/tool/tool"
 
 const Mode = z.enum(["strict", "balanced", "loose"])
@@ -32,6 +33,9 @@ type Result =
 
 const openTag = "<assistant_claims_json>"
 const closeTag = "</assistant_claims_json>"
+const emptyFileSha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
 
 const safeJson = (raw: string) => {
   try {
@@ -86,47 +90,119 @@ const normalizeAnchor = (value: unknown) => {
   return parseAnchorText(raw)
 }
 
-const normalizePointer = (value: unknown) => {
+const hasTraversal = (value: string) => {
+  const normalized = value.replace(/\\/g, "/")
+  return normalized.split("/").includes("..")
+}
+
+const safePointerTarget = (root: string, rel: string) => {
+  if (!rel) return undefined
+  if (path.isAbsolute(rel)) return undefined
+  if (hasTraversal(rel)) return undefined
+  const target = path.resolve(root, rel)
+  const prefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`
+  if (target !== root && !target.startsWith(prefix)) return undefined
+  return target
+}
+
+const sha256File = async (target: string) => {
+  const file = Bun.file(target)
+  const exists = await file.exists().catch(() => false)
+  if (!exists) return undefined
+  const bytes = await file.bytes().catch(() => undefined)
+  if (!bytes) return undefined
+  const hash = new Bun.CryptoHasher("sha256")
+  hash.update(bytes)
+  return hash.digest("hex")
+}
+
+const placeholderSha = (value: string | undefined) => {
+  if (!value) return true
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return true
+  if (normalized === emptyFileSha256) return true
+  if (/^0{64}$/.test(normalized)) return true
+  return false
+}
+
+const completePointerSha = async (input: {
+  roots: string[]
+  rel: string
+  sha?: string
+}) => {
+  if (!placeholderSha(input.sha)) return input.sha
+  const match = await Promise.all(
+    input.roots.map(async (root) => {
+      const target = safePointerTarget(root, input.rel)
+      if (!target) return undefined
+      return sha256File(target)
+    }),
+  )
+  const value = match.find((item) => typeof item === "string" && item.length > 0)
+  if (value) return value
+  return input.sha
+}
+
+const normalizePointer = async (value: unknown, roots: string[]) => {
   const item = record(value)
   if (!item) return undefined
   const path = text(item.path) ?? ""
   const sha = text(item.sha256)
+  const completeSha = await completePointerSha({
+    roots,
+    rel: path,
+    sha,
+  })
   const anchor = normalizeAnchor(item.anchor)
   return {
     path,
-    ...(sha ? { sha256: sha } : {}),
+    ...(completeSha ? { sha256: completeSha } : {}),
     ...(anchor ? { anchor } : {}),
   }
 }
 
-const normalizeClaimsPayload = (value: unknown) => {
-  const root = record(value)
-  if (!root) return { payload: value, adjusted: false }
+const normalizeClaimsPayload = async (input: {
+  sessionId: string
+  value: unknown
+}) => {
+  const root = record(input.value)
+  if (!root) return { payload: input.value, adjusted: false }
+  const scope = resolveTenantScope()
+  const roots = artifactCandidates({
+    base: baseDir(),
+    sessionId: input.sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
 
   const claims = Array.isArray(root.claims) ? root.claims : []
+  const normalizedClaims = await Promise.all(
+    claims.map(async (item, index) => {
+      const claim = record(item)
+      if (!claim) return undefined
+      const pointers = Array.isArray(claim.pointers) ? claim.pointers : []
+      const normalizedPointers = (
+        await Promise.all(pointers.map((pointer) => normalizePointer(pointer, roots)))
+      ).flatMap((pointer) => (pointer ? [pointer] : []))
+      const kind = text(claim.kind) ?? "fact"
+      const label = text(claim.text) ?? text(claim.statement) ?? ""
+      return {
+        id: text(claim.id) ?? `c${index + 1}`,
+        kind,
+        text: label,
+        pointers: normalizedPointers,
+      }
+    }),
+  )
   const normalized = {
     specVersion: "assistant-claims/1.0",
     policyVersion: text(root.policyVersion) ?? "v1",
-    claims: claims
-      .map((item, index) => {
-        const claim = record(item)
-        if (!claim) return undefined
-        const pointers = Array.isArray(claim.pointers) ? claim.pointers : []
-        const kind = text(claim.kind) ?? "fact"
-        const label = text(claim.text) ?? text(claim.statement) ?? ""
-        return {
-          id: text(claim.id) ?? `c${index + 1}`,
-          kind,
-          text: label,
-          pointers: pointers.map(normalizePointer).filter((pointer) => pointer !== undefined),
-        }
-      })
-      .filter((item) => item !== undefined),
+    claims: normalizedClaims.flatMap((item) => (item ? [item] : [])),
   }
 
   return {
     payload: normalized,
-    adjusted: stableJson(normalized) !== stableJson(value),
+    adjusted: stableJson(normalized) !== stableJson(input.value),
   }
 }
 
@@ -282,7 +358,10 @@ export const runSecureOutput = async (input: {
     return { status: "degraded", text: stripped.cleaned, artifacts: [inputEntry.path, errorEntry.path] }
   }
 
-  const normalized = normalizeClaimsPayload(parsed.value)
+  const normalized = await normalizeClaimsPayload({
+    sessionId,
+    value: parsed.value,
+  })
   const claims = AssistantClaims.safeParse(normalized.payload)
   if (!claims.success) {
     const reason = "断言块不符合 assistant-claims/1.0 协议（schema 校验失败）"
