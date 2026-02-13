@@ -27,6 +27,91 @@ import { resolveForkStrategy, resolveSecureOutputMode } from "./orchestrator/pol
 import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
 import { resolveHybridRoutingPolicy } from "./hybrid-routing-policy"
 
+const claimsOpenTag = "<assistant_claims_json>"
+const claimsCloseTag = "</assistant_claims_json>"
+
+export type ClaimsStreamMask = {
+  tail: string
+  hidden: boolean
+}
+
+const splitTail = (text: string, size: number) => {
+  if (size <= 0) return { keep: "", emit: text }
+  if (text.length <= size) return { keep: text, emit: "" }
+  return {
+    keep: text.slice(-size),
+    emit: text.slice(0, -size),
+  }
+}
+
+const scanClaimsStream = (input: {
+  text: string
+  hidden: boolean
+  visible: string
+}) => {
+  if (input.hidden) {
+    const close = input.text.indexOf(claimsCloseTag)
+    if (close < 0) {
+      const tail = splitTail(input.text, claimsCloseTag.length - 1)
+      return {
+        hidden: true as const,
+        tail: tail.keep,
+        visible: input.visible,
+      }
+    }
+    return scanClaimsStream({
+      text: input.text.slice(close + claimsCloseTag.length),
+      hidden: false,
+      visible: input.visible,
+    })
+  }
+
+  const open = input.text.indexOf(claimsOpenTag)
+  if (open >= 0) {
+    return scanClaimsStream({
+      text: input.text.slice(open + claimsOpenTag.length),
+      hidden: true,
+      visible: input.visible + input.text.slice(0, open),
+    })
+  }
+
+  const tail = splitTail(input.text, claimsOpenTag.length - 1)
+  return {
+    hidden: false as const,
+    tail: tail.keep,
+    visible: input.visible + tail.emit,
+  }
+}
+
+export const createClaimsStreamMask = (): ClaimsStreamMask => ({
+  tail: "",
+  hidden: false,
+})
+
+export const applyClaimsStreamMask = (input: {
+  state: ClaimsStreamMask
+  delta: string
+}) => {
+  const scanned = scanClaimsStream({
+    text: `${input.state.tail}${input.delta}`,
+    hidden: input.state.hidden,
+    visible: "",
+  })
+
+  return {
+    state: {
+      tail: scanned.tail,
+      hidden: scanned.hidden,
+    } satisfies ClaimsStreamMask,
+    delta: scanned.visible,
+  }
+}
+
+export const flushClaimsStreamMask = (state: ClaimsStreamMask) => {
+  if (state.hidden) return ""
+  return state.tail
+}
+
 export type OrchestratorRollout = {
   enabled: boolean
   llmWorkers: boolean
@@ -803,6 +888,16 @@ export namespace SessionProcessor {
               },
             }
             const stream = await LLM.stream(orchestratedInput)
+            const secureMode = (() => {
+              if (input.assistantMessage.summary) return null
+              if (input.assistantMessage.agent !== "build") return null
+              const enabled = orchestrator.enabled && !orchestrator.degraded
+              return resolveSecureOutputMode({
+                enabled,
+                plan: enabled ? orchestrator.plan : undefined,
+              })
+            })()
+            let claimsMask: ClaimsStreamMask | undefined
 
             for await (const value of stream.fullStream) {
               input.abort.throwIfAborted()
@@ -1066,22 +1161,43 @@ export namespace SessionProcessor {
                     },
                     metadata: value.providerMetadata,
                   }
+                  claimsMask = secureMode ? createClaimsStreamMask() : undefined
                   break
 
                 case "text-delta":
                   if (currentText) {
                     currentText.text += value.text
                     if (value.providerMetadata) currentText.metadata = value.providerMetadata
-                    if (currentText.text)
+                    const delta = (() => {
+                      if (!secureMode) return value.text
+                      if (currentText.synthetic) return value.text
+                      if (!claimsMask) claimsMask = createClaimsStreamMask()
+                      const masked = applyClaimsStreamMask({
+                        state: claimsMask,
+                        delta: value.text,
+                      })
+                      claimsMask = masked.state
+                      return masked.delta
+                    })()
+                    if (delta)
                       await Session.updatePart({
                         part: currentText,
-                        delta: value.text,
+                        delta,
                       })
                   }
                   break
 
                 case "text-end":
                   if (currentText) {
+                    if (claimsMask) {
+                      const tail = flushClaimsStreamMask(claimsMask)
+                      claimsMask = undefined
+                      if (tail)
+                        await Session.updatePart({
+                          part: currentText,
+                          delta: tail,
+                        })
+                    }
                     currentText.text = currentText.text.trimEnd()
                     const textOutput = await Plugin.trigger(
                       "experimental.text.complete",
@@ -1095,15 +1211,8 @@ export namespace SessionProcessor {
                     currentText.text = textOutput.text
 
                     const gated = await (async () => {
-                      if (input.assistantMessage.summary) return { ok: false as const }
-                      if (currentText.synthetic) return { ok: false as const }
-                      if (input.assistantMessage.agent !== "build") return { ok: false as const }
-                      const orchestratorEnabled = orchestrator.enabled && !orchestrator.degraded
-                      const secureMode = resolveSecureOutputMode({
-                        enabled: orchestratorEnabled,
-                        plan: orchestratorEnabled ? orchestrator.plan : undefined,
-                      })
                       if (!secureMode) return { ok: false as const }
+                      if (currentText.synthetic) return { ok: false as const }
 
                       return runSecureOutput({
                         sessionId: input.sessionID,

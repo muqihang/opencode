@@ -220,6 +220,139 @@ describe("secure-output", () => {
     })
   }, { timeout: 30000 })
 
+  test("strict: fills missing sha256 from safe relative pointer and passes verification", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "so-fill-missing-sha"
+        const messageId = "m-fill-missing-sha"
+        const content = "line-1\nline-2\n"
+        const rel = "derived/input/missing-sha.txt"
+        const roots = [
+          path.join(Instance.worktree, ".opencode", "artifacts", sessionId, "derived", "input"),
+          path.join(Instance.worktree, ".opencode", "artifacts", "local", "default", sessionId, "derived", "input"),
+        ]
+        await Promise.all(roots.map((root) => Bun.write(path.join(root, "missing-sha.txt"), content)))
+
+        const answer = [
+          "这是可核验结论。",
+          "",
+          "<assistant_claims_json>",
+          JSON.stringify({
+            specVersion: "assistant-claims/1.0",
+            policyVersion: "v1",
+            claims: [
+              {
+                id: "c1",
+                kind: "fact",
+                text: "file contains line-1",
+                pointers: [
+                  {
+                    path: rel,
+                    anchor: { lineStart: 1, lineEnd: 1 },
+                  },
+                ],
+              },
+            ],
+          }),
+          "</assistant_claims_json>",
+        ].join("\n")
+
+        const result = await runSecureOutput({
+          sessionId,
+          messageId,
+          mode: "strict",
+          budget: { timeMs: 20000, maxScripts: 4 },
+          text: answer,
+          ctx: buildCtx(sessionId, messageId),
+        })
+
+        expect(result.status).toBe("ok")
+
+        const writer = await EvidenceWriter.open({ sessionId })
+        const manifest = await writer.manifest()
+        const claims = manifest.entries.find((entry) => entry.path.includes("secure-output") && entry.path.endsWith("claims.json"))
+        expect(claims).toBeDefined()
+        if (!claims) return
+
+        const payload = (await Bun.file(path.join(Instance.worktree, claims.path)).json()) as {
+          claims?: Array<{
+            pointers?: Array<{ sha256?: string }>
+          }>
+        }
+        expect(payload.claims?.[0]?.pointers?.[0]?.sha256).toBe(sha256(content))
+      },
+    })
+  }, { timeout: 30000 })
+
+  test("strict: replaces placeholder sha256 for safe relative pointer and avoids false citations_required degrade", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "so-fill-placeholder-sha"
+        const messageId = "m-fill-placeholder-sha"
+        const content = "placeholder-check\n"
+        const rel = "derived/input/placeholder-sha.txt"
+        const roots = [
+          path.join(Instance.worktree, ".opencode", "artifacts", sessionId, "derived", "input"),
+          path.join(Instance.worktree, ".opencode", "artifacts", "local", "default", sessionId, "derived", "input"),
+        ]
+        await Promise.all(roots.map((root) => Bun.write(path.join(root, "placeholder-sha.txt"), content)))
+
+        const answer = [
+          "这是可核验结论。",
+          "",
+          "<assistant_claims_json>",
+          JSON.stringify({
+            specVersion: "assistant-claims/1.0",
+            policyVersion: "v1",
+            claims: [
+              {
+                id: "c1",
+                kind: "fact",
+                text: "file contains placeholder-check",
+                pointers: [
+                  {
+                    path: rel,
+                    sha256: "0".repeat(64),
+                    anchor: { lineStart: 1, lineEnd: 1 },
+                  },
+                ],
+              },
+            ],
+          }),
+          "</assistant_claims_json>",
+        ].join("\n")
+
+        const result = await runSecureOutput({
+          sessionId,
+          messageId,
+          mode: "strict",
+          budget: { timeMs: 20000, maxScripts: 4 },
+          text: answer,
+          ctx: buildCtx(sessionId, messageId),
+        })
+
+        expect(result.status).toBe("ok")
+
+        const writer = await EvidenceWriter.open({ sessionId })
+        const manifest = await writer.manifest()
+        const claims = manifest.entries.find((entry) => entry.path.includes("secure-output") && entry.path.endsWith("claims.json"))
+        expect(claims).toBeDefined()
+        if (!claims) return
+
+        const payload = (await Bun.file(path.join(Instance.worktree, claims.path)).json()) as {
+          claims?: Array<{
+            pointers?: Array<{ sha256?: string }>
+          }>
+        }
+        expect(payload.claims?.[0]?.pointers?.[0]?.sha256).toBe(sha256(content))
+      },
+    })
+  }, { timeout: 30000 })
+
   test("balanced: missing evidence degrades but keeps the original answer text (no intrusive fallback)", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
