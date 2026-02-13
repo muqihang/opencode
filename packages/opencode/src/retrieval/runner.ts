@@ -15,6 +15,13 @@ import { runWorkbenchRetrieval } from "./workbench"
 import { resolveWorkspaceFingerprint } from "./workspace"
 import { retrievalCacheKey } from "./cache"
 import type { RetrievalPlanForKey } from "./spec"
+import {
+  EvidenceBundleCompatV2,
+  EvidenceBundleV2,
+  type EvidenceBundleCompatV2 as EvidenceBundleCompat,
+  type EvidenceBundleRerankV2,
+  type EvidenceBundleV2 as EvidenceBundle,
+} from "@/protocol/evidence-bundle"
 
 type ArtifactPointer = {
   path: string
@@ -28,12 +35,16 @@ type EvidencePointers = {
   summary: { total: number; code: number; workbench: number }
   artifacts: ArtifactPointer[]
   topK: Array<{ path: string; sha256: string; anchor?: Record<string, number> }>
+  bundle: EvidenceBundle
+  compat: EvidenceBundleCompat
+  rerank: EvidenceBundleRerankV2
 }
 
 type RetrievalArtifacts = {
   spec: string
   hits: string
   dedupe: string
+  bundle: string
   probe: string
   errors?: string
 }
@@ -215,6 +226,109 @@ const pointerFromHit = (value: unknown) => {
   const pairs = Object.entries(anchorView).filter(([, value]) => typeof value === "number")
   const mapped = Object.fromEntries(pairs) as Record<string, number>
   return { path, sha256, anchor: mapped }
+}
+
+const numberValue = (value: unknown) => {
+  if (typeof value !== "number" || Number.isNaN(value)) return
+  if (!Number.isFinite(value)) return
+  return value
+}
+
+const clamp = (value: number) => Math.max(0, Math.min(1, value))
+
+const sourceValue = (value: unknown) => {
+  if (value === "lsp") return value
+  if (value === "rg") return value
+  if (value === "workbench") return value
+  if (value === "tree") return value
+  return
+}
+
+const densityScore = (input: { hit: Record<string, unknown>; source?: "lsp" | "rg" | "workbench" | "tree" }) => {
+  const explicit = numberValue(input.hit.densityScore)
+  if (explicit !== undefined) return { value: clamp(explicit), fallback: false as const }
+  if (input.source === "lsp") return { value: 0.95, fallback: false as const }
+  if (input.source === "rg") return { value: 0.9, fallback: false as const }
+  if (input.source === "workbench") return { value: 0.8, fallback: false as const }
+  if (input.source === "tree") return { value: 0.25, fallback: false as const }
+  return { value: 0, fallback: true as const }
+}
+
+const withDensity = (value: unknown) => {
+  if (!isRecord(value)) return { hit: value, fallback: true as const }
+  const source = sourceValue(value.source)
+  const density = densityScore({ hit: value, source })
+  return {
+    hit: { ...value, densityScore: density.value },
+    fallback: density.fallback,
+  }
+}
+
+const textValue = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value
+}
+
+const lineValue = (value: unknown) => {
+  const parsed = numberValue(value)
+  if (parsed === undefined) return
+  const rounded = Math.round(parsed)
+  if (rounded <= 0) return
+  return rounded
+}
+
+const originFromHit = (value: Record<string, unknown>) => {
+  const origin = value.origin
+  if (!isRecord(origin)) return {}
+  const sourcePath = textValue(origin.path)
+  const inputId = textValue(origin.inputId)
+  const kind = textValue(origin.kind)
+  const lineStart = lineValue(origin.lineStart)
+  const lineEnd = lineValue(origin.lineEnd)
+  return {
+    ...(sourcePath ? { path: sourcePath } : {}),
+    ...(lineStart !== undefined ? { lineStart } : {}),
+    ...(lineEnd !== undefined ? { lineEnd } : {}),
+    ...(inputId ? { inputId } : {}),
+    ...(kind ? { kind } : {}),
+  }
+}
+
+const fallbackSnippet = (input: { hit: Record<string, unknown>; pointerPath: string }) => {
+  const origin = input.hit.origin
+  if (!isRecord(origin)) return input.pointerPath
+  const sourcePath = textValue(origin.path)
+  if (sourcePath) return sourcePath
+  const inputId = textValue(origin.inputId)
+  const kind = textValue(origin.kind)
+  if (inputId && kind) return `${kind}:${inputId}`
+  if (inputId) return inputId
+  if (kind) return kind
+  return input.pointerPath
+}
+
+const readSnippet = async (input: { sessionId: string; hit: Record<string, unknown>; pointerPath: string }) => {
+  if (!input.pointerPath.includes("/snippets/")) return fallbackSnippet(input)
+  const file = pointerFile({ cacheSessionId: input.sessionId, ref: input.pointerPath })
+  const text = await Bun.file(file)
+    .text()
+    .catch(() => "")
+  const trimmed = text.trim()
+  if (trimmed.length > 0) return trimmed
+  return fallbackSnippet(input)
+}
+
+const compareScore = (left: { score_bps: number; id: string }, right: { score_bps: number; id: string }) => {
+  if (left.score_bps !== right.score_bps) return right.score_bps - left.score_bps
+  return left.id.localeCompare(right.id)
+}
+
+const compareDensity = (
+  left: { densityScore: number; score_bps: number; id: string },
+  right: { densityScore: number; score_bps: number; id: string },
+) => {
+  if (left.densityScore !== right.densityScore) return right.densityScore - left.densityScore
+  return compareScore(left, right)
 }
 
 const shaBytes = (bytes: Uint8Array) => {
@@ -729,19 +843,84 @@ export const RetrievalRunner = {
         })
       : normalizedHits
 
+    const scoredHits = finalizedHits.map((item) => withDensity(item))
+    const enrichedHits = scoredHits.map((item) => item.hit)
+    const bundleRows = await Promise.all(
+      enrichedHits.map(async (item, index) => {
+        if (!isRecord(item)) return
+        const pointer = pointerFromHit(item)
+        if (!pointer) return
+        const source = sourceValue(item.source) ?? "tree"
+        const density = densityScore({ hit: item, source })
+        const score = numberValue(item.score_bps)
+        return {
+          id: `E${index + 1}`,
+          pointer,
+          origin: originFromHit(item),
+          snippet: await readSnippet({ sessionId: input.sessionId, hit: item, pointerPath: pointer.path }),
+          source,
+          score_bps: score === undefined ? 0 : Math.max(0, Math.round(score)),
+          densityScore: density.value,
+        }
+      }),
+    )
+    const bundleHits = bundleRows.filter((item): item is NonNullable<typeof item> => Boolean(item))
+    const fallbackTriggered = scoredHits.some((item) => item.fallback) || bundleHits.length !== enrichedHits.length
+    const rerank = {
+      mode: fallbackTriggered ? "score_only" : "density_first",
+      fallback: {
+        condition: "density_missing_or_invalid",
+        triggered: fallbackTriggered,
+        reason: fallbackTriggered ? "at_least_one_hit_missing_density" : "density_available_for_all_hits",
+      },
+    } satisfies EvidenceBundleRerankV2
+    const reranked = (rerank.mode === "density_first" ? bundleHits.toSorted(compareDensity) : bundleHits.toSorted(compareScore))
+    const topEvidence = reranked.slice(0, 5).map((item) => item.id)
+    const topK = reranked.slice(0, 5).map((item) => item.pointer)
+    const densityThreshold = 0.8
+    const densityPass = reranked.filter((item) => item.densityScore >= densityThreshold).length
+    const densitySum = reranked.reduce((sum, item) => sum + item.densityScore, 0)
+    const densityMean = reranked.length === 0 ? 0 : densitySum / reranked.length
+    const bundle = EvidenceBundleV2.parse({
+      specVersion: "evidence-bundle/2.0",
+      retrievalId,
+      summary,
+      hits: reranked,
+      topEvidence,
+      dedupe: {
+        method: "hash+overlap",
+        report: `retrieval/${retrievalId}/dedupe.report.json`,
+      },
+      rerank,
+    })
+    const compat = EvidenceBundleCompatV2.parse({
+      v1TopK: topK.length,
+      v2TopEvidence: topEvidence.length,
+      v1Total: summary.total,
+      v2Total: bundle.summary.total,
+      densityMean,
+      densityPass,
+      densityThreshold,
+    })
+
     const hitsEntry = await writer.artifact({
       kind: "retrieval-hits",
       path: `retrieval/${retrievalId}/hits.json`,
-      data: stableJson(finalizedHits),
+      data: stableJson(enrichedHits),
     })
     const dedupeEntry = await writer.artifact({
       kind: "retrieval-dedupe",
       path: `retrieval/${retrievalId}/dedupe.report.json`,
       data: stableJson(dedupe),
     })
+    const bundleEntry = await writer.artifact({
+      kind: "retrieval-evidence-bundle-v2",
+      path: `retrieval/${retrievalId}/evidence.bundle.v2.json`,
+      data: stableJson(bundle),
+    })
     const errorEntry = await writeErrorArtifact(writer, { retrievalId, errors })
 
-    const expectedArtifacts = [strip(specEntry.path), strip(hitsEntry.path), strip(dedupeEntry.path)]
+    const expectedArtifacts = [strip(specEntry.path), strip(hitsEntry.path), strip(dedupeEntry.path), strip(bundleEntry.path)]
     if (errorEntry) expectedArtifacts.push(strip(errorEntry.path))
 
     const seen = (await countProbeMatches({
@@ -761,7 +940,7 @@ export const RetrievalRunner = {
       queries: plan.queries,
       expectedEvidence: {
         artifacts: expectedArtifacts,
-        topK: 5,
+        topK: topEvidence.length,
       },
       dedupe: {
         by: "messageId+dedupeKey",
@@ -777,15 +956,11 @@ export const RetrievalRunner = {
       data: stableJson(probe),
     })
 
-    const topK = finalizedHits
-      .slice(0, 5)
-      .map((item) => pointerFromHit(item))
-      .filter((item): item is { path: string; sha256: string; anchor?: Record<string, number> } => Boolean(item))
-
     const artifacts: ArtifactPointer[] = [
       { path: strip(specEntry.path), sha256: specEntry.sha256, kind: specEntry.kind },
       { path: strip(hitsEntry.path), sha256: hitsEntry.sha256, kind: hitsEntry.kind },
       { path: strip(dedupeEntry.path), sha256: dedupeEntry.sha256, kind: dedupeEntry.kind },
+      { path: strip(bundleEntry.path), sha256: bundleEntry.sha256, kind: bundleEntry.kind },
       { path: strip(probeEntry.path), sha256: probeEntry.sha256, kind: probeEntry.kind },
     ]
     if (errorEntry) artifacts.push({ path: strip(errorEntry.path), sha256: errorEntry.sha256, kind: errorEntry.kind })
@@ -796,6 +971,9 @@ export const RetrievalRunner = {
       summary,
       artifacts,
       topK,
+      bundle,
+      compat,
+      rerank,
     }
 
     const status = (() => {
@@ -822,6 +1000,7 @@ export const RetrievalRunner = {
           spec: strip(specEntry.path),
           hits: strip(hitsEntry.path),
           dedupe: strip(dedupeEntry.path),
+          bundle: strip(bundleEntry.path),
           probe: strip(probeEntry.path),
           errors: errorEntry ? strip(errorEntry.path) : undefined,
         },
@@ -830,6 +1009,7 @@ export const RetrievalRunner = {
           duplicate: probe.dedupe.duplicate,
           seen: probe.dedupe.seen,
         },
+        rerank: rerank,
         reason: state.reason || (input.abort.aborted ? "user_abort" : budgetState.timedOut ? "timeout" : ""),
       },
       redaction: { applied: true, policyVersion: "v1" },
@@ -842,6 +1022,7 @@ export const RetrievalRunner = {
         spec: strip(specEntry.path),
         hits: strip(hitsEntry.path),
         dedupe: strip(dedupeEntry.path),
+        bundle: strip(bundleEntry.path),
         probe: strip(probeEntry.path),
         errors: errorEntry ? strip(errorEntry.path) : undefined,
       },
