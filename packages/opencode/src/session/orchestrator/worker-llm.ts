@@ -65,6 +65,7 @@ type RunInput<S extends z.ZodType> = {
   messages: ModelMessage[]
   timeoutMs: number
   temperature?: number
+  normalize?: (value: unknown) => z.input<S> | undefined
   degraded: (reason: WorkerLlmReason, route: WorkerLlmRoute) => z.output<S>
   deps?: Partial<RunDeps>
 }
@@ -302,7 +303,10 @@ export const runStructured = async <S extends z.ZodType>(input: RunInput<S>): Pr
       ),
     )
 
-    const parsed = called.ok ? input.schema.safeParse(called.value.object) : undefined
+    const normalized = called.ok
+      ? (input.normalize ? input.normalize(called.value.object) : (called.value.object as z.input<S>))
+      : undefined
+    const parsed = called.ok && normalized !== undefined ? input.schema.safeParse(normalized) : undefined
     if (called.ok && parsed?.success) {
       return {
         status: "ok",

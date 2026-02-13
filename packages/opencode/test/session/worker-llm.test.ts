@@ -131,6 +131,86 @@ describe("session.orchestrator.worker-llm", () => {
     expect(out.object.status).toBe("degraded")
   })
 
+  test("normalize hook recovers deepseek-style schema drift", async () => {
+    const drift = z
+      .object({
+        status: z.enum(["ok", "degraded"]),
+        notes: z.array(z.string()).optional(),
+        toolRequests: z
+          .array(
+            z
+              .object({
+                kind: z.enum(["retrieval"]),
+                input: z.string().min(1),
+              })
+              .strict(),
+          )
+          .optional(),
+      })
+      .strict()
+
+    const out = await runStructured({
+      providerID: "deepseek",
+      modelID: "deepseek-reasoner",
+      schema: drift,
+      messages: [{ role: "user", content: "hi" }],
+      timeoutMs: 100,
+      degraded: (reason) => ({
+        status: "degraded" as const,
+        notes: [reason],
+        toolRequests: [{ kind: "retrieval" as const, input: "fallback" }],
+      }),
+      normalize: (value) => {
+        const data = value as {
+          status?: unknown
+          notes?: unknown
+          tool_requests?: unknown
+        }
+        const key = String(data.status ?? "").trim().toLowerCase()
+        const status: "ok" | "degraded" = ["insufficient", "needs_more", "timeout", "degraded"].includes(key)
+          ? "degraded"
+          : "ok"
+        const notes = typeof data.notes === "string" ? [data.notes.trim()] : []
+        const raw = Array.isArray(data.tool_requests) ? data.tool_requests : []
+        const toolRequests = raw
+          .map((item) => {
+            const req = item as { type?: unknown; query?: unknown }
+            const kind = String(req.type ?? "").trim().toLowerCase()
+            const input = String(req.query ?? "").trim()
+            if (kind !== "retrieval") return undefined
+            if (input.length === 0) return undefined
+            return { kind: "retrieval" as const, input }
+          })
+          .filter((item): item is { kind: "retrieval"; input: string } => item !== undefined)
+
+        return {
+          status,
+          notes: notes.length > 0 ? notes : undefined,
+          toolRequests: toolRequests.length > 0 ? toolRequests : undefined,
+        }
+      },
+      deps: cast({
+        resolveSmallModel: async () => fakeModel("deepseek", "deepseek-reasoner"),
+        getLanguage: async () => ({}) as never,
+        generate: async () => ({
+          object: {
+            status: "insufficient",
+            notes: "need stronger evidence",
+            tool_requests: [{ type: "retrieval", query: "find source pointer" }],
+            traceId: "ds-1",
+          },
+        }),
+      }),
+    })
+
+    expect(out.status).toBe("ok")
+    expect(out.object).toEqual({
+      status: "degraded",
+      notes: ["need stronger evidence"],
+      toolRequests: [{ kind: "retrieval", input: "find source pointer" }],
+    })
+  })
+
   test("type validation error from generateObject maps to schema", async () => {
     const err = Object.assign(new Error("schema failed"), { name: "TypeValidationError" })
     const out = await runStructured({

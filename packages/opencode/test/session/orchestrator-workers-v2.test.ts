@@ -89,6 +89,51 @@ describe("orchestrator workers v2", () => {
     expect(out.notes?.some((item) => item.includes("worker degraded: schema"))).toBe(true)
   })
 
+  test("retrieval planner normalizes deepseek drift output", async () => {
+    const rolePack = pack({ pointers: [], planPointer: "orchestrator/retrieval-planner/primary.json" })
+    const out = await retrievalPlanner(
+      { rolePack, model },
+      {
+        run: (async () => ({
+          status: "ok" as const,
+          object: {
+            status: "needs_more",
+            notes: "need more context",
+            tool_requests: [{ type: "retrieval", query: "cross-check policy evidence", confidence: 0.2 }],
+            trace: "deepseek-r1",
+          },
+        })) as typeof runStructured,
+      },
+    )
+
+    expect(out.status).toBe("degraded")
+    expect(out.notes?.some((item) => item.includes("need more context"))).toBe(true)
+    expect(out.notes?.some((item) => item.includes("schema invalid"))).toBe(false)
+    expect(out.toolRequests).toEqual([{ kind: "retrieval", input: "cross-check policy evidence" }])
+  })
+
+  test("retrieval planner normalizes camelCase status and object tool request", async () => {
+    const rolePack = pack({ pointers: [], planPointer: "orchestrator/retrieval-planner/primary.json" })
+    const out = await retrievalPlanner(
+      { rolePack, model },
+      {
+        run: (async () => ({
+          status: "ok" as const,
+          object: {
+            status: "needsMore",
+            notes: ["need more context"],
+            tool_requests: { type: "retrieval", query: "cross-check policy evidence", confidence: 0.2 },
+            trace: "deepseek-r2",
+          },
+        })) as typeof runStructured,
+      },
+    )
+
+    expect(out.status).toBe("degraded")
+    expect(out.notes?.some((item) => item.includes("schema invalid"))).toBe(false)
+    expect(out.toolRequests).toEqual([{ kind: "retrieval", input: "cross-check policy evidence" }])
+  })
+
   test("patch_planner output is valid", async () => {
     const rolePack = pack({ pointers: ["ptr-a"], planPointer: "orchestrator/patch-planner/plan.json" })
     const seen: string[] = []
