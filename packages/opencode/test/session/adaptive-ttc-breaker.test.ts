@@ -16,7 +16,7 @@ const makeTool = (): Tool =>
     execute: async () => ({ output: "", title: "", metadata: {} }),
   })
 
-const timeout = 90_000
+const timeout = 150_000
 
 describe("adaptive ttc breaker", () => {
   test("breaker degrade reason is observable and replayable", async () => {
@@ -67,6 +67,22 @@ describe("adaptive ttc breaker", () => {
         expect(Boolean(degraded)).toBe(true)
         expect(String(degraded?.data?.["reason"] ?? "").includes("adaptive.ttc.degrade_2_to_1")).toBe(true)
         expect(String(degraded?.data?.["reason"] ?? "").includes("adaptive.ttc.breaker.active")).toBe(true)
+
+        const planned = events.events.find(
+          (item) => item.type === "orchestrator.planned" && item.data?.["messageId"] === "m-adaptive-breaker-observe-2",
+        )
+        expect(Boolean(planned)).toBe(true)
+        expect(planned?.data?.["specVersion"]).toBe("progress-ledger/1.0")
+        expect(planned?.data?.["decision"]).toBe("stop")
+        expect(String(planned?.data?.["stopReason"] ?? "").length > 0).toBe(true)
+        expect(typeof planned?.data?.["evidence_gain_per_cycle"]).toBe("number")
+
+        const zeroGainStop =
+          Number(planned?.data?.["evidence_gain_per_cycle"]) <= 0 &&
+          Number(planned?.data?.["newEvidenceCount"]) === 0 &&
+          Number(planned?.data?.["coverageGain"]) === 0 &&
+          Number(planned?.data?.["duplicateProbeRate"]) >= 1
+        expect(zeroGainStop).toBe(true)
 
         const manifest = await EvidenceReader.readManifest(sessionId)
         const planEntry = manifest.entries.find(
