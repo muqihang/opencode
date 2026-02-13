@@ -47,3 +47,32 @@ test("code retrieval produces stable hits with anchors", async () => {
     },
   })
 })
+
+test("code retrieval handles complex zh query with list markers safely", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      await fs.mkdir(path.join(dir, "src"), { recursive: true })
+      await Bun.write(path.join(dir, "src", "guide.ts"), "export const plan = `问题(中文) 1) 先定位 2) 再修复`\n")
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const input: Parameters<typeof runCodeRetrieval>[0] = {
+        sessionId: "session_code_complex",
+        retrievalId: "retrieval-complex-query",
+        root: Instance.worktree,
+        queries: [{ role: "precision", q: "问题(中文) 1) 先定位 2) 再修复", lang: "auto", kind: "code" }],
+        budget: { maxHits: 5, topK: 5, maxWallClockMs: 2000 },
+        abort: new AbortController().signal,
+      }
+
+      const result = await runCodeRetrieval(input)
+
+      expect(result.hits.length).toBeGreaterThan(0)
+      expect(result.hits.some((hit) => hit.source === "rg")).toBe(true)
+    },
+  })
+})

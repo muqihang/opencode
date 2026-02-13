@@ -976,6 +976,12 @@ export const RetrievalRunner = {
       rerank,
     }
 
+    const issue = errors[0]
+    const reason =
+      state.reason ||
+      (input.abort.aborted ? "user_abort" : budgetState.timedOut ? "timeout" : issue ? `${issue.stage}_error` : "")
+    const error = issue ? (issue.error.trim() ? issue.error : `${issue.stage}:unknown_error`) : ""
+
     const status = (() => {
       if (budgetState.timedOut) return "retrieval.timeout"
       if (state.reason === "superseded" || input.abort.aborted) return "retrieval.cancelled"
@@ -1010,7 +1016,8 @@ export const RetrievalRunner = {
           seen: probe.dedupe.seen,
         },
         rerank: rerank,
-        reason: state.reason || (input.abort.aborted ? "user_abort" : budgetState.timedOut ? "timeout" : ""),
+        reason,
+        error: error || undefined,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
