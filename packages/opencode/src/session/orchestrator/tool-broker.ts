@@ -1,7 +1,8 @@
 import { EvidenceWriter } from "@/evidence/writer"
 import { runRetrieval } from "@/retrieval/runner"
 import { stableJson } from "@/util/stable-json"
-import type { ToolRequest, ToolRequestKind } from "@/protocol/llm-worker-result"
+import { toolRequestV1Compatible } from "@/protocol/llm-worker-result"
+import type { ToolRequest, ToolRequestKind, ToolRequestV2 } from "@/protocol/llm-worker-result"
 import type { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 
 type Pointer = { path: string; sha256: string; kind: string }
@@ -125,11 +126,12 @@ const summaryText = (status: "ok" | "rejected" | "degraded", kind: ToolRequestKi
 export const runToolBroker = async (input: {
   sessionId: string
   messageId: string
-  toolRequests: ToolRequest[]
+  toolRequests: Array<ToolRequest | ToolRequestV2>
   toolPolicy: ToolPolicy
   cycle?: number
   abort: AbortSignal
 }): Promise<BrokerResult> => {
+  const toolRequests = input.toolRequests.map((request) => toolRequestV1Compatible(request))
   const cycle = input.cycle ?? 1
   const writer = await EvidenceWriter.open({ sessionId: input.sessionId })
 
@@ -143,18 +145,18 @@ export const runToolBroker = async (input: {
     summary: "tool broker requested",
     data: {
       messageId: input.messageId,
-      count: input.toolRequests.length,
+      count: toolRequests.length,
       cycle,
       bounceMax: input.toolPolicy.bounceMax,
       allowed: input.toolPolicy.allowed,
-      kinds: input.toolRequests.map((request) => request.kind),
+      kinds: toolRequests.map((request) => request.kind),
     },
     redaction: { applied: true, policyVersion: "v1" },
   })
 
   const bounced = cycle > input.toolPolicy.bounceMax
   if (bounced) {
-    const rejected = input.toolRequests.map((request) => ({
+    const rejected = toolRequests.map((request) => ({
       kind: request.kind,
       status: "rejected" as const,
       reason: "bounce_limit_v1",
@@ -203,7 +205,7 @@ export const runToolBroker = async (input: {
 
   const results: RequestResult[] = []
 
-  for (const [index, request] of input.toolRequests.entries()) {
+  for (const [index, request] of toolRequests.entries()) {
     if (!canRunKind(request.kind)) {
       const rejected: RequestResult = {
         kind: request.kind,
