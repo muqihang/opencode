@@ -301,18 +301,16 @@ export async function exportEvidence(input: z.infer<typeof ExportInput>) {
       exported += 1
     }
 
-    if (layering.reconcile.enabled) {
-      const sourcePath = reconcilePath
-      const destinationPath = path.join(outDir, "reconcile", "dual-write-reconcile.json")
-      const exists = await Bun.file(sourcePath).exists()
-      if (exists) {
-        await copyChecked({
-          base,
-          sourcePath,
-          destinationPath,
-        })
-        exported += 1
-      }
+    const sourcePath = reconcilePath
+    const destinationPath = path.join(outDir, "reconcile", "dual-write-reconcile.json")
+    const exists = await Bun.file(sourcePath).exists()
+    if (exists) {
+      await copyChecked({
+        base,
+        sourcePath,
+        destinationPath,
+      })
+      exported += 1
     }
 
     await writeExportEvent(writer, data.sessionId, {

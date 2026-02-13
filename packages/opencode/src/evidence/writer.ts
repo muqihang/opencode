@@ -838,6 +838,7 @@ export const EvidenceWriter = {
         mode: layering.mode,
         primary: layering.primary.layer,
         mirror: layering.mirror?.layer,
+        switch: layering.migration,
         summary: {
           total: rows.length,
           matched: rows.filter((row) => row.match).length,

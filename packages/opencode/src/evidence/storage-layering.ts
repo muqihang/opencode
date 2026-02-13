@@ -20,6 +20,26 @@ type StorageReconcilePlan = {
   reportPath: string
 }
 
+type StorageMigrationStage = "v1-only" | "dual-read" | "dual-write" | "dual-write-reconcile"
+
+type StorageMigrationPlan = {
+  stage: StorageMigrationStage
+  writeMode: "v1-only" | "v1-v2"
+  readMode: "v1-first" | "v2-first"
+  cutover: {
+    enabled: boolean
+    key: string
+  }
+  rollback: {
+    target: "v1-only"
+    flags: {
+      layering: "0"
+      dualWrite: "0"
+      reconcile: "0"
+    }
+  }
+}
+
 export type StorageLayeringPlan = {
   mode: "legacy" | "layered"
   primary: StorageTarget
@@ -30,6 +50,7 @@ export type StorageLayeringPlan = {
   }
   l2: StorageTarget
   reconcile: StorageReconcilePlan
+  migration: StorageMigrationPlan
 }
 
 const truthy = (value: string | undefined) => {
@@ -146,6 +167,16 @@ export const resolveStorageLayering = (input: {
   const layering = truthy(process.env[STORAGE_LAYERING_FLAG])
   const dualWrite = layering && truthy(process.env[STORAGE_DUAL_WRITE_FLAG])
   const reconcileEnabled = layering && truthy(process.env[STORAGE_RECONCILE_FLAG])
+  const stage = !layering
+    ? "v1-only"
+    : dualWrite
+      ? reconcileEnabled
+        ? "dual-write-reconcile"
+        : "dual-write"
+      : "dual-read"
+
+  const writeMode = dualWrite ? "v1-v2" : "v1-only"
+  const readMode = layering && input.namespaced ? "v2-first" : "v1-first"
 
   const readEvidence = input.namespaced ? [l1.evidenceDir, l0.evidenceDir] : [l0.evidenceDir]
   const readArtifacts = input.namespaced ? [l1.artifactDir, l0.artifactDir] : [l0.artifactDir]
@@ -162,6 +193,23 @@ export const resolveStorageLayering = (input: {
     reconcile: {
       enabled: reconcileEnabled,
       reportPath: path.join(l2.evidenceDir, "dual-write-reconcile.json"),
+    },
+    migration: {
+      stage,
+      writeMode,
+      readMode,
+      cutover: {
+        enabled: stage !== "v1-only",
+        key: `${input.tenantId}/${input.orgId}/${input.sessionId}`,
+      },
+      rollback: {
+        target: "v1-only",
+        flags: {
+          layering: "0",
+          dualWrite: "0",
+          reconcile: "0",
+        },
+      },
     },
   } satisfies StorageLayeringPlan
 }
