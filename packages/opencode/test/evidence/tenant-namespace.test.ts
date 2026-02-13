@@ -13,6 +13,24 @@ const STORAGE_LAYERING_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_LAYERING"
 const STORAGE_DUAL_WRITE_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_DUAL_WRITE"
 const STORAGE_RECONCILE_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_RECONCILE"
 
+type MigrationAudit = {
+  stage?: "v1-only" | "dual-read" | "dual-write" | "dual-write-reconcile"
+  writeMode?: "v1-only" | "v1-v2"
+  readMode?: "v1-first" | "v2-first"
+  rollback?: {
+    target?: "v1-only"
+    flags?: {
+      layering?: string
+      dualWrite?: string
+      reconcile?: string
+    }
+  }
+  cutover?: {
+    enabled?: boolean
+    key?: string
+  }
+}
+
 const withA2 = async (value: string | undefined, fn: () => Promise<void>) => {
   const prev = process.env[A2_FLAG]
   if (value === undefined) {
@@ -83,6 +101,12 @@ describe("evidence tenant namespace", () => {
           expect(plan.mode).toBe("legacy")
           expect(plan.primary.layer).toBe("L1")
           expect(plan.mirror).toBeUndefined()
+          const migration = (plan as { migration?: MigrationAudit }).migration
+          expect(migration?.stage).toBe("v1-only")
+          expect(migration?.writeMode).toBe("v1-only")
+          expect(migration?.readMode).toBe("v1-first")
+          expect(migration?.cutover?.enabled).toBe(false)
+          expect(migration?.rollback?.target).toBe("v1-only")
           expect(plan.read.evidence).toEqual([
             path.join("/tmp/worktree", ".opencode", "evidence", "tenant_acme", "org_ops", "storage_fallback"),
             path.join("/tmp/worktree", ".opencode", "evidence", "storage_fallback"),
@@ -122,6 +146,18 @@ describe("evidence tenant namespace", () => {
           expect(plan.mode).toBe("layered")
           expect(plan.primary.layer).toBe("L1")
           expect(plan.mirror?.layer).toBe("L0")
+          const migration = (plan as { migration?: MigrationAudit }).migration
+          expect(migration?.stage).toBe("dual-write-reconcile")
+          expect(migration?.writeMode).toBe("v1-v2")
+          expect(migration?.readMode).toBe("v2-first")
+          expect(migration?.cutover?.enabled).toBe(true)
+          expect(migration?.cutover?.key).toBe("tenant_acme/org_ops/storage_dual")
+          expect(migration?.rollback?.target).toBe("v1-only")
+          expect(migration?.rollback?.flags).toEqual({
+            layering: "0",
+            dualWrite: "0",
+            reconcile: "0",
+          })
           expect(plan.reconcile.enabled).toBe(true)
           expect(plan.reconcile.reportPath).toBe(
             path.join(

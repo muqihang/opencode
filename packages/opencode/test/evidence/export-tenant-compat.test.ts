@@ -10,6 +10,24 @@ const STORAGE_LAYERING_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_LAYERING"
 const STORAGE_DUAL_WRITE_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_DUAL_WRITE"
 const STORAGE_RECONCILE_FLAG = "OPENCODE_EXPERIMENTAL_STORAGE_RECONCILE"
 
+type ReconcileAudit = {
+  switch?: {
+    stage?: "v1-only" | "dual-read" | "dual-write" | "dual-write-reconcile"
+    cutover?: {
+      enabled?: boolean
+      key?: string
+    }
+    rollback?: {
+      target?: "v1-only"
+      flags?: {
+        layering?: string
+        dualWrite?: string
+        reconcile?: string
+      }
+    }
+  }
+}
+
 const withA2 = async (value: string | undefined, fn: () => Promise<void>) => {
   const prev = process.env[A2_FLAG]
   if (value === undefined) {
@@ -94,7 +112,11 @@ describe("evidence export tenant compat", () => {
                 data: "diff --git a/a b/a",
               })
               await writer.pack({ handoff: "tenant" })
-              await writer.reconcile()
+              const runtime = await writer.reconcile()
+              const runtimeSwitch = (runtime as ReconcileAudit).switch
+              expect(runtimeSwitch?.stage).toBe("dual-write-reconcile")
+              expect(runtimeSwitch?.cutover?.enabled).toBe(true)
+              expect(runtimeSwitch?.rollback?.target).toBe("v1-only")
 
               const report = path.join(
                 tmp.path,
@@ -110,9 +132,75 @@ describe("evidence export tenant compat", () => {
               const payload = JSON.parse(await Bun.file(report).text()) as {
                 summary?: { mismatched?: number }
                 results?: Array<{ match?: boolean }>
-              }
+              } & ReconcileAudit
               expect(payload.summary?.mismatched).toBe(0)
               expect((payload.results ?? []).some((item) => item.match === true)).toBe(true)
+              expect(payload.switch?.stage).toBe("dual-write-reconcile")
+              expect(payload.switch?.cutover?.key).toBe("tenant_acme/org_ops/export_reconcile")
+              expect(payload.switch?.rollback?.flags).toEqual({
+                layering: "0",
+                dualWrite: "0",
+                reconcile: "0",
+              })
+
+              const outDir = path.join(tmp.path, "exported", sessionId)
+              await exportEvidence({ sessionId, tenantId, orgId, outDir })
+              expect(await Bun.file(path.join(outDir, "reconcile", "dual-write-reconcile.json")).exists()).toBe(
+                true,
+              )
+            },
+          )
+        })
+      },
+    })
+  })
+
+  test("keeps reconcile export available after one-click rollback to v1-only", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "export_rollback"
+        const tenantId = "tenant_acme"
+        const orgId = "org_ops"
+
+        await withA2("1", async () => {
+          await withStorage(
+            {
+              layering: "1",
+              dualWrite: "1",
+              reconcile: "1",
+            },
+            async () => {
+              const writer = await EvidenceWriter.open({ sessionId, tenantId, orgId })
+              await writer.event({
+                specVersion: "event/1.0",
+                ts: "2026-02-12T00:00:00.000Z",
+                sessionId,
+                severity: "info",
+                actor: "test:tenant",
+                type: "tenant.namespaced",
+                summary: "rollback target",
+                redaction: { applied: true, policyVersion: "v1" },
+              })
+              await writer.pack({ handoff: "tenant" })
+              await writer.manifest()
+              await writer.reconcile()
+            },
+          )
+
+          await withStorage(
+            {
+              layering: "0",
+              dualWrite: "0",
+              reconcile: "0",
+            },
+            async () => {
+              const outDir = path.join(tmp.path, "exported", sessionId)
+              await exportEvidence({ sessionId, tenantId, orgId, outDir })
+              expect(await Bun.file(path.join(outDir, "reconcile", "dual-write-reconcile.json")).exists()).toBe(
+                true,
+              )
             },
           )
         })
