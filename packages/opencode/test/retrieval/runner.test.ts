@@ -26,6 +26,13 @@ async function eventsPath(sessionId: string) {
   return candidates[0]!
 }
 
+function probePath(input: { sessionId: string; artifactPath: string }) {
+  const value = input.artifactPath.replace(/\\/g, "/")
+  if (path.isAbsolute(value)) return value
+  if (value.startsWith(".opencode/")) return path.join(Instance.worktree, ...value.split("/"))
+  return path.join(Instance.worktree, ".opencode", "artifacts", input.sessionId, ...value.split("/"))
+}
+
 test("retrieval events are call-scoped and context pack includes evidence pointers", async () => {
   await using tmp = await tmpdir({
     git: true,
@@ -249,24 +256,8 @@ test("retrieval writes probe journal and marks duplicate probe by message+key", 
         abort: new AbortController().signal,
       })
 
-      const onePath = path.join(
-        Instance.worktree,
-        ".opencode",
-        "artifacts",
-        sessionId,
-        "retrieval",
-        one.retrievalId,
-        "probe.journal.json",
-      )
-      const twoPath = path.join(
-        Instance.worktree,
-        ".opencode",
-        "artifacts",
-        sessionId,
-        "retrieval",
-        two.retrievalId,
-        "probe.journal.json",
-      )
+      const onePath = probePath({ sessionId, artifactPath: one.artifacts.probe })
+      const twoPath = probePath({ sessionId, artifactPath: two.artifacts.probe })
 
       const oneProbe = JSON.parse(await Bun.file(onePath).text()) as {
         specVersion?: string

@@ -9,6 +9,7 @@ import { CacheStore } from "@/cache/store"
 import { CachePolicy } from "@/cache/policy"
 import { sha256Text } from "@/routing/cache"
 import { verifyEvidenceChain } from "@/evidence/chain"
+import { artifactCandidates, resolveTenantScope } from "@/util/tenant-context"
 import { runCodeRetrieval } from "./code"
 import { runWorkbenchRetrieval } from "./workbench"
 import { resolveWorkspaceFingerprint } from "./workspace"
@@ -305,12 +306,27 @@ type ProbeJournal = {
   createdAtUtc: string
 }
 
-const probeRoot = (sessionId: string) => path.join(baseDir(), ".opencode", "artifacts", sessionId, "retrieval")
+const probeRoots = (sessionId: string) => {
+  const scope = resolveTenantScope()
+  return artifactCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  }).map((item) => path.join(item, "retrieval"))
+}
 
 const countProbeMatches = async (input: { sessionId: string; messageId: string; dedupeKey: string }) => {
-  const root = probeRoot(input.sessionId)
-  const dirs = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
-  const files = dirs.filter((item) => item.isDirectory()).map((item) => path.join(root, item.name, "probe.journal.json"))
+  const roots = probeRoots(input.sessionId)
+  const grouped = await Promise.all(
+    roots.map(async (root) => {
+      const dirs = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
+      return dirs
+        .filter((item) => item.isDirectory())
+        .map((item) => path.join(root, item.name, "probe.journal.json"))
+    }),
+  )
+  const files = [...new Set(grouped.flat())]
   const rows = await Promise.all(files.map((item) => Bun.file(item).json().catch(() => undefined)))
   return rows.filter((item) => isRecord(item) && item.messageId === input.messageId && item.dedupeKey === input.dedupeKey).length
 }
