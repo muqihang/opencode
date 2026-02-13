@@ -1052,6 +1052,52 @@ test("getSmallModel role route falls back when role model missing", async () => 
   })
 })
 
+test("getSmallModel routes deepseek worker roles to deepseek-chat when active model is deepseek", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          small_model: "test-provider/gpt-5-nano",
+          provider: {
+            "test-provider": {
+              name: "Test Provider",
+              npm: "@ai-sdk/openai-compatible",
+              api: "https://example.com/v1",
+              options: { apiKey: "test-key" },
+              models: {
+                "deepseek-chat": {
+                  name: "DeepSeek Chat",
+                  tool_call: true,
+                  limit: { context: 64000, output: 8000 },
+                  cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+                },
+                "gpt-5-nano": {
+                  name: "GPT-5 Nano",
+                  tool_call: true,
+                  limit: { context: 64000, output: 8000 },
+                  cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const model = await Provider.getSmallModel("test-provider", "evidence_critic", "deepseek-reasoner")
+      expect(model).toBeDefined()
+      expect(model?.providerID).toBe("test-provider")
+      expect(model?.id).toBe("deepseek-chat")
+    },
+  })
+})
+
 test("provider.sort prioritizes preferred models", () => {
   const models = [
     { id: "random-model", name: "Random" },

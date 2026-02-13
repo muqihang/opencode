@@ -1142,6 +1142,28 @@ export namespace Provider {
 
   const readString = (value: unknown) => (typeof value === "string" ? value : undefined)
 
+  const WorkerRole = new Set(["evidence_critic", "retrieval_planner", "patch_planner"])
+
+  const isWorkerRole = (role: string | undefined) => {
+    if (!role) return false
+    return WorkerRole.has(role)
+  }
+
+  const isDeepseek = (value: string | undefined) => {
+    if (!value) return false
+    return value.toLowerCase().includes("deepseek")
+  }
+
+  const deepseekModel = (provider: Info | undefined) => {
+    if (!provider) return undefined
+    const ids = Object.keys(provider.models)
+    const exact = ids.find((id) => id === "deepseek-chat")
+    if (exact) return exact
+    const contains = ids.find((id) => id.includes("deepseek-chat") && !id.includes("thinking"))
+    if (contains) return contains
+    return ids.find((id) => id.includes("deepseek") && !id.includes("reasoner") && !id.includes("thinking"))
+  }
+
   const readRoleModel = (input: { options: Record<string, unknown> | undefined; role: string | undefined }) => {
     if (!input.role) return undefined
     const pack = readRecord(input.options?.["worker_small_models"])
@@ -1152,7 +1174,7 @@ export namespace Provider {
     return { providerID: undefined, modelID: raw }
   }
 
-  const getSmallModelByRole = async (providerID: string, role?: string) => {
+  const getSmallModelByRole = async (providerID: string, role?: string, activeModelID?: string) => {
     const cfg = await Config.get()
 
     const provider = await state().then((state) => state.providers[providerID])
@@ -1169,6 +1191,17 @@ export namespace Provider {
         .then((value) => ({ ok: true as const, value }))
         .catch(() => ({ ok: false as const }))
       if (resolved.ok) return resolved.value
+    }
+
+    const deepseekRole = isWorkerRole(role) && (providerID === "deepseek" || isDeepseek(activeModelID))
+    if (deepseekRole) {
+      const target = deepseekModel(provider)
+      if (target) {
+        const resolved = await getModel(providerID, target)
+          .then((value) => ({ ok: true as const, value }))
+          .catch(() => ({ ok: false as const }))
+        if (resolved.ok) return resolved.value
+      }
     }
 
     if (cfg.small_model) {
@@ -1209,8 +1242,8 @@ export namespace Provider {
     return undefined
   }
 
-  export async function getSmallModel(providerID: string, role?: string) {
-    return getSmallModelByRole(providerID, role)
+  export async function getSmallModel(providerID: string, role?: string, activeModelID?: string) {
+    return getSmallModelByRole(providerID, role, activeModelID)
   }
 
   const priority = ["gpt-5", "claude-sonnet-4", "big-pickle", "gemini-3-pro"]

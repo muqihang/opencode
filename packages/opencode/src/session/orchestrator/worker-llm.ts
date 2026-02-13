@@ -22,7 +22,7 @@ export const resolveSmallModel = async (input: ResolveInput, deps?: Partial<Reso
 
   if (input.model) return getModel(input.model.providerID, input.model.modelID)
 
-  const small = await getSmallModel(input.providerID, input.role)
+  const small = await getSmallModel(input.providerID, input.role, input.modelID)
   if (small) return small
 
   return getModel(input.providerID, input.modelID)

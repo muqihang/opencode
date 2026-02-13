@@ -148,6 +148,78 @@ describe("secure-output", () => {
     })
   }, { timeout: 30000 })
 
+  test("strict: legacy claim block is normalized and accepted", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "so-legacy"
+        const messageId = "m-legacy"
+        const content = "hello\nworld\n"
+        const rel = "derived/input/note.txt"
+        const roots = [
+          path.join(Instance.worktree, ".opencode", "artifacts", sessionId, "derived", "input"),
+          path.join(Instance.worktree, ".opencode", "artifacts", "local", "default", sessionId, "derived", "input"),
+        ]
+        await Promise.all(roots.map((root) => Bun.write(path.join(root, "note.txt"), content)))
+
+        const answer = [
+          "这是结论。",
+          "",
+          "<assistant_claims_json>",
+          JSON.stringify({
+            specVersion: "assistant-claims/1.0",
+            claims: [
+              {
+                kind: "fact",
+                statement: "note contains hello",
+                pointers: [
+                  {
+                    path: rel,
+                    sha256: sha256(content),
+                    anchor: "lineStart:1,lineEnd:1",
+                  },
+                ],
+              },
+            ],
+          }),
+          "</assistant_claims_json>",
+        ].join("\n")
+
+        const result = await runSecureOutput({
+          sessionId,
+          messageId,
+          mode: "strict",
+          budget: { timeMs: 20000, maxScripts: 4 },
+          text: answer,
+          ctx: buildCtx(sessionId, messageId),
+        })
+
+        expect(result.status).toBe("ok")
+        expect(result.text).not.toContain("<assistant_claims_json>")
+
+        const writer = await EvidenceWriter.open({ sessionId })
+        const manifest = await writer.manifest()
+        const claims = manifest.entries.find((entry) => entry.path.includes("secure-output") && entry.path.endsWith("claims.json"))
+        expect(claims).toBeDefined()
+        if (!claims) return
+
+        const payload = (await Bun.file(path.join(Instance.worktree, claims.path)).json()) as {
+          policyVersion?: string
+          claims?: Array<{
+            id?: string
+            text?: string
+            pointers?: Array<{ anchor?: Record<string, number> }>
+          }>
+        }
+        expect(payload.policyVersion).toBe("v1")
+        expect(payload.claims?.[0]?.id).toBe("c1")
+        expect(payload.claims?.[0]?.text).toBe("note contains hello")
+        expect(payload.claims?.[0]?.pointers?.[0]?.anchor).toEqual({ lineStart: 1, lineEnd: 1 })
+      },
+    })
+  }, { timeout: 30000 })
+
   test("balanced: missing evidence degrades but keeps the original answer text (no intrusive fallback)", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

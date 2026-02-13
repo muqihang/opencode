@@ -260,14 +260,7 @@ const renderInjection = (input: {
     if (value.includes("/hits/")) return 1
     return 0
   }
-  const anchor = (value?: Record<string, number>) => {
-    if (!value) return "-"
-    const pairs = Object.entries(value)
-      .filter(([, num]) => typeof num === "number")
-      .map(([key, num]) => `${key}:${num}`)
-    if (pairs.length === 0) return "-"
-    return pairs.join(",")
-  }
+  const anchor = (value?: Record<string, number>) => stableJson(value ?? {})
   const fallback = Array.from({ length: minEvidence }, (_, index) => ({
     path: `orchestrator/fallback/${index + 1}`,
     sha256: "unknown",
@@ -315,13 +308,16 @@ const renderInjection = (input: {
       : ["- none"]
   const instruction = [
     "- fact claims MUST map to evidence ids",
+    "- claim object MUST use text (NOT statement) and include id",
+    "- pointer.anchor MUST be JSON object; never string like lineStart:9,lineEnd:10",
+    "- root claims JSON MUST include policyVersion",
     "- if verdict=insufficient, answer with unknown-first",
   ]
 
   const render = (state: { evidence: typeof evidence; notes: string[] }) => {
     const digest = state.evidence.map(
       (item, index) =>
-        `- [E${index + 1}] path=${item.path} sha=${item.sha256} anchor=${anchor(item.anchor)} summary=${item.summary}`,
+        `- [E${index + 1}] path=${item.path} sha=${item.sha256} anchor_json=${anchor(item.anchor)} summary=${item.summary}`,
     )
     const lines = [
       "<orchestrator_evidence_v2>",

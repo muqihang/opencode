@@ -41,6 +41,95 @@ const safeJson = (raw: string) => {
   }
 }
 
+const record = (value: unknown) => {
+  if (!value) return undefined
+  if (typeof value !== "object") return undefined
+  if (Array.isArray(value)) return undefined
+  return value as Record<string, unknown>
+}
+
+const text = (value: unknown) => (typeof value === "string" ? value : undefined)
+
+const parseAnchorPiece = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return trimmed
+  const numeric = Number(trimmed)
+  if (!Number.isFinite(numeric)) return trimmed
+  const decimal = /^-?\d+(\.\d+)?$/
+  if (!decimal.test(trimmed)) return trimmed
+  return numeric
+}
+
+const parseAnchorText = (value: string) => {
+  const parts = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map((item) => {
+      const [head, ...rest] = item.split(":")
+      const key = head?.trim() ?? ""
+      const raw = rest.join(":").trim()
+      if (!key) return undefined
+      if (!raw) return undefined
+      return [key, parseAnchorPiece(raw)] as const
+    })
+    .filter((item) => item !== undefined)
+  if (parts.length === 0) return undefined
+  return Object.fromEntries(parts)
+}
+
+const normalizeAnchor = (value: unknown) => {
+  const obj = record(value)
+  if (obj) return obj
+  const raw = text(value)
+  if (!raw) return undefined
+  return parseAnchorText(raw)
+}
+
+const normalizePointer = (value: unknown) => {
+  const item = record(value)
+  if (!item) return undefined
+  const path = text(item.path) ?? ""
+  const sha = text(item.sha256)
+  const anchor = normalizeAnchor(item.anchor)
+  return {
+    path,
+    ...(sha ? { sha256: sha } : {}),
+    ...(anchor ? { anchor } : {}),
+  }
+}
+
+const normalizeClaimsPayload = (value: unknown) => {
+  const root = record(value)
+  if (!root) return { payload: value, adjusted: false }
+
+  const claims = Array.isArray(root.claims) ? root.claims : []
+  const normalized = {
+    specVersion: "assistant-claims/1.0",
+    policyVersion: text(root.policyVersion) ?? "v1",
+    claims: claims
+      .map((item, index) => {
+        const claim = record(item)
+        if (!claim) return undefined
+        const pointers = Array.isArray(claim.pointers) ? claim.pointers : []
+        const kind = text(claim.kind) ?? "fact"
+        const label = text(claim.text) ?? text(claim.statement) ?? ""
+        return {
+          id: text(claim.id) ?? `c${index + 1}`,
+          kind,
+          text: label,
+          pointers: pointers.map(normalizePointer).filter((pointer) => pointer !== undefined),
+        }
+      })
+      .filter((item) => item !== undefined),
+  }
+
+  return {
+    payload: normalized,
+    adjusted: stableJson(normalized) !== stableJson(value),
+  }
+}
+
 const stripClaims = (text: string) => {
   const start = text.lastIndexOf(openTag)
   if (start < 0) return { ok: false as const, error: "missing_block" as const }
@@ -193,7 +282,8 @@ export const runSecureOutput = async (input: {
     return { status: "degraded", text: stripped.cleaned, artifacts: [inputEntry.path, errorEntry.path] }
   }
 
-  const claims = AssistantClaims.safeParse(parsed.value)
+  const normalized = normalizeClaimsPayload(parsed.value)
+  const claims = AssistantClaims.safeParse(normalized.payload)
   if (!claims.success) {
     const reason = "断言块不符合 assistant-claims/1.0 协议（schema 校验失败）"
     const errorEntry = await writer.artifact({
@@ -203,6 +293,7 @@ export const runSecureOutput = async (input: {
         specVersion: "secure-output-error/1.0",
         code: "schema_invalid",
         reason,
+        normalized: normalized.adjusted,
         issues: claims.error.issues.map((i) => ({ path: i.path, message: i.message })),
       }),
     })
@@ -346,6 +437,7 @@ export const runSecureOutput = async (input: {
       input_artifact: inputEntry.path,
       claims_artifact: claimsEntry.path,
       verification_report_artifact: verify.reportPath,
+      claims_normalized: normalized.adjusted,
     },
     redaction: { applied: true, policyVersion: "v1" },
   })
