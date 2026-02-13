@@ -52,6 +52,102 @@ const clean = (value: string, max: number) => {
   return text.slice(0, max)
 }
 
+const obj = (value: unknown) => {
+  if (!value) return undefined
+  if (typeof value !== "object") return undefined
+  if (Array.isArray(value)) return undefined
+  return value as Record<string, unknown>
+}
+
+const txt = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value
+}
+
+const list = (value: unknown) => {
+  if (value === undefined) return [] as unknown[]
+  if (Array.isArray(value)) return value
+  return [value]
+}
+
+const statusMap = (value: unknown): Retrieval["status"] | undefined => {
+  const key = txt(value).trim().toLowerCase()
+  if (["ok", "success", "sufficient", "pass", "passed"].includes(key)) return "ok"
+  if ([
+    "degraded",
+    "timeout",
+    "cancelled",
+    "insufficient",
+    "conflict",
+    "error",
+    "failed",
+    "fail",
+    "needs_more",
+    "needsmore",
+    "needs-more",
+    "need_more",
+    "needmore",
+    "retry",
+  ].includes(key)) {
+    return "degraded"
+  }
+}
+
+const notesMap = (value: unknown, max: number) => {
+  if (value === undefined) return [] as string[]
+  const raw = list(value)
+  const notes = raw
+    .map((item) => clean(txt(item), max))
+    .filter((item) => item.length > 0)
+  if (raw.length > 0 && notes.length === 0) return
+  return notes
+}
+
+const toolMap = (value: unknown, max: number): ToolRequest | undefined => {
+  const data = obj(value)
+  if (!data) return
+  const kind = txt(data.kind ?? data.type ?? data.tool).trim().toLowerCase()
+  if (!["retrieval", "retrieve", "search", "lookup"].includes(kind)) return
+  const input = clean(txt(data.input ?? data.query ?? data.text ?? data.q), max)
+  if (input.length === 0) return
+  return { kind: "retrieval", input }
+}
+
+const toolsMap = (value: unknown, max: number) => {
+  if (value === undefined) return [] as ToolRequest[]
+  const raw = list(value)
+  const tools = raw
+    .map((item) => toolMap(item, max))
+    .filter((item): item is ToolRequest => item !== undefined)
+  if (raw.length > 0 && tools.length === 0) return
+  return tools
+}
+
+const normalize = (value: unknown, rolePack: LlmWorkerRolePack): Retrieval | undefined => {
+  const parsed = Retrieval.safeParse(value)
+  if (parsed.success) return parsed.data
+
+  const data = obj(value)
+  if (!data) return
+
+  const maxText = textLimit(rolePack)
+  const status = statusMap(data.status)
+  const notes = notesMap(data.notes ?? data.note, maxText)
+  const tools = toolsMap(data.toolRequests ?? data.tool_requests ?? data.toolRequest, Math.min(1200, maxText * 2))
+
+  if (!status) return
+  if (notes === undefined) return
+  if (tools === undefined) return
+
+  const next = Retrieval.safeParse({
+    status,
+    notes: notes.length > 0 ? notes : undefined,
+    toolRequests: tools.length > 0 ? tools : undefined,
+  })
+  if (!next.success) return
+  return next.data
+}
+
 const bounded = (input: { rolePack: LlmWorkerRolePack; output: Retrieval }) => {
   const need = input.rolePack.workingSet.pointers.length === 0
   const maxTools = input.rolePack.budget.maxToolCalls
@@ -145,12 +241,13 @@ export const retrievalPlanner = async (input: WorkerComputeInput, deps?: Partial
       notes: [`worker degraded: ${reason}`],
       toolRequests: rolePack.workingSet.pointers.length === 0 ? [retrieval(rolePack.planPointer)] : [],
     }),
+    normalize: (value) => normalize(value, rolePack),
   })
 
-  const parsed = Retrieval.safeParse(generated.object)
-  if (!parsed.success) return fallback({ rolePack, reason: "schema invalid" })
+  const output = normalize(generated.object, rolePack)
+  if (!output) return fallback({ rolePack, reason: "schema invalid" })
 
-  const safe = bounded({ rolePack, output: parsed.data })
+  const safe = bounded({ rolePack, output })
   if (generated.status === "degraded") {
     return LlmWorkerResult.parse({
       specVersion: "llm-worker-result/1.0",

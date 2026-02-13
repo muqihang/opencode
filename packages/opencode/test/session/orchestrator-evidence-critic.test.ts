@@ -164,6 +164,51 @@ describe("orchestrator evidence_critic", () => {
     expect(result.notes?.[0]?.includes("timeout")).toBe(true)
   })
 
+  test("deepseek drift output is normalized without schema fallback", async () => {
+    const rolePack = pack({ pointers: ["ptr-1"], maxToolCalls: 2 })
+    const result = await evidenceCritic(
+      { rolePack },
+      {
+        run: (async () => ({
+          status: "ok" as const,
+          object: {
+            status: "insufficient",
+            notes: "need stronger evidence",
+            tool_requests: [{ type: "verification", query: "cross-check policy evidence", confidence: 0.24 }],
+            traceId: "deepseek-e1",
+          },
+        })) as typeof runStructured,
+      },
+    )
+
+    expect(result.status).toBe("degraded")
+    expect(result.notes?.some((item) => item.includes("need stronger evidence"))).toBe(true)
+    expect(result.notes?.some((item) => item.includes("schema invalid"))).toBe(false)
+    expect(result.toolRequests).toEqual([{ kind: "retrieval", input: "cross-check policy evidence" }])
+  })
+
+  test("deepseek camelCase status is normalized to degraded", async () => {
+    const rolePack = pack({ pointers: ["ptr-1"], maxToolCalls: 2 })
+    const result = await evidenceCritic(
+      { rolePack },
+      {
+        run: (async () => ({
+          status: "ok" as const,
+          object: {
+            status: "needsMore",
+            notes: ["need stronger evidence"],
+            tool_requests: { type: "verification", query: "cross-check policy evidence", confidence: 0.32 },
+            traceId: "deepseek-e2",
+          },
+        })) as typeof runStructured,
+      },
+    )
+
+    expect(result.status).toBe("degraded")
+    expect(result.notes?.some((item) => item.includes("schema invalid"))).toBe(false)
+    expect(result.toolRequests).toEqual([{ kind: "retrieval", input: "cross-check policy evidence" }])
+  })
+
   test("tool requests are bounded by budget", async () => {
     const rolePack = pack({ pointers: ["ptr-1"], maxToolCalls: 1 })
     const result = await evidenceCritic(
