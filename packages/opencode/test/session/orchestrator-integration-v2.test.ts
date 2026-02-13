@@ -260,6 +260,7 @@ describe("orchestrator integration v2 rollout", () => {
 
         const original = WorkerRunner.run
         const calls: Array<{ workerId: string; pointers: number }> = []
+        const marker = "LONG_NOTE_MARKER"
 
         WorkerRunner.run = (async (input) => {
           calls.push({ workerId: input.workerId, pointers: input.rolePack.workingSet.pointers.length })
@@ -268,7 +269,7 @@ describe("orchestrator integration v2 rollout", () => {
               result: {
                 specVersion: "llm-worker-result/1.0",
                 status: "ok",
-                notes: ["planner requested retrieval"],
+                notes: ["planner requested retrieval", `${marker}:${"x".repeat(2400)}`],
                 toolRequests: [{ kind: "retrieval", input: "read docs/policy/risk-policy.md" }],
               },
               cache: { status: "miss", tier: "none" },
@@ -292,7 +293,11 @@ describe("orchestrator integration v2 rollout", () => {
               result: {
                 specVersion: "llm-worker-result/1.0",
                 status: "ok",
-                notes: ["evidence reviewed with pointers"],
+                notes: [
+                  "from_model=planner to_model=critic gate_reason=handoff",
+                  "evidence reviewed with pointers",
+                  `${marker}:${"y".repeat(2400)}`,
+                ],
               },
               cache: { status: "miss", tier: "none" },
             }
@@ -328,6 +333,28 @@ describe("orchestrator integration v2 rollout", () => {
           expect(criticCalls.some((item) => item.pointers > 0)).toBe(true)
           expect(result.degraded).toBe(false)
           expect(result.system[result.system.length - 1]).not.toBe("unknown-first")
+
+          const injected = result.system[result.system.length - 1] ?? ""
+          expect(injected.startsWith("<orchestrator_evidence_v2>")).toBe(true)
+          expect(injected.endsWith("</orchestrator_evidence_v2>")).toBe(true)
+
+          const verdictLine = injected.split("\n").find((line) => line.startsWith("verdict_json: "))
+          if (!verdictLine) throw new Error("missing verdict_json")
+          const verdict = JSON.parse(verdictLine.slice("verdict_json: ".length)) as {
+            specVersion?: string
+            status?: string
+          }
+
+          const digest = injected.split("\n").filter((line) => line.startsWith("- [E"))
+
+          expect(verdict.specVersion).toBe("critic-verdict/2.0")
+          expect(typeof verdict.status).toBe("string")
+          expect(digest.length).toBeGreaterThanOrEqual(3)
+          expect(injected.includes(marker)).toBe(false)
+          expect(injected.includes("from_model=")).toBe(false)
+          expect(injected.includes("to_model=")).toBe(false)
+          expect(injected.includes("gate_reason=")).toBe(false)
+
           expect(turnFail.length).toBe(0)
           expect(broker.length).toBeGreaterThan(0)
         } finally {
