@@ -134,6 +134,51 @@ test("retrieval events are call-scoped and context pack includes evidence pointe
   })
 }, { timeout: 20000 })
 
+test("retrieval degraded event carries non-empty reason and error", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      await fs.mkdir(path.join(dir, "src"), { recursive: true })
+      await Bun.write(path.join(dir, "src", "alpha.ts"), "export const alpha = 1\n")
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const sessionId = "session_r_degraded"
+      const root = path.join(Instance.worktree, ".opencode", "artifacts", sessionId, "derived", "input-bad")
+      await fs.mkdir(root, { recursive: true })
+      await Bun.write(path.join(root, "pdf.pages.json"), "{broken")
+
+      const run = await runRetrieval({
+        sessionId,
+        messageId: "msg_degraded",
+        intentText: "alpha",
+        abort: new AbortController().signal,
+      })
+
+      const eventsPathValue = await eventsPath(sessionId)
+      const events = (await Bun.file(eventsPathValue).text())
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => EventV1.parse(JSON.parse(line)))
+      const event = events.find((item) => item.type === "retrieval.degraded" && item.data?.retrievalId === run.retrievalId)
+
+      expect(Boolean(event)).toBe(true)
+      const reason = event?.data?.reason
+      const error = event?.data?.error
+      expect(typeof reason).toBe("string")
+      expect((reason as string).length).toBeGreaterThan(0)
+      expect(typeof error).toBe("string")
+      expect((error as string).length).toBeGreaterThan(0)
+      expect(typeof run.artifacts.errors).toBe("string")
+      expect((run.artifacts.errors ?? "").length).toBeGreaterThan(0)
+    },
+  })
+})
+
 test("retrieval cache uses ssot store and hit skips heavy code retrieval", async () => {
   await using tmp = await tmpdir({
     git: true,

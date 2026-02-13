@@ -108,6 +108,7 @@ export const runCodeRetrieval = async (input: {
     const rows = await Ripgrep.search({
       cwd: input.root,
       pattern: query.q,
+      fixed: true,
       limit,
     })
     for (const row of rows) {
