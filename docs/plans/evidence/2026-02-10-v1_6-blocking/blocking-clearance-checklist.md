@@ -1,5 +1,15 @@
 # CARD-BLK-06 阻断解除检查表（P0-A + I 前5）
 
+## 最新状态（F4 final closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/f4-wave-final-closeout-2026-02-13.md`
+- 覆盖范围：`P0-A6~P0-A8 + P0-B1~P0-B5`（8 卡）
+- 门禁结果：`F4-FINAL-GATE-01` 总门禁与分步门禁均 `exit code = 0`
+- 工程能力结论：`F4 工程能力闭环已完成（GO）`
+- 发布结论：`Final 放行仍受 I.1 provider-wire 外部阻塞约束（BLOCKED）`
+- 阻断口径：`I.1` 外部链路未闭环前，`Final GO` 不得宣布放行。
+- 声明：本条为 append-only 当前状态覆盖说明；历史 `No-Go/Blocked` 记录保留，不改写历史正文。
+
 ## 最新状态（F4 full engineering plan established）
 
 - 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/f4-wave-plan-2026-02-12.md`

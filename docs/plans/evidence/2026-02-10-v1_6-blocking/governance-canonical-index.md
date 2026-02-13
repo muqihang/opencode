@@ -1,5 +1,15 @@
 # CARD-BLK-06 治理口径 Canonical Index
 
+## 最新状态（F4 final closeout）
+
+- 增量闭环文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/f4-wave-final-closeout-2026-02-13.md`
+- 覆盖范围：`P0-A6~P0-A8 + P0-B1~P0-B5`（8 卡）
+- 关键链路：`9e8d7d803 -> cc599ddad -> e06cabc71 -> 1c06e3117 -> 684904956 -> b92aa5932 -> 8a9e8f3c1 -> dd5c45a21 -> 551cdb4de -> d92465346`
+- 门禁结果：`F4-FINAL-GATE-01`（整链与分步）均 `exit code = 0`
+- 工程能力结论：`F4 工程能力闭环已完成（GO）`
+- 发布结论：`Final 放行仍受 I.1 provider-wire 外部阻塞约束（BLOCKED）`
+- 声明：本条为 append-only 当前状态覆盖说明；历史 `No-Go/Blocked` 记录保留，不改写历史正文。
+
 ## 最新状态（F4 full engineering plan established）
 
 - 增量计划文档：`/Users/muqihang/chelingxi_workspace/opencode-zh-build/opencode_src/docs/plans/evidence/2026-02-10-v1_6-blocking/f4-wave-plan-2026-02-12.md`
