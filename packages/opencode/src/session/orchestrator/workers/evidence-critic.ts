@@ -1,7 +1,7 @@
 import z from "zod"
 import { Provider } from "@/provider/provider"
 import { LlmWorkerRolePack } from "@/protocol/llm-worker-role-pack"
-import { LlmWorkerResult } from "@/protocol/llm-worker-result"
+import { CriticVerdictV2, LlmWorkerResult, criticVerdictV1FromV2 } from "@/protocol/llm-worker-result"
 import { withTimeout } from "@/util/timeout"
 import { runStructured } from "../worker-llm"
 import type { WorkerComputeInput, WorkerModel } from "../worker-spec"
@@ -56,6 +56,12 @@ const normalizeKind = (kind: "retrieval" | "verification") => {
 }
 
 const retrieval = (input: string): ToolRequest => ({ kind: "retrieval", input })
+
+const toCritic = (input: LlmWorkerResult): Critic => ({
+  status: input.status === "ok" ? "ok" : "degraded",
+  notes: input.notes,
+  toolRequests: input.toolRequests,
+})
 
 const bounded = (input: { rolePack: LlmWorkerRolePack; output: Critic }) => {
   const need = input.rolePack.workingSet.pointers.length === 0
@@ -149,9 +155,15 @@ export const evidenceCritic = async (input: WorkerComputeInput, deps?: Partial<C
   })
 
   const parsed = Critic.safeParse(generated.object)
-  if (!parsed.success) return fallback({ rolePack, reason: "schema invalid" })
+  const output = (() => {
+    if (parsed.success) return parsed.data
+    const parsedV2 = CriticVerdictV2.safeParse(generated.object)
+    if (!parsedV2.success) return
+    return toCritic(criticVerdictV1FromV2(parsedV2.data))
+  })()
+  if (!output) return fallback({ rolePack, reason: "schema invalid" })
 
-  const safe = bounded({ rolePack, output: parsed.data })
+  const safe = bounded({ rolePack, output })
   if (generated.status === "degraded") {
     return LlmWorkerResult.parse({
       specVersion: "llm-worker-result/1.0",
