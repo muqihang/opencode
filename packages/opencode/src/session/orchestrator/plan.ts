@@ -67,6 +67,8 @@ const AdaptiveBudgetDivisor = 8
 
 const AdaptiveBreakerTrips = 2
 
+const AdaptiveMaxRerun = 1
+
 const DualPassCriticTimeoutMs = 1200
 
 const DualPassUnknownFirst = "unknown-first"
@@ -74,6 +76,8 @@ const DualPassUnknownFirst = "unknown-first"
 const WorkerTimeoutMs = 12000
 
 const breaker = new Map<string, Breaker>()
+
+const rerun = new Map<string, number>()
 
 const readTrips = (sessionId: string) => breaker.get(sessionId)?.trips ?? 0
 
@@ -83,6 +87,13 @@ const writeTrips = (input: { sessionId: string; trips: number }) => {
     return
   }
   breaker.set(input.sessionId, { trips: input.trips })
+}
+
+const nextRerun = (input: { sessionId: string; messageId: string }) => {
+  const key = `${input.sessionId}:${input.messageId}`
+  const count = rerun.get(key) ?? 0
+  rerun.set(key, count + 1)
+  return count
 }
 
 const worker = (id: string, timeoutMs: number): PlanWorker => ({
@@ -315,6 +326,48 @@ const mergeReasons = (input: { reasons: PlanReason[]; adaptive: PlanReason[] }) 
   })
 }
 
+const applyRerunLimit = (input: { plan: OrchestratorPlan; rerunCount: number; maxRerun: number }) => {
+  const budgets = {
+    ...input.plan.budgets,
+    maxRerun: input.maxRerun,
+  }
+  if (input.rerunCount <= input.maxRerun) {
+    return OrchestratorPlan.parse({
+      ...input.plan,
+      budgets,
+    })
+  }
+
+  const reasons = mergeReasons({
+    reasons: input.plan.reasons,
+    adaptive: [
+      {
+        code: "adaptive.ttc.max_rerun.stop",
+        message: `message rerun exceeded maxRerun=${input.maxRerun} rerun=${input.rerunCount}`,
+      },
+      {
+        code: "adaptive.ttc.breaker.active",
+        message: `maxRerun breaker active rerun=${input.rerunCount} limit=${input.maxRerun}`,
+      },
+      {
+        code: "adaptive.ttc.breaker.trip",
+        message: `maxRerun breaker tripped rerun=${input.rerunCount} limit=${input.maxRerun}`,
+      },
+      {
+        code: "adaptive.ttc.fallback.unknown_first",
+        message: "breaker fallback path switched to unknown-first",
+      },
+    ],
+  })
+  const workers = input.plan.workers.length > 1 ? input.plan.workers.slice(0, 1) : input.plan.workers
+  return OrchestratorPlan.parse({
+    ...input.plan,
+    workers,
+    budgets,
+    reasons,
+  })
+}
+
 const workspaceFingerprint = () =>
   sha256Text(
     stableJson({
@@ -397,6 +450,7 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
         workerTimeoutMs,
         maxOutputTokens: 32000,
         maxToolCalls: 4,
+        maxRerun: AdaptiveMaxRerun,
       }
 
       const workers = resolveWorkers({
@@ -458,8 +512,18 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
     },
   })
 
-  return {
+  const rerunCount = nextRerun({
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+  })
+  const plan = applyRerunLimit({
     plan: cached.value,
+    rerunCount,
+    maxRerun: AdaptiveMaxRerun,
+  })
+
+  return {
+    plan,
     cache: {
       status: cached.status,
       tier: cached.tier,

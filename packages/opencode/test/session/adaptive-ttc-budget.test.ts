@@ -112,4 +112,45 @@ describe("adaptive ttc budget gate", () => {
       },
     })
   })
+
+  test("message rerun over maxRerun triggers stop", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const features = extractFeatures({
+          uxMode: "deep",
+          intentText: deep(950),
+          hasFileParts: false,
+        })
+
+        await buildPlan({
+          sessionId: "s-adaptive-budget-max-rerun",
+          messageId: "m-adaptive-budget-max-rerun",
+          features,
+          toolsetFingerprint: "toolset-adaptive-budget-max-rerun-a",
+        })
+
+        await buildPlan({
+          sessionId: "s-adaptive-budget-max-rerun",
+          messageId: "m-adaptive-budget-max-rerun",
+          features,
+          toolsetFingerprint: "toolset-adaptive-budget-max-rerun-b",
+        })
+
+        const out = await buildPlan({
+          sessionId: "s-adaptive-budget-max-rerun",
+          messageId: "m-adaptive-budget-max-rerun",
+          features,
+          toolsetFingerprint: "toolset-adaptive-budget-max-rerun-c",
+        })
+
+        const budget = out.plan.budgets as Record<string, unknown>
+        expect(budget["maxRerun"]).toBe(1)
+        expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.max_rerun.stop")).toBe(true)
+        expect(out.plan.reasons.some((item) => item.code === "adaptive.ttc.breaker.active")).toBe(true)
+        expect(out.plan.workers.length).toBe(1)
+      },
+    })
+  })
 })

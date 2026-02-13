@@ -11,14 +11,17 @@ const AdaptiveDegradedCodes = new Set([
   "adaptive.ttc.early_stop",
   "adaptive.ttc.degrade_3_to_2",
   "adaptive.ttc.degrade_2_to_1",
+  "adaptive.ttc.max_rerun.stop",
   "adaptive.ttc.breaker.active",
   "adaptive.ttc.breaker.trip",
+  "adaptive.ttc.fallback.unknown_first",
 ])
 
 const StopCodes = new Set([
   "adaptive.ttc.early_stop",
   "adaptive.ttc.degrade_3_to_2",
   "adaptive.ttc.degrade_2_to_1",
+  "adaptive.ttc.max_rerun.stop",
   "adaptive.ttc.breaker.active",
   "adaptive.ttc.breaker.trip",
 ])
@@ -28,12 +31,16 @@ type Decision = "continue" | "stop"
 type Progress = {
   specVersion: "progress-ledger/1.0"
   messageId: string
+  idempotencyKey: string
   cycle: number
+  rerunCount: number
+  maxRerun: number
   coverageGain: number
   newEvidenceCount: number
   duplicateProbeRate: number
   decision: Decision
   stopReason: string
+  fallbackPath: string
   evidence_gain_per_cycle: number
 }
 
@@ -46,21 +53,28 @@ const nextCycle = (input: { sessionId: string; messageId: string }) => {
   return value
 }
 
-const progress = (input: { plan: z.infer<typeof OrchestratorPlan>; cycle: number }): Progress => {
+const progress = (input: { sessionId: string; plan: z.infer<typeof OrchestratorPlan>; cycle: number }): Progress => {
   const adaptive = input.plan.reasons
     .map((item) => item.code)
     .filter((code) => code.startsWith("adaptive.ttc."))
+  const rerunStop = adaptive.includes("adaptive.ttc.max_rerun.stop")
+  const maxRerun = input.plan.budgets.maxRerun ?? 1
+  const idempotencyKey = `${input.sessionId}:${input.plan.messageId}:${input.plan.orchestratorPlanId}`
   const stop = adaptive.some((code) => StopCodes.has(code))
   if (stop) {
     return {
       specVersion: "progress-ledger/1.0",
       messageId: input.plan.messageId,
+      idempotencyKey,
       cycle: input.cycle,
+      rerunCount: Math.max(0, input.cycle - 1),
+      maxRerun,
       coverageGain: 0,
       newEvidenceCount: 0,
       duplicateProbeRate: 1,
       decision: "stop",
-      stopReason: "no_new_evidence",
+      stopReason: rerunStop ? "max_rerun_exceeded" : "no_new_evidence",
+      fallbackPath: "adaptive.ttc.breaker.stop -> dual_pass.unknown-first",
       evidence_gain_per_cycle: 0,
     }
   }
@@ -68,12 +82,16 @@ const progress = (input: { plan: z.infer<typeof OrchestratorPlan>; cycle: number
   return {
     specVersion: "progress-ledger/1.0",
     messageId: input.plan.messageId,
+    idempotencyKey,
     cycle: input.cycle,
+    rerunCount: Math.max(0, input.cycle - 1),
+    maxRerun,
     coverageGain: 1,
     newEvidenceCount: 1,
     duplicateProbeRate: 0,
     decision: "continue",
     stopReason: "not_stopped",
+    fallbackPath: "adaptive.ttc.continue -> dual_pass.draft",
     evidence_gain_per_cycle: 1,
   }
 }
@@ -91,7 +109,7 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
   const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
   const planId = data.plan.orchestratorPlanId
   const cycle = nextCycle({ sessionId: data.sessionId, messageId: data.plan.messageId })
-  const ledger = progress({ plan: data.plan, cycle })
+  const ledger = progress({ sessionId: data.sessionId, plan: data.plan, cycle })
   const base = `orchestrator/${planId}`
 
   const featuresEntry = await writer.artifact({

@@ -72,6 +72,7 @@ export const OrchestratorPlan = z
         workerTimeoutMs: PositiveInt,
         maxOutputTokens: PositiveInt,
         maxToolCalls: PositiveInt,
+        maxRerun: PositiveInt.optional(),
       })
       .strict(),
     evidencePolicy: EvidencePolicy.optional(),
