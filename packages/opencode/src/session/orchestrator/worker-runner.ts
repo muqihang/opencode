@@ -55,6 +55,25 @@ const routeDebug = (value: string) => {
   return text.startsWith("from_model=") || text.startsWith("to_model=") || text.startsWith("gate_reason=")
 }
 
+const routeValue = (input: { note: string; tag: string }) => {
+  const text = input.note.trim()
+  if (!text.toLowerCase().startsWith(input.tag)) return
+  const value = text.slice(input.tag.length).trim()
+  if (!value) return
+  return value
+}
+
+const routeField = (input: { notes: string[] | undefined; tag: string }) =>
+  input.notes
+    ?.map((note) => routeValue({ note, tag: input.tag }))
+    .find((value) => typeof value === "string" && value.length > 0)
+
+const routeMeta = (notes: string[] | undefined) => ({
+  fromModel: routeField({ notes, tag: "from_model=" }),
+  toModel: routeField({ notes, tag: "to_model=" }),
+  gateReason: routeField({ notes, tag: "gate_reason=" }),
+})
+
 const summaryText = (value: string) => safeNote(value).replace(/\s+/g, " ").trim()
 
 const resultSummary = (value: LlmWorkerResult) => {
@@ -159,6 +178,9 @@ const writeLifecycleEvidence = async (input: {
   reason?: string
   summary?: string
   latencyMs?: number
+  fromModel?: string
+  toModel?: string
+  gateReason?: string
 }) => {
   const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
   if (!writer) return
@@ -184,6 +206,12 @@ const writeLifecycleEvidence = async (input: {
         reason: input.reason,
         summary: input.summary,
         latencyMs: input.latencyMs,
+        fromModel: input.fromModel,
+        toModel: input.toModel,
+        gateReason: input.gateReason,
+        routeFromModel: input.fromModel,
+        routeToModel: input.toModel,
+        routeGateReason: input.gateReason,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
@@ -201,6 +229,9 @@ const emitLifecycle = async (input: {
   reason?: string
   summary?: string
   latencyMs?: number
+  fromModel?: string
+  toModel?: string
+  gateReason?: string
 }) => {
   const messageId = input.messageId
   if (!messageId || messageId === "unknown") return
@@ -220,6 +251,12 @@ const emitLifecycle = async (input: {
     reason: input.reason,
     summary: input.summary,
     latencyMs: input.latencyMs,
+    fromModel: input.fromModel,
+    toModel: input.toModel,
+    gateReason: input.gateReason,
+    routeFromModel: input.fromModel,
+    routeToModel: input.toModel,
+    routeGateReason: input.gateReason,
   }).catch(() => {})
 
   await writeLifecycleEvidence({
@@ -233,6 +270,9 @@ const emitLifecycle = async (input: {
     reason: input.reason,
     summary: input.summary,
     latencyMs: input.latencyMs,
+    fromModel: input.fromModel,
+    toModel: input.toModel,
+    gateReason: input.gateReason,
   })
 }
 
@@ -415,6 +455,7 @@ export const WorkerRunner = {
     }
 
     const cache = resolved.cache
+    const route = routeMeta(resolved.result.notes)
     const verified = verify(resolved.result)
     const ended = typeof input.now === "number" ? input.now : Date.now()
     const phase = verified.result.status === "degraded" ? "degraded" : "completed"
@@ -429,6 +470,9 @@ export const WorkerRunner = {
       latencyMs: Math.max(0, ended - started),
       reason: verified.result.status === "degraded" ? toLifecycleReason({ type: "worker_degraded" }) : undefined,
       summary: resultSummary(verified.result),
+      fromModel: route.fromModel,
+      toModel: route.toModel,
+      gateReason: route.gateReason,
     })
     return { result: verified.result, cache }
   },

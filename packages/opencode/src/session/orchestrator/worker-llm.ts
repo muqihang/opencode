@@ -257,7 +257,8 @@ export const runStructured = async <S extends z.ZodType>(input: RunInput<S>): Pr
   }
 
   const primary = await read(deps.getModel(input.providerID, input.modelID))
-  const fallback = await read(deps.getSmallModel("opencode", input.role))
+  const active = input.model?.modelID ?? input.modelID
+  const fallback = await read(deps.getSmallModel(input.providerID, input.role, active))
   const seen = new Set<string>()
   const candidates = [
     { kind: "route" as const, model: first.value },
