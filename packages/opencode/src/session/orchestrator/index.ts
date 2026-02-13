@@ -3,7 +3,7 @@ import path from "path"
 import { Instance } from "@/project/instance"
 import { EvidenceWriter } from "@/evidence/writer"
 import { LlmWorkerRolePack } from "@/protocol/llm-worker-role-pack"
-import { LlmWorkerResult } from "@/protocol/llm-worker-result"
+import { LlmWorkerResult, criticVerdictV2FromV1 } from "@/protocol/llm-worker-result"
 import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import { WorkerRunner } from "./worker-runner"
@@ -209,22 +209,130 @@ const runInjectionDualPass = async (input: {
 const renderInjection = (input: {
   plan: OrchestratorPlan
   workerResults: LlmWorkerResult[]
+  criticResult?: LlmWorkerResult
   brokerSummary?: string[]
-  pointers?: string[]
+  pointers?: Array<{ path: string; sha256: string; anchor?: Record<string, number> }>
 }) => {
-  const notes = input.workerResults.flatMap((result) => result.notes ?? []).slice(0, 2)
-  const pointerLines = (input.pointers ?? []).slice(0, 3)
-  const brokerLines = input.brokerSummary ?? []
+  const budget = 900
+  const minEvidence = 3
+  const maxNoteChars = 320
+  const blocked = ["from_model=", "to_model=", "gate_reason="]
+  const normalize = (value: string) => value.replace(/\s+/g, " ").trim()
+  const summary = (value: string) => {
+    const clean = value.replace(/\\/g, "/")
+    const file = clean.split("/").at(-1) ?? clean
+    if (clean.includes("/snippets/")) return `snippet evidence from ${file}`
+    if (clean.includes("/hits/")) return `hit evidence from ${file}`
+    return `artifact evidence from ${file}`
+  }
+  const density = (value: string) => {
+    if (value.includes("/snippets/")) return 2
+    if (value.includes("/hits/")) return 1
+    return 0
+  }
+  const anchor = (value?: Record<string, number>) => {
+    if (!value) return "-"
+    const pairs = Object.entries(value)
+      .filter(([, num]) => typeof num === "number")
+      .map(([key, num]) => `${key}:${num}`)
+    if (pairs.length === 0) return "-"
+    return pairs.join(",")
+  }
+  const fallback = Array.from({ length: minEvidence }, (_, index) => ({
+    path: `orchestrator/fallback/${index + 1}`,
+    sha256: "unknown",
+    anchor: undefined,
+    summary: "evidence pointer unavailable",
+    density: 0,
+  }))
+  const evidenceBase = (input.pointers ?? []).map((item) => ({
+    path: item.path,
+    sha256: item.sha256,
+    anchor: item.anchor,
+    summary: summary(item.path),
+    density: density(item.path),
+  }))
+  const evidence = (() => {
+    if (evidenceBase.length >= minEvidence) return evidenceBase
+    if (evidenceBase.length === 0) return fallback
+    const extra = fallback.slice(0, minEvidence - evidenceBase.length)
+    return [...evidenceBase, ...extra]
+  })().sort((left, right) => right.density - left.density)
 
-  const lines = [
-    "<orchestrator>",
-    `mode: ${input.plan.orchestratorMode}`,
-    ...brokerLines,
-    ...(notes.length > 0 ? ["notes:", ...notes.map((note) => `- ${note}`)] : []),
-    ...(pointerLines.length > 0 ? ["pointers:", ...pointerLines.map((ptr) => `- ${ptr}`)] : []),
-    "</orchestrator>",
+  const critic = input.criticResult ?? input.workerResults.find((item) => item.status !== "ok") ?? input.workerResults[0]
+  const verdict = critic
+    ? criticVerdictV2FromV1(critic)
+    : criticVerdictV2FromV1(
+        LlmWorkerResult.parse({
+          specVersion: "llm-worker-result/1.0",
+          status: "degraded",
+          notes: ["critic result missing"],
+        }),
+      )
+  const verdictJson = stableJson(verdict)
+
+  const workerNotes = input.workerResults
+    .flatMap((item) => item.notes ?? [])
+    .map(normalize)
+    .filter((item) => item.length > 0)
+    .filter((item) => item.length <= maxNoteChars)
+    .filter((item) => blocked.every((token) => !item.includes(token)))
+  const notes = [...(input.brokerSummary ?? []), ...workerNotes]
+
+  const missing =
+    verdict.missing.length > 0
+      ? verdict.missing.map((item) => `- ${item.requirementId}: ${normalize(item.reason)}`)
+      : ["- none"]
+  const instruction = [
+    "- fact claims MUST map to evidence ids",
+    "- if verdict=insufficient, answer with unknown-first",
   ]
-  return lines.join("\n")
+
+  const render = (state: { evidence: typeof evidence; notes: string[] }) => {
+    const digest = state.evidence.map(
+      (item, index) =>
+        `- [E${index + 1}] path=${item.path} sha=${item.sha256} anchor=${anchor(item.anchor)} summary=${item.summary}`,
+    )
+    const lines = [
+      "<orchestrator_evidence_v2>",
+      `mode: ${input.plan.orchestratorMode}`,
+      `verdict_json: ${verdictJson}`,
+      "evidence_digest:",
+      ...digest,
+      "missing_digest:",
+      ...missing,
+      "instruction_to_main_brain:",
+      ...instruction,
+      ...(state.notes.length > 0 ? ["notes:", ...state.notes.map((item) => `- ${item}`)] : []),
+      "</orchestrator_evidence_v2>",
+    ]
+    return lines.join("\n")
+  }
+
+  const tokens = (value: string) => Math.ceil(value.length / 4)
+  const trimNotes = (state: { evidence: typeof evidence; notes: string[] }): string[] => {
+    const text = render(state)
+    if (tokens(text) <= budget) return state.notes
+    if (state.notes.length === 0) return state.notes
+    return trimNotes({
+      evidence: state.evidence,
+      notes: state.notes.slice(0, state.notes.length - 1),
+    })
+  }
+
+  const trimEvidence = (state: { evidence: typeof evidence; notes: string[] }): typeof evidence => {
+    const text = render(state)
+    if (tokens(text) <= budget) return state.evidence
+    if (state.evidence.length <= minEvidence) return state.evidence
+    return trimEvidence({
+      evidence: state.evidence.slice(0, state.evidence.length - 1),
+      notes: state.notes,
+    })
+  }
+
+  const trimmedNotes = trimNotes({ evidence, notes })
+  const trimmedEvidence = trimEvidence({ evidence, notes: trimmedNotes })
+  return render({ evidence: trimmedEvidence, notes: trimmedNotes })
 }
 
 const summarizeBroker = (input: { results: BrokerOutput["results"] }) => {
@@ -263,8 +371,15 @@ ${text}`
 
 const extractPointers = (input: BrokerOutput | undefined) => {
   if (!input) return []
-  const pointers = input.results.flatMap((result) => result.pointers?.topK ?? [])
-  return pointers.map((ptr) => `${ptr.path}`)
+  const seen = new Set<string>()
+  return input.results
+    .flatMap((result) => result.pointers?.topK ?? [])
+    .filter((ptr) => {
+      const key = `${ptr.path}:${ptr.sha256}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 }
 
 const extractWorkingSetPointers = async (input: BrokerOutput | undefined) => {
@@ -442,6 +557,7 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
     const injected = renderInjection({
       plan: input.plan,
       workerResults,
+      criticResult: finalizedRuns.find((item) => item.workerId === "evidence_critic")?.run.result,
       brokerSummary: broker ? summarizeBroker({ results: broker.results }) : undefined,
       pointers: extractPointers(broker),
     })
