@@ -1,6 +1,7 @@
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import { type OrchestratorPlanScores, OrchestratorUxMode } from "@/protocol/orchestrator-plan"
 import { scoreOrchestrator } from "./scorer"
+import { resolveVerificationMode } from "../verification-mode"
 
 type FeatureInput = {
   uxMode: OrchestratorUxMode
@@ -31,9 +32,6 @@ const ExecPattern =
 
 const ExecNegationPattern =
   /(不执行|不运行|不要执行|不要运行|无需执行|无需运行|无须执行|无须运行|不需要执行|不需要运行|do not run|don't run|do not execute|don't execute|without running|without executing)/i
-
-const VerifyPattern =
-  /(cite|citation|source|evidence|verify|verification|fact check|reference|proof|quote|report|resume|handoff|summary|audit|analysis|retrospective|postmortem|引用|证据|来源|核验|验证|对账|合规|事实核查|分析|复盘|审计|总结|交接|续接包|续接)/i
 
 const FilePartPattern =
   /(上传文件|提供的文件|附件|file part|attached file|uploaded file|该文件|这个文件|文件里|文件中的|文件内)/i
@@ -75,7 +73,7 @@ const featureSignals = (input: FeatureInput): FeatureSignals => {
         kind: "exec",
       })) &&
     !ExecNegationPattern.test(input.intentText)
-  const hasVerificationIntent = VerifyPattern.test(input.intentText)
+  const hasVerificationIntent = resolveVerificationMode({ intentText: input.intentText }).mode === "strict"
 
   return {
     intentBytes,
