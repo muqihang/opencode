@@ -16,6 +16,23 @@ import { CapsuleAssistedVerifier } from "./capsule-assisted-verifier"
 
 type Artifact = { path: string; sha256: string; kind: string }
 
+export type CapsuleAssistedRunResult = {
+  status: "success" | "degraded" | "failed" | "disabled"
+  verifyOk: boolean
+  reasonCode: string
+  degradedReasonZh?: string
+  coverage: { known: number; unknown: number; anchors: number }
+  viewText?: string
+  artifacts?: {
+    input?: Artifact
+    capsule?: Artifact
+    view?: Artifact
+    verify?: Artifact
+  }
+}
+
+const coverageNone = { known: 0, unknown: 0, anchors: 0 }
+
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
 
 const normRel = (value: string) => value.replace(/\\/g, "/").replace(/\/+/g, "/")
@@ -213,8 +230,15 @@ export const CapsuleAssistedRunner = {
     hintText: string
     modelFallback: { providerID: string; modelID: string }
     artifacts: Artifact[]
-  }) {
-    if (!Flag.OPENCODE_EXPERIMENTAL_CAPSULE_LLM) return
+  }): Promise<CapsuleAssistedRunResult> {
+    if (!Flag.OPENCODE_EXPERIMENTAL_CAPSULE_LLM) {
+      return {
+        status: "disabled",
+        verifyOk: false,
+        reasonCode: "disabled",
+        coverage: coverageNone,
+      }
+    }
 
     const start = Date.now()
     const now = new Date().toISOString()
@@ -254,7 +278,13 @@ export const CapsuleAssistedRunner = {
         data: { compactionId: input.compactionId, status: "failed", degradedReasonZh: reasonZh, reasonCode: "provider_error" },
         redaction: { applied: true, policyVersion: "v1" },
       })
-      return
+      return {
+        status: "failed",
+        verifyOk: false,
+        reasonCode: "provider_error",
+        degradedReasonZh: reasonZh,
+        coverage: coverageNone,
+      }
     }
 
     const ledger = await ContextLedger.read(input.sessionId)
@@ -503,7 +533,22 @@ export const CapsuleAssistedRunner = {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    if (capsule.status !== "success") return
+    const result: CapsuleAssistedRunResult = {
+      status: capsule.status,
+      verifyOk: verified.ok && verified.failures.length === 0,
+      reasonCode: capsule.status === "success" ? "none" : reason.code ?? "unknown",
+      degradedReasonZh: capsule.degradedReasonZh,
+      coverage: capsule.coverage,
+      viewText: view,
+      artifacts: {
+        input: { path: inputEntry.path, sha256: inputEntry.sha256, kind: inputEntry.kind },
+        capsule: { path: jsonEntry.path, sha256: jsonEntry.sha256, kind: jsonEntry.kind },
+        view: { path: mdEntry.path, sha256: mdEntry.sha256, kind: mdEntry.kind },
+        verify: { path: verifyEntry.path, sha256: verifyEntry.sha256, kind: verifyEntry.kind },
+      },
+    }
+
+    if (capsule.status !== "success") return result
 
     await ContextLedger.update({
       sessionId: input.sessionId,
@@ -519,5 +564,7 @@ export const CapsuleAssistedRunner = {
         },
       },
     })
+
+    return result
   },
 }

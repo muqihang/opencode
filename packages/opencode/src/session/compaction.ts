@@ -22,6 +22,7 @@ import { AnchorSnapshot } from "./anchor-snapshot"
 import { withTimeout } from "@/util/timeout"
 import { Capsule } from "./capsule"
 import { CapsuleAssistedRunner } from "./capsule-assisted"
+import type { CapsuleAssistedRunResult } from "./capsule-assisted"
 
 export namespace SessionCompaction {
   const log = Log.create({ service: "session.compaction" })
@@ -147,6 +148,32 @@ export namespace SessionCompaction {
     if (!input.auto) return "manual" as const
     const level = input.trigger?.level ?? "emergency"
     return `auto:${level}` as const
+  }
+
+  type AssistedSkipCode =
+    | "disabled"
+    | "assisted_failed"
+    | "assisted_degraded"
+    | "verify_failed"
+    | "artifact_missing"
+
+  const blockedViewPatterns = [
+    /<assistant_claims_json>/iu,
+    /capsule\.session\.json/iu,
+    /capsule\.assisted\.verify\.json/iu,
+    /```json/iu,
+  ]
+
+  const viewSafe = (text: string) => blockedViewPatterns.every((p) => !p.test(text))
+
+  const coverageNone = { known: 0, unknown: 0, anchors: 0 }
+
+  const skipCode = (input: { status: CapsuleAssistedRunResult["status"]; verifyOk: boolean }): AssistedSkipCode => {
+    if (input.status === "disabled") return "disabled"
+    if (input.status === "failed") return "assisted_failed"
+    if (input.status === "degraded") return "assisted_degraded"
+    if (!input.verifyOk) return "verify_failed"
+    return "artifact_missing"
   }
 
   export async function isOverflow(input: { tokens: MessageV2.Assistant["tokens"]; model: Provider.Model }) {
@@ -703,34 +730,167 @@ export namespace SessionCompaction {
           redaction: { applied: true, policyVersion: "v1" },
         })
 
-        void CapsuleAssistedRunner.runFromCompaction({
-          sessionId: input.sessionID,
-          compactionId,
-          parentId: input.parentID,
-          hintText: capsuleRendered,
-          modelFallback: { providerID: user.model.providerID, modelID: user.model.modelID },
-          artifacts: [
-            { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
-            { path: capsuleSessionEntry.path, sha256: capsuleSessionEntry.sha256, kind: capsuleSessionEntry.kind },
-            { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },
-            { path: inputEntry.path, sha256: inputEntry.sha256, kind: inputEntry.kind },
-            { path: reportEntry.path, sha256: reportEntry.sha256, kind: reportEntry.kind },
-          ],
-        }).catch((error) => {
-          log.warn("capsule assisted failed", { error })
-        })
-
-        await Session.updatePart({
-          id: Identifier.ascending("part"),
-          messageID: msg.id,
-          sessionID: input.sessionID,
-          type: "text",
-          text: capsuleRendered,
-          time: { start: Date.now(), end: Date.now() },
-        })
+        const summaryPart = MessageV2.TextPart.parse(
+          await Session.updatePart({
+            id: Identifier.ascending("part"),
+            messageID: msg.id,
+            sessionID: input.sessionID,
+            type: "text",
+            text: capsuleRendered,
+            time: { start: Date.now(), end: Date.now() },
+          }),
+        )
         msg.finish = "end_turn"
         msg.time.completed = Date.now()
         await Session.updateMessage(msg)
+
+        const emitSkipped = async (input2: {
+          status: CapsuleAssistedRunResult["status"]
+          reasonCode: AssistedSkipCode
+          assistedReasonCode?: string
+          coverage: { known: number; unknown: number; anchors: number }
+          viewArtifact?: string
+          verifyArtifact?: string
+        }) => {
+          await writer.event({
+            specVersion: "event/1.0",
+            ts: new Date().toISOString(),
+            sessionId: input.sessionID,
+            severity: "info",
+            actor: "session:compaction",
+            type: "compaction.assisted_skipped",
+            summary: "compaction assisted skipped",
+            data: {
+              compactionId,
+              status: input2.status,
+              reasonCode: input2.reasonCode,
+              assisted_reason_code: input2.assistedReasonCode,
+              ui_view_source: "deterministic",
+              coverage: input2.coverage,
+              view_artifact: input2.viewArtifact,
+              verify_artifact: input2.verifyArtifact,
+            },
+            redaction: { applied: true, policyVersion: "v1" },
+          })
+        }
+
+        void (async () => {
+          const cfg = await Config.get()
+          if (cfg.experimental?.compaction_llm_augment === false) {
+            await emitSkipped({
+              status: "disabled",
+              reasonCode: "disabled",
+              coverage: coverageNone,
+            })
+            return
+          }
+
+          const assisted: CapsuleAssistedRunResult = await CapsuleAssistedRunner.runFromCompaction({
+            sessionId: input.sessionID,
+            compactionId,
+            parentId: input.parentID,
+            hintText: capsuleRendered,
+            modelFallback: { providerID: user.model.providerID, modelID: user.model.modelID },
+            artifacts: [
+              { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
+              { path: capsuleSessionEntry.path, sha256: capsuleSessionEntry.sha256, kind: capsuleSessionEntry.kind },
+              { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },
+              { path: inputEntry.path, sha256: inputEntry.sha256, kind: inputEntry.kind },
+              { path: reportEntry.path, sha256: reportEntry.sha256, kind: reportEntry.kind },
+            ],
+          }).catch((error) => {
+            log.warn("capsule assisted failed", { error })
+            return {
+              status: "failed",
+              verifyOk: false,
+              reasonCode: "runner_error",
+              coverage: coverageNone,
+            } satisfies CapsuleAssistedRunResult
+          })
+
+          if (assisted.status !== "success") {
+            await emitSkipped({
+              status: assisted.status,
+              reasonCode: skipCode({ status: assisted.status, verifyOk: assisted.verifyOk }),
+              assistedReasonCode: assisted.reasonCode,
+              coverage: assisted.coverage,
+              viewArtifact: assisted.artifacts?.view?.path,
+              verifyArtifact: assisted.artifacts?.verify?.path,
+            })
+            return
+          }
+
+          if (!assisted.verifyOk) {
+            await emitSkipped({
+              status: assisted.status,
+              reasonCode: "verify_failed",
+              assistedReasonCode: assisted.reasonCode,
+              coverage: assisted.coverage,
+              viewArtifact: assisted.artifacts?.view?.path,
+              verifyArtifact: assisted.artifacts?.verify?.path,
+            })
+            return
+          }
+
+          const viewText = assisted.viewText?.trim() ?? ""
+          const viewArtifact = assisted.artifacts?.view?.path
+          if (!viewText || !viewArtifact) {
+            await emitSkipped({
+              status: assisted.status,
+              reasonCode: "artifact_missing",
+              assistedReasonCode: assisted.reasonCode,
+              coverage: assisted.coverage,
+              viewArtifact,
+              verifyArtifact: assisted.artifacts?.verify?.path,
+            })
+            return
+          }
+
+          if (!viewSafe(viewText)) {
+            await emitSkipped({
+              status: assisted.status,
+              reasonCode: "verify_failed",
+              assistedReasonCode: assisted.reasonCode,
+              coverage: assisted.coverage,
+              viewArtifact,
+              verifyArtifact: assisted.artifacts?.verify?.path,
+            })
+            return
+          }
+
+          await Session.updatePart({
+            id: summaryPart.id,
+            messageID: summaryPart.messageID,
+            sessionID: summaryPart.sessionID,
+            type: "text",
+            text: viewText,
+            time: {
+              start: summaryPart.time?.start ?? Date.now(),
+              end: Date.now(),
+            },
+          })
+
+          await writer.event({
+            specVersion: "event/1.0",
+            ts: new Date().toISOString(),
+            sessionId: input.sessionID,
+            severity: "info",
+            actor: "session:compaction",
+            type: "compaction.assisted_applied",
+            summary: "compaction assisted applied",
+            data: {
+              compactionId,
+              status: assisted.status,
+              ui_view_source: "llm",
+              coverage: assisted.coverage,
+              view_artifact: viewArtifact,
+              verify_artifact: assisted.artifacts?.verify?.path,
+            },
+            redaction: { applied: true, policyVersion: "v1" },
+          })
+        })().catch((error) => {
+          log.warn("compaction assisted apply failed", { error })
+        })
 
         if (input.auto) {
           const continueMsg = await Session.updateMessage({
