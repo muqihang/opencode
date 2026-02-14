@@ -29,6 +29,11 @@ import { resolveHybridRoutingPolicy } from "./hybrid-routing-policy"
 
 const claimsOpenTag = "<assistant_claims_json>"
 const claimsCloseTag = "</assistant_claims_json>"
+const referenceCheckPolicy = [
+  "<reference_check_policy>",
+  "事实必须给 file:line 引用；无证据必须 unknown/evidence_insufficient。",
+  "</reference_check_policy>",
+].join("\n")
 
 export type ClaimsStreamMask = {
   tail: string
@@ -110,6 +115,20 @@ export const applyClaimsStreamMask = (input: {
 export const flushClaimsStreamMask = (state: ClaimsStreamMask) => {
   if (state.hidden) return ""
   return state.tail
+}
+
+export const enforceReferenceCheckPolicy = (input: {
+  system: string[]
+  orchestratorEnabled: boolean
+  hasVerificationIntent: boolean
+  workerCount: number
+}) => {
+  if (!input.orchestratorEnabled) return input.system
+  if (!input.hasVerificationIntent) return input.system
+  const workers = Math.max(0, input.workerCount)
+  if (workers < 0) return input.system
+  if (input.system.some((line) => line.includes("<reference_check_policy>"))) return input.system
+  return [...input.system, referenceCheckPolicy]
 }
 
 export type OrchestratorRollout = {
@@ -872,9 +891,18 @@ export namespace SessionProcessor {
               envGate: Flag.OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE,
               envRollback: Flag.OPENCODE_RETRIEVAL_HYBRID_ROLLBACK,
             })
+            const hasVerificationIntent =
+              orchestrator.enabled && !orchestrator.degraded ? orchestrator.features.features.hasVerificationIntent === true : false
+            const baseSystem = forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system
+            const system = enforceReferenceCheckPolicy({
+              system: baseSystem,
+              orchestratorEnabled: orchestrator.enabled && !orchestrator.degraded,
+              hasVerificationIntent,
+              workerCount: orchestrator.enabled && !orchestrator.degraded ? orchestrator.plan.workers.length : 0,
+            })
             const orchestratedInput = {
               ...streamInput,
-              system: forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system,
+              system,
               tools: orchestratorTurn.tools,
               retrievalRoute: {
                 policy: routingPolicy,

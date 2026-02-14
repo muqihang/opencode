@@ -8,6 +8,7 @@ import { extractFeatures } from "../../src/session/orchestrator/features"
 import { buildPlan } from "../../src/session/orchestrator/plan"
 import { runOrchestratorTurn } from "../../src/session/orchestrator"
 import { writeOrchestratorArtifacts } from "../../src/session/orchestrator/writer"
+import { enforceReferenceCheckPolicy } from "../../src/session/processor"
 import type { Tool } from "ai"
 import { tool, jsonSchema } from "ai"
 
@@ -39,6 +40,19 @@ const makeTool = (): Tool =>
   })
 
 describe("orchestrator turn runner", () => {
+  test("verification intent injects reference-check policy even when workers are disabled", () => {
+    const system = enforceReferenceCheckPolicy({
+      system: ["base"],
+      orchestratorEnabled: true,
+      hasVerificationIntent: true,
+      workerCount: 0,
+    })
+    const text = system.join("\n")
+
+    expect(text.includes("事实必须给 file:line 引用")).toBe(true)
+    expect(text.includes("无证据必须 unknown/evidence_insufficient")).toBe(true)
+  })
+
   test("chat mode runs zero workers", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
