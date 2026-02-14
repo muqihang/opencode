@@ -245,6 +245,52 @@ describe("orchestrator plan", () => {
     })
   })
 
+  test("chat and fork stay outside rerun breaker semantics", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const chatFeatures = extractFeatures({
+          uxMode: "fast",
+          intentText: "请解释一下这个函数",
+          hasFileParts: false,
+        })
+        const forkFeatures = extractFeatures({
+          uxMode: "auto",
+          intentText: "请修改 foo.ts 并执行测试，附上结果",
+          hasFileParts: false,
+        })
+        const rounds = ["1", "2", "3", "4"]
+
+        const chat = await Promise.all(
+          rounds.map(() =>
+            buildPlan({
+              sessionId: "s-non-worker-chat",
+              messageId: "m-non-worker-chat",
+              features: chatFeatures,
+              toolsetFingerprint: "toolset-non-worker-chat",
+            }).then((item) => item.plan),
+          ),
+        )
+        const fork = await Promise.all(
+          rounds.map(() =>
+            buildPlan({
+              sessionId: "s-non-worker-fork",
+              messageId: "m-non-worker-fork",
+              features: forkFeatures,
+              toolsetFingerprint: "toolset-non-worker-fork",
+            }).then((item) => item.plan),
+          ),
+        )
+
+        expect(chat.every((item) => item.orchestratorMode === "chat")).toBe(true)
+        expect(fork.every((item) => item.orchestratorMode === "fork")).toBe(true)
+        expect(chat.some((item) => item.reasons.some((reason) => reason.code === "adaptive.ttc.max_rerun.stop"))).toBe(false)
+        expect(fork.some((item) => item.reasons.some((reason) => reason.code === "adaptive.ttc.max_rerun.stop"))).toBe(false)
+      },
+    })
+  })
+
   test("worker timeout default is extended for v1.6 workers", async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({
