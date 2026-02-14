@@ -41,7 +41,12 @@ describe("session.compaction structured artifacts + events", () => {
         const session = await Session.create({})
         const sessionId = session.id
 
-        const msg1 = await writeText({ sessionId, text: "Round 1: " + "a".repeat(10_000) })
+        const msg1 = await writeText({
+          sessionId,
+          text:
+            "Round 1: please inspect packages/opencode/src/session/compaction.ts and packages/opencode/src/session/capsule.ts before compacting. " +
+            "a".repeat(10_000),
+        })
         await Session.updateMessage({
           id: Identifier.ascending("message"),
           role: "assistant",
@@ -58,7 +63,12 @@ describe("session.compaction structured artifacts + events", () => {
           finish: "end_turn",
         })
 
-        const msg2 = await writeText({ sessionId, text: "Round 2: " + "b".repeat(10_000) })
+        const msg2 = await writeText({
+          sessionId,
+          text:
+            "Round 2: next step is to add compaction quality event, then verify tests and refresh docs evidence. " +
+            "b".repeat(10_000),
+        })
         const msg3 = await writeText({ sessionId, text: "Round 3: please compact" })
 
         const msgs = await Session.messages({ sessionID: sessionId })
@@ -100,6 +110,7 @@ describe("session.compaction structured artifacts + events", () => {
           goal?: { status?: string; value?: unknown }
           decisions?: Array<{ status?: string; value?: unknown }>
           openQuestions?: Array<{ status?: string; value?: unknown }>
+          notes?: Array<{ status?: string; value?: unknown }>
         }
 
         expect(capsule.goal?.status).toBe("known")
@@ -107,8 +118,19 @@ describe("session.compaction structured artifacts + events", () => {
         expect((capsule.decisions ?? []).length).toBeGreaterThanOrEqual(1)
         expect((capsule.openQuestions ?? []).length).toBeGreaterThanOrEqual(1)
 
+        const triggerSource = (capsule.notes ?? []).find((item) => String(item.value ?? "").startsWith("trigger_source:"))
+        expect(triggerSource?.status).toBe("known")
+        expect(String(triggerSource?.value ?? "")).toBe("trigger_source: manual")
+        expect((capsule.notes ?? []).some((item) => String(item.value ?? "").includes("trigger: unknown"))).toBe(false)
+
+        const activeFiles = (capsule.notes ?? []).find((item) => String(item.value ?? "").startsWith("active_files:"))
+        const nextSteps = (capsule.notes ?? []).find((item) => String(item.value ?? "").startsWith("next_steps:"))
+        const knownSemanticCount = [capsule.goal, activeFiles, nextSteps].filter((item) => item?.status === "known").length
+        expect(knownSemanticCount).toBeGreaterThanOrEqual(2)
+
         const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 1000 })
         const types = events.events.map((e) => e.type)
+        const quality = events.events.find((e) => e.type === "compaction.quality")
         const anchorEntry = manifest.entries.find((e) => compactionPattern.test(e.path) && e.path.endsWith("/anchor.snapshot.json"))
         expect(anchorEntry).toBeTruthy()
         if (anchorEntry) {
@@ -122,7 +144,34 @@ describe("session.compaction structured artifacts + events", () => {
         }
         expect(types.includes("anchor.snapshot")).toBe(true)
         expect(types.includes("compaction.started")).toBe(true)
+        expect(types.includes("compaction.quality")).toBe(true)
         expect(types.includes("compaction.completed")).toBe(true)
+
+        expect(quality).toBeTruthy()
+        if (quality) {
+          const qualityData = quality.data ?? {}
+          expect(typeof qualityData["semantic_coverage"]).toBe("number")
+          expect(typeof qualityData["known_facts"]).toBe("number")
+          expect(typeof qualityData["unknown_facts"]).toBe("number")
+          expect(typeof qualityData["active_files_count"]).toBe("number")
+          expect(typeof qualityData["next_steps_count"]).toBe("number")
+        }
+
+        const reportEntry = manifest.entries.find((e) => compactionPattern.test(e.path) && e.path.endsWith("/compaction.report.json"))
+        expect(reportEntry).toBeTruthy()
+        if (reportEntry && quality) {
+          const reportText = await Bun.file(path.join(tmp.path, reportEntry.path)).text()
+          const report = JSON.parse(reportText) as {
+            quality?: Record<string, unknown>
+          }
+          expect(report.quality).toBeTruthy()
+          const qualityData = quality.data ?? {}
+          expect(report.quality?.["semantic_coverage"]).toBe(qualityData["semantic_coverage"])
+          expect(report.quality?.["known_facts"]).toBe(qualityData["known_facts"])
+          expect(report.quality?.["unknown_facts"]).toBe(qualityData["unknown_facts"])
+          expect(report.quality?.["active_files_count"]).toBe(qualityData["active_files_count"])
+          expect(report.quality?.["next_steps_count"]).toBe(qualityData["next_steps_count"])
+        }
       },
     })
   }, { timeout })
