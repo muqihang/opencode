@@ -49,7 +49,10 @@ describe("orchestrator turn runner", () => {
     })
     const text = system.join("\n")
 
+    expect(text.includes("<reference_check_policy>")).toBe(true)
     expect(text.includes("事实必须给 file:line 引用")).toBe(true)
+    expect(text.includes("路径必须来自已提供或已读取的证据")).toBe(true)
+    expect(text.includes("禁止编造路径/数量")).toBe(true)
     expect(text.includes("无证据必须 unknown/evidence_insufficient")).toBe(true)
   })
 
