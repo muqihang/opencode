@@ -80,6 +80,15 @@ describe("adaptive ttc breaker", () => {
         expect(Boolean(degraded)).toBe(true)
         expect(String(degraded?.data?.["reason"] ?? "").includes("adaptive.ttc.degrade_2_to_1")).toBe(true)
         expect(String(degraded?.data?.["reason"] ?? "").includes("adaptive.ttc.breaker.active")).toBe(true)
+        const structured = (degraded?.data ?? {}) as Record<string, unknown>
+        expect(Array.isArray(structured["reason_codes"])).toBe(true)
+        expect((structured["reason_codes"] as unknown[]).length > 0).toBe(true)
+        expect(typeof structured["failure_class"]).toBe("string")
+        expect(typeof structured["failure_code"]).toBe("string")
+        expect(typeof structured["fallback_from"]).toBe("string")
+        expect(typeof structured["fallback_to"]).toBe("string")
+        expect(typeof structured["fallback_edge"]).toBe("string")
+        expect(typeof structured["retryable"]).toBe("boolean")
 
         const idem = events.events.find(
           (item) => item.type === "orchestrator.idempotent" && item.data?.["messageId"] === "m-adaptive-breaker-observe-2",

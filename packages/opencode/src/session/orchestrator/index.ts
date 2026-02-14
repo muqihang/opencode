@@ -10,6 +10,7 @@ import { WorkerRunner } from "./worker-runner"
 import { isPlannerWorker, type WorkerModel } from "./worker-spec"
 import { runDualPass } from "./dual-pass"
 import { runToolBroker } from "./tool-broker"
+import { normalizeOrchestratorDegraded } from "./degraded-taxonomy"
 import { stableJson } from "@/util/stable-json"
 import { artifactSessionPrefix, isA2TenantNamespaceEnabled, resolveTenantScope } from "@/util/tenant-context"
 
@@ -51,6 +52,10 @@ const writeOrchestratorDegraded = async (input: {
   stage: string
   reason: string
 }) => {
+  const taxonomy = normalizeOrchestratorDegraded({
+    stage: input.stage,
+    reason: input.reason,
+  })
   const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
   if (!writer) return
   await writer
@@ -66,6 +71,7 @@ const writeOrchestratorDegraded = async (input: {
         messageId: input.messageId,
         stage: input.stage,
         reason: input.reason,
+        ...taxonomy,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
