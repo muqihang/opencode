@@ -161,6 +161,66 @@ describe("orchestrator turn runner", () => {
     })
   }, 30000)
 
+  test("dual_pass degraded event includes structured taxonomy fields", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "session-orch-dual-pass-taxonomy"
+        const messageId = "msg-orch-dual-pass-taxonomy"
+        const features = extractFeatures({
+          uxMode: "auto",
+          intentText: "请引用证据并给出结论",
+          hasFileParts: false,
+        })
+        const built = await buildPlan({
+          sessionId,
+          messageId,
+          features,
+          toolsetFingerprint: "toolset-dual-pass-taxonomy",
+        })
+        const plan = {
+          ...built.plan,
+          orchestratorMode: "assist" as const,
+          workers: [{ id: "worker.unknown.taxonomy", model: "small" as const, budget: { timeoutMs: 2_000 } }],
+          dualPass: {
+            enabled: true,
+            criticTimeoutMs: 2_000,
+            unknownFirst: "unknown-first",
+          },
+        }
+
+        const result = await runOrchestratorTurn({
+          sessionId,
+          messageId,
+          abort: new AbortController().signal,
+          plan,
+          features,
+          intentText: "请引用证据并给出结论",
+          system: [],
+          tools: { read: makeTool() },
+        })
+
+        expect(result.degraded).toBe(true)
+
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0 })
+        const degraded = events.events.find(
+          (event) => event.type === "orchestrator.degraded" && event.data?.["stage"] === "dual_pass",
+        )
+        expect(Boolean(degraded)).toBe(true)
+        const structured = (degraded?.data ?? {}) as Record<string, unknown>
+        expect(Array.isArray(structured["reason_codes"])).toBe(true)
+        expect((structured["reason_codes"] as unknown[]).length > 0).toBe(true)
+        expect(typeof structured["failure_class"]).toBe("string")
+        expect(typeof structured["failure_code"]).toBe("string")
+        expect(typeof structured["fallback_from"]).toBe("string")
+        expect(typeof structured["fallback_to"]).toBe("string")
+        expect(typeof structured["fallback_edge"]).toBe("string")
+        expect(typeof structured["retryable"]).toBe("boolean")
+      },
+    })
+  })
+
   test("assist mode keeps messageId passthrough in worker lifecycle evidence", async () => {
     await using tmp = await tmpdir({
       git: true,

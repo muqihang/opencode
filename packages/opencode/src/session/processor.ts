@@ -22,6 +22,7 @@ import { Flag } from "@/flag/flag"
 import { writeUsageEvents } from "@/usage/events"
 import { prepareOrchestratorPlan } from "./orchestrator/prepare"
 import { runOrchestratorTurn } from "./orchestrator"
+import { normalizeOrchestratorDegraded } from "./orchestrator/degraded-taxonomy"
 import { renderForkNotice, runForkTask } from "./orchestrator/fork"
 import { resolveForkStrategy, resolveSecureOutputMode } from "./orchestrator/policy"
 import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
@@ -670,6 +671,10 @@ export namespace SessionProcessor {
     stage: string
     reason: string
   }) => {
+    const taxonomy = normalizeOrchestratorDegraded({
+      stage: input.stage,
+      reason: input.reason,
+    })
     const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
     if (!writer) return
     await writer
@@ -685,6 +690,7 @@ export namespace SessionProcessor {
           messageId: input.messageId,
           stage: input.stage,
           reason: input.reason,
+          ...taxonomy,
         },
         redaction: { applied: true, policyVersion: "v1" },
       })

@@ -3,6 +3,7 @@ import { EvidenceWriter } from "@/evidence/writer"
 import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 import { stableJson } from "@/util/stable-json"
+import { normalizeOrchestratorDegraded } from "./degraded-taxonomy"
 
 const AdaptiveDegradedCodes = new Set([
   "adaptive.ttc.scale_blocked_budget",
@@ -196,6 +197,10 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
   const degradedKey = `${key}:${reason}`
   if (degraded.has(degradedKey)) return
   degraded.add(degradedKey)
+  const taxonomy = normalizeOrchestratorDegraded({
+    stage: "adaptive_ttc",
+    reason,
+  })
 
   await writer
     .event({
@@ -211,6 +216,7 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
         messageId: data.plan.messageId,
         stage: "adaptive_ttc",
         reason,
+        ...taxonomy,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
