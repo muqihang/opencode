@@ -1,8 +1,8 @@
 import path from "path"
+import { resolveVerificationMode, type VerificationModeResolution } from "./verification-mode"
 
 export const strictReferenceFailClosedText = "unknown/evidence_insufficient"
 
-const strictIntent = /(verify|verification|resume|handoff|audit|核验|验证|续接|交接|审计|复盘)/i
 const evidenceBlock = /\[evidence:\s*([^\]]*)\]/gi
 const inlineRef = /(?:^|[\s(（\[])([^\s\]）,;，；!?！？]+:\d+(?:-\d+)?)(?=$|[\s)）\].,;，；!?！？])/g
 const refShape = /^([^:\s]+):(\d+)(?:-(\d+))?$/
@@ -36,6 +36,7 @@ export type StrictReferenceApplyResult = {
   text: string
   reasonCodes: string[]
   refs: Ref[]
+  modeResolved: VerificationModeResolution
 }
 
 const trim = (value: string) =>
@@ -140,7 +141,10 @@ const validateRef = async (input: { ref: Ref; baseDir: string }) => {
   return { ok: true as const }
 }
 
-export const hasStrictReferenceIntent = (input: { intentText: string }) => strictIntent.test(input.intentText)
+export const hasStrictReferenceIntent = (input: {
+  intentText: string
+  hasVerificationIntent?: boolean
+}) => resolveVerificationMode(input).mode === "strict"
 
 export const runStrictReferenceCheck = async (input: {
   text: string
@@ -174,8 +178,16 @@ export const applyStrictReferenceCheck = async (input: {
   text: string
   baseDir: string
   sessionId: string
+  hasVerificationIntent?: boolean
+  modeResolved?: VerificationModeResolution
 }): Promise<StrictReferenceApplyResult> => {
-  const applied = hasStrictReferenceIntent({ intentText: input.intentText })
+  const modeResolved =
+    input.modeResolved ??
+    resolveVerificationMode({
+      intentText: input.intentText,
+      hasVerificationIntent: input.hasVerificationIntent,
+    })
+  const applied = modeResolved.mode === "strict"
   if (!applied) {
     return {
       applied,
@@ -183,6 +195,7 @@ export const applyStrictReferenceCheck = async (input: {
       text: input.text,
       reasonCodes: [],
       refs: [],
+      modeResolved,
     }
   }
 
@@ -198,6 +211,7 @@ export const applyStrictReferenceCheck = async (input: {
       text: input.text,
       reasonCodes: [],
       refs: checked.refs,
+      modeResolved,
     }
   }
 
@@ -207,6 +221,6 @@ export const applyStrictReferenceCheck = async (input: {
     text: strictReferenceFailClosedText,
     reasonCodes: checked.reasonCodes,
     refs: checked.refs,
+    modeResolved,
   }
 }
-

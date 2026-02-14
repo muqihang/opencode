@@ -94,6 +94,18 @@ const Delta = z
   })
   .strict()
 
+export const CompactionQuality = z
+  .object({
+    semantic_coverage: z.number().min(0).max(1),
+    known_facts: NonNegativeInt,
+    unknown_facts: NonNegativeInt,
+    active_files_count: NonNegativeInt,
+    next_steps_count: NonNegativeInt,
+  })
+  .strict()
+
+export type CompactionQuality = z.infer<typeof CompactionQuality>
+
 export const CompactionReport = z
   .object({
     specVersion: z.literal("compaction-report/1.0"),
@@ -107,6 +119,7 @@ export const CompactionReport = z
       })
       .strict(),
     delta: Delta,
+    quality: CompactionQuality,
     artifacts: z
       .object({
         capsule: Pointer,
@@ -120,4 +133,3 @@ export const CompactionReport = z
   .strict()
 
 export type CompactionReport = z.infer<typeof CompactionReport>
-

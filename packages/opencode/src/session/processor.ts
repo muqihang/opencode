@@ -790,6 +790,37 @@ export namespace SessionProcessor {
       .catch(() => {})
   }
 
+  const writeReferenceCheckModeResolved = async (input: {
+    sessionId: string
+    messageId: string
+    mode: "strict" | "normal"
+    confidence: number
+    reasonCodes: string[]
+    intentText: string
+  }) => {
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
+    if (!writer) return
+    await writer
+      .event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionId,
+        severity: "info",
+        actor: "orchestrator:processor",
+        type: "reference_check.mode_resolved",
+        summary: "reference-check mode resolved",
+        data: {
+          messageId: input.messageId,
+          mode: input.mode,
+          confidence: input.confidence,
+          reason_codes: input.reasonCodes,
+          intent: input.intentText,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+      .catch(() => {})
+  }
+
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
 
@@ -1386,6 +1417,15 @@ export namespace SessionProcessor {
                       text: currentText.text,
                       baseDir: sessionBaseDir(),
                       sessionId: input.sessionID,
+                      hasVerificationIntent,
+                    })
+                    await writeReferenceCheckModeResolved({
+                      sessionId: input.sessionID,
+                      messageId: input.assistantMessage.id,
+                      mode: strictChecked.modeResolved.mode,
+                      confidence: strictChecked.modeResolved.confidence,
+                      reasonCodes: strictChecked.modeResolved.reasonCodes,
+                      intentText: strictChecked.modeResolved.intent,
                     })
                     if (strictChecked.blocked) {
                       currentText.text = strictChecked.text

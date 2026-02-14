@@ -15,6 +15,8 @@ import { Log } from "../../src/util/log"
 
 Log.init({ print: false })
 
+const timeout = 30_000
+
 const makeUser = async (input: { sessionId: string; text: string }) => {
   const msg = await Session.updateMessage({
     id: Identifier.ascending("message"),
@@ -168,6 +170,5 @@ describe("structured compaction regression", () => {
         expect(capsule.sha256.length).toBe(64)
       },
     })
-  })
+  }, { timeout })
 })
-

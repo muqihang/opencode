@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test"
+import fs from "fs/promises"
+import path from "path"
 import type { OrchestratorPlan } from "../../src/protocol/orchestrator-plan"
 import { resolveSecureOutputMode } from "../../src/session/orchestrator/policy"
 import { LLM } from "../../src/session/llm"
+import { applyStrictReferenceCheck } from "../../src/session/reference-check"
 import { SecureOutputContract } from "../../src/session/secure-output-contract"
+import { resolveSecureOutputContract } from "../../src/session/secure-output-contract"
 import { packPromptSections } from "../../src/session/orchestrator/prepare"
+import { tmpdir } from "../fixture/fixture"
 
 const makePlan = (overrides: Partial<OrchestratorPlan> = {}): OrchestratorPlan => {
   return {
@@ -136,5 +141,50 @@ describe("orchestrator secure-output policy", () => {
     })
     const strict = strictSections.find((item) => item.id === "stable:secure_output_contract")
     expect(strict?.text).toBe(SecureOutputContract.text)
+  })
+
+  test("verification/resume/handoff/audit/summary stay strict across contract and reference-check", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "docs"), { recursive: true })
+        await Bun.write(path.join(dir, "docs", "proof.md"), "line 1\nline 2\nline 3\n")
+      },
+    })
+
+    const intents = [
+      "please verify this with evidence",
+      "please resume this task",
+      "prepare a handoff capsule",
+      "run an audit and cite sources",
+      "please provide a summary",
+      "请做总结并给出证据",
+    ]
+
+    for (const intentText of intents) {
+      const contract = resolveSecureOutputContract({ intentText })
+      expect(contract).toBe(SecureOutputContract.strict)
+
+      const checked = await applyStrictReferenceCheck({
+        intentText,
+        text: "[evidence: docs/proof.md:2]",
+        baseDir: tmp.path,
+        sessionId: "session-contract-ref-check",
+      })
+
+      expect(checked.applied).toBe(true)
+      expect(checked.blocked).toBe(false)
+    }
+
+    const normalContract = resolveSecureOutputContract({ intentText: "hello there" })
+    expect(normalContract).toBe(SecureOutputContract.light)
+
+    const normalCheck = await applyStrictReferenceCheck({
+      intentText: "hello there",
+      text: "普通回复",
+      baseDir: tmp.path,
+      sessionId: "session-contract-ref-check",
+    })
+    expect(normalCheck.applied).toBe(false)
   })
 })

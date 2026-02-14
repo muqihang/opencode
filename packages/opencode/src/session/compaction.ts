@@ -14,7 +14,7 @@ import { Config } from "@/config/config"
 import { EvidenceWriter } from "@/evidence/writer"
 import { stableJson } from "@/util/stable-json"
 import { ulid } from "ulid"
-import { CompactionFacts, CompactionInput, CompactionReport, CompactionTrigger } from "./compaction-protocol"
+import { CompactionFacts, CompactionInput, CompactionQuality, CompactionReport, CompactionTrigger } from "./compaction-protocol"
 import fs from "fs/promises"
 import path from "path"
 import { ContextLedger } from "./context-ledger"
@@ -53,6 +53,101 @@ export namespace SessionCompaction {
   }
 
   const preview = (text: string, limit: number) => text.trim().slice(0, limit)
+
+  const PATH_LIMIT = 8
+  const STEP_LIMIT = 6
+  const PATH_RE = /(?:[A-Za-z0-9._-]+\/)+[A-Za-z0-9._-]+|[A-Za-z0-9._-]+\.[A-Za-z0-9]{1,10}/g
+  const STEP_RE = /\b(next step|next steps|todo|to-do|need to|needs to|should|must|fix|add|update|implement|write|verify|refresh|run|check|ensure|continue|plan)\b|请|下一步|需要|修复|新增|更新|验证/iu
+  const GOAL_RE = /\b(goal|task|need|needs|please|todo|next step|fix|add|update|implement|write|ensure|verify|upgrade|refresh)\b|目标|任务|请|下一步|需要|修复|新增|更新|验证/iu
+  const COMPACT_RE = /^(?:\/?compact|please compact)\b/i
+
+  const clip = (text: string) => text.replace(/^[`"'(<\[{]+/, "").replace(/[`"')>\]}.,;:!?]+$/, "")
+
+  const lines = (text: string) =>
+    text
+      .split(/\r?\n/)
+      .flatMap((item) => item.split(/[。！？.!?]/))
+      .map((item) =>
+        clip(
+          item
+            .replace(/^[-*]\s+/, "")
+            .replace(/^\d+[.)]\s+/, "")
+            .replace(/^round\s+\d+\s*:\s*/i, "")
+            .trim(),
+        ),
+      )
+      .filter((item) => item.length > 0)
+
+  const safePath = (raw: string) => {
+    const item = clip(raw.trim().replaceAll("\\", "/"))
+    if (!item) return
+    if (item.length > 180) return
+    if (item.includes("://")) return
+    if (item.includes("\u0000")) return
+    if (item.startsWith("/") || item.startsWith("~")) return
+    if (/^[A-Za-z]:\//.test(item)) return
+    if (!/^[A-Za-z0-9._/-]+$/.test(item)) return
+    const norm = path.posix.normalize(item)
+    if (!norm || norm === "." || norm === "..") return
+    if (norm.startsWith("../") || norm.includes("/../")) return
+    const rel = norm.startsWith("./") ? norm.slice(2) : norm
+    if (!rel) return
+    if (!rel.includes("/") && !rel.includes(".")) return
+    return rel
+  }
+
+  const gatherText = (messages: MessageV2.WithParts[]) =>
+    messages
+      .slice(-24)
+      .flatMap((msg) =>
+        msg.parts
+          .filter((part): part is MessageV2.TextPart => part.type === "text")
+          .filter((part) => !part.synthetic)
+          .map((part) => ({ role: msg.info.role, text: part.text.trim() })),
+      )
+      .filter((item) => item.text.length > 0)
+
+  const semantic = (messages: MessageV2.WithParts[]) => {
+    const chunks = gatherText(messages)
+    const rev = chunks.slice().reverse()
+    const users = rev.filter((item) => item.role === "user")
+    const userLines = users.flatMap((item) => lines(item.text))
+    const primaryGoal = userLines.find((item) => GOAL_RE.test(item) && !COMPACT_RE.test(item))
+    const fallbackGoal = userLines.find((item) => !COMPACT_RE.test(item)) ?? userLines[0] ?? ""
+    const goal = preview(primaryGoal ?? fallbackGoal, 240)
+
+    const files = Array.from(
+      new Set(
+        rev
+          .flatMap((item) => item.text.match(PATH_RE) ?? [])
+          .map((item) => safePath(item))
+          .filter((item): item is string => Boolean(item)),
+      ),
+    ).slice(0, PATH_LIMIT)
+
+    const steps = Array.from(
+      new Set(
+        rev
+          .flatMap((item) => lines(item.text))
+          .filter((item) => item.length >= 8 && item.length <= 220)
+          .filter((item) => STEP_RE.test(item))
+          .filter((item) => !COMPACT_RE.test(item)),
+      ),
+    ).slice(0, STEP_LIMIT)
+
+    return {
+      goal,
+      files,
+      steps,
+      lastUser: users[0]?.text ?? "",
+    }
+  }
+
+  const source = (input: { auto: boolean; trigger: z.infer<typeof CompactionTrigger> | undefined }) => {
+    if (!input.auto) return "manual" as const
+    const level = input.trigger?.level ?? "emergency"
+    return `auto:${level}` as const
+  }
 
   export async function isOverflow(input: { tokens: MessageV2.Assistant["tokens"]; model: Provider.Model }) {
     const config = await Config.get()
@@ -243,6 +338,7 @@ export namespace SessionCompaction {
         const parentMsg = input.messages.findLast((m) => m.info.id === input.parentID)
         const task = parentMsg?.parts.find((p): p is MessageV2.CompactionPart => p.type === "compaction")
         const triggerInfo = task?.trigger
+        const triggerSource = source({ auto: input.auto, trigger: triggerInfo })
         const contextLedger = await ContextLedger.read(input.sessionID)
         const baseDir = Instance.worktree === "/" ? Instance.directory : Instance.worktree
 
@@ -363,6 +459,7 @@ export namespace SessionCompaction {
             compactionId,
             parentId: input.parentID,
             trigger: triggerInfo,
+            trigger_source: triggerSource,
             previousContextPackId: contextLedger.lastContextPackId,
             input_artifact: inputEntry.path,
           },
@@ -375,15 +472,12 @@ export namespace SessionCompaction {
             nextStepsZh: "请重试；若频繁触发取消，可检查是否有并发请求或手动取消行为。",
           })
 
-        const lastUserText =
-          input.messages
-            .filter((m) => m.info.role === "user" && m.info.id !== input.parentID)
-            .findLast((m) => m.parts.some((p) => p.type === "text" && !p.synthetic && p.text.trim().length > 0))
-            ?.parts.filter((p): p is MessageV2.TextPart => p.type === "text")
-            .filter((p) => !p.synthetic)
-            .map((p) => p.text.trim())
-            .filter(Boolean)
-            .join("\n\n") ?? ""
+        const insight = semantic(input.messages)
+        const activeValue = insight.files.join(", ")
+        const stepsValue = insight.steps.join(" | ")
+        const active = insight.files.length > 0 ? ({ status: "known" as const, value: activeValue }) : ({ status: "unknown" as const })
+        const steps = insight.steps.length > 0 ? ({ status: "known" as const, value: stepsValue }) : ({ status: "unknown" as const })
+        const previewText = preview(insight.lastUser || insight.goal, 240)
 
         const facts = CompactionFacts.parse({
           specVersion: "compaction-facts/1.0",
@@ -394,23 +488,27 @@ export namespace SessionCompaction {
             session_id: { status: "known", value: input.sessionID },
             compaction_id: { status: "known", value: compactionId },
             trigger_parent_id: { status: "known", value: input.parentID },
-            last_user_message_preview: { status: "known", value: preview(lastUserText, 240) },
-            active_files: { status: "unknown" },
-            next_steps: { status: "unknown" },
+            trigger_source: { status: "known", value: triggerSource },
+            last_user_message_preview: { status: "known", value: previewText },
+            active_files: active,
+            next_steps: steps,
           },
         })
-        const goalText = preview(lastUserText, 240)
-        const goal = {
-          status: "known" as const,
-          value: goalText || "last_user_message_preview unavailable",
-        }
+        const goal = insight.goal
+          ? ({ status: "known" as const, value: insight.goal })
+          : ({ status: "unknown" as const, value: "goal unavailable" })
         const decisions = [
           { status: "known" as const, value: `compaction_id=${compactionId}` },
           { status: "known" as const, value: `trigger_parent_id=${input.parentID}` },
+          { status: "known" as const, value: `trigger_source=${triggerSource}` },
         ]
         const openQuestions = [
-          { status: "unknown" as const, value: "active_files pending confirmation" },
-          { status: "unknown" as const, value: "next_steps pending confirmation" },
+          active.status === "unknown"
+            ? ({ status: "unknown" as const, value: "active_files pending confirmation" })
+            : ({ status: "known" as const, value: `active_files extracted (${insight.files.length})` }),
+          steps.status === "unknown"
+            ? ({ status: "unknown" as const, value: "next_steps pending confirmation" })
+            : ({ status: "known" as const, value: `next_steps extracted (${insight.steps.length})` }),
         ]
 
         const factsEntry = await writer.artifact({
@@ -431,8 +529,11 @@ export namespace SessionCompaction {
           ],
           notes: [
             { status: "known", value: `compactionId: ${compactionId}` },
-            { status: "known", value: `trigger: ${triggerInfo ? stableJson(triggerInfo) : "unknown"}` },
-            { status: "known", value: `last_user_message_preview: ${preview(lastUserText, 800) || "unknown"}` },
+            { status: "known", value: `trigger_source: ${triggerSource}` },
+            { status: "known", value: `trigger: ${triggerInfo ? stableJson(triggerInfo) : triggerSource}` },
+            { status: "known", value: `last_user_message_preview: ${preview(insight.lastUser || insight.goal, 800) || "unavailable"}` },
+            { status: active.status, value: `active_files: ${active.status === "known" ? activeValue : "pending"}` },
+            { status: steps.status, value: `next_steps: ${steps.status === "known" ? stepsValue : "pending"}` },
             { status: "known", value: "plugin_prompt: disabled (structured backend compaction)" },
           ],
         })
@@ -490,6 +591,22 @@ export namespace SessionCompaction {
               return stableJson(a) !== stableJson(b)
             })
           : []
+        const factTotals = Object.values(facts.facts).reduce(
+          (acc, item) => {
+            if (item.status === "known") acc.known += 1
+            if (item.status === "unknown") acc.unknown += 1
+            return acc
+          },
+          { known: 0, unknown: 0 },
+        )
+        const semanticKnown = [goal.status, active.status, steps.status].filter((item) => item === "known").length
+        const quality = CompactionQuality.parse({
+          semantic_coverage: Number((semanticKnown / 3).toFixed(3)),
+          known_facts: factTotals.known,
+          unknown_facts: factTotals.unknown,
+          active_files_count: insight.files.length,
+          next_steps_count: insight.steps.length,
+        })
 
         const reportRel = `${base}/compaction.report.json`
         const reportPath = `.opencode/artifacts/${input.sessionID}/${reportRel}`
@@ -503,6 +620,7 @@ export namespace SessionCompaction {
             contextPackId: contextLedger.lastContextPackId,
           },
           delta: { added, removed, changed },
+          quality,
           artifacts: {
             capsule: { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
             facts: { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },
@@ -527,6 +645,26 @@ export namespace SessionCompaction {
         })
         await writer.artifact({ kind: "compaction-report", path: reportRel, data: stableJson(finalReport) })
 
+        await writer.event({
+          specVersion: "event/1.0",
+          ts: new Date().toISOString(),
+          sessionId: input.sessionID,
+          severity: "info",
+          actor: "session:compaction",
+          type: "compaction.quality",
+          summary: "compaction semantic quality recorded",
+          data: {
+            compactionId,
+            semantic_coverage: finalReport.quality.semantic_coverage,
+            known_facts: finalReport.quality.known_facts,
+            unknown_facts: finalReport.quality.unknown_facts,
+            active_files_count: finalReport.quality.active_files_count,
+            next_steps_count: finalReport.quality.next_steps_count,
+            report_artifact: reportEntry.path,
+          },
+          redaction: { applied: true, policyVersion: "v1" },
+        })
+
         await fs.mkdir(path.dirname(statePath), { recursive: true })
         await Bun.write(
           statePath,
@@ -548,6 +686,7 @@ export namespace SessionCompaction {
           summary: "compaction completed",
           data: {
             compactionId,
+            quality: finalReport.quality,
             artifacts: {
               capsule: { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
               capsuleSession: {

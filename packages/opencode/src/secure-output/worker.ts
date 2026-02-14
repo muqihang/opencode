@@ -272,26 +272,74 @@ const trimRefToken = (value: string) =>
     .replace(/[\[\](){}<>"'`.,;:!?，。；！？]+$/, "")
     .trim()
 
+const isCurrentSessionUserPath = (input: { path: string; sessionId: string }) => {
+  const path = input.path.replace(/\\/g, "/").toLowerCase()
+  const sessionId = input.sessionId.trim().toLowerCase()
+  if (!sessionId) return false
+  const hasSession = path.includes(sessionId)
+  if (!hasSession) return false
+  const hasUserMessage =
+    path.includes("/messages/user") ||
+    path.includes("/message/user") ||
+    path.includes("user-message") ||
+    path.endsWith("/user.md") ||
+    path.endsWith("/user.txt")
+  return hasUserMessage
+}
+
 const listInlineRefs = (input: string) =>
   Array.from(input.matchAll(inlineRef))
     .map((item) => trimRefToken(item[1] ?? ""))
     .filter((item) => item.length > 0)
 
-const parseRefToken = (token: string): ParsedRef | undefined => {
-  const match = token.match(refShape)
+const parseRefToken = (input: { token: string; sessionId: string }): ParsedRef | undefined => {
+  const match = input.token.match(refShape)
   if (!match) return
   const path = normalizePath(match[1] ?? "")
   const lineStart = Number(match[2])
   const lineEnd = Number(match[3] ?? match[2])
   if (!path) return
+  if (path.toLowerCase() === "unknown") return
+  if (path.includes("*")) return
+  if (isCurrentSessionUserPath({ path, sessionId: input.sessionId })) return
   if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd)) return
   if (lineStart <= 0 || lineEnd <= 0 || lineEnd < lineStart) return
   return {
     path,
     lineStart,
     lineEnd,
-    raw: token,
+    raw: input.token,
   }
+}
+
+const lineCount = (text: string) => {
+  if (!text) return 1
+  return text.split(/\r?\n/).length
+}
+
+const readLineCount = async (target: string) => {
+  const file = Bun.file(target)
+  const exists = await file.exists().catch(() => false)
+  if (!exists) return undefined
+  const text = await file.text().catch(() => undefined)
+  if (text === undefined) return undefined
+  return lineCount(text)
+}
+
+const refGrounded = async (input: {
+  roots: string[]
+  ref: ParsedRef
+}) => {
+  const checks = await Promise.all(
+    input.roots.map(async (root) => {
+      const target = safePointerTarget(root, input.ref.path)
+      if (!target) return false
+      const total = await readLineCount(target)
+      if (total === undefined) return false
+      return input.ref.lineEnd <= total
+    }),
+  )
+  return checks.some((item) => item)
 }
 
 const draftClaimsPayload = async (input: {
@@ -299,7 +347,7 @@ const draftClaimsPayload = async (input: {
   text: string
 }) => {
   const refs = listInlineRefs(input.text)
-    .map((token) => parseRefToken(token))
+    .map((token) => parseRefToken({ token, sessionId: input.sessionId }))
     .flatMap((item) => (item ? [item] : []))
   if (refs.length === 0) return
 
@@ -313,6 +361,8 @@ const draftClaimsPayload = async (input: {
   const claims = (
     await Promise.all(
       uniqueRefs.map(async (item, index) => {
+        const grounded = await refGrounded({ roots, ref: item })
+        if (!grounded) return undefined
         const safe = roots.some((root) => Boolean(safePointerTarget(root, item.path)))
         if (!safe) return undefined
         const sha256 = await completePointerSha({ roots, rel: item.path })
