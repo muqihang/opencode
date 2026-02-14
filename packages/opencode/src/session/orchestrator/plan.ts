@@ -79,6 +79,10 @@ const breaker = new Map<string, Breaker>()
 
 const rerun = new Map<string, number>()
 
+const rerunMode = (mode: OrchestratorMode) => mode === "assist" || mode === "heavy"
+
+const rerunKey = (input: { sessionId: string; messageId: string }) => `${input.sessionId}:${input.messageId}`
+
 const readTrips = (sessionId: string) => breaker.get(sessionId)?.trips ?? 0
 
 const writeTrips = (input: { sessionId: string; trips: number }) => {
@@ -89,9 +93,20 @@ const writeTrips = (input: { sessionId: string; trips: number }) => {
   breaker.set(input.sessionId, { trips: input.trips })
 }
 
-const nextRerun = (input: { sessionId: string; messageId: string }) => {
-  const key = `${input.sessionId}:${input.messageId}`
+const nextRerun = (input: {
+  sessionId: string
+  messageId: string
+  orchestratorMode: OrchestratorMode
+  maxRerun: number
+}) => {
+  const key = rerunKey(input)
+  if (!rerunMode(input.orchestratorMode)) {
+    rerun.delete(key)
+    return 0
+  }
   const count = rerun.get(key) ?? 0
+  const cap = input.maxRerun + 1
+  if (count >= cap) return count
   rerun.set(key, count + 1)
   return count
 }
@@ -331,6 +346,12 @@ const applyRerunLimit = (input: { plan: OrchestratorPlan; rerunCount: number; ma
     ...input.plan.budgets,
     maxRerun: input.maxRerun,
   }
+  if (!rerunMode(input.plan.orchestratorMode)) {
+    return OrchestratorPlan.parse({
+      ...input.plan,
+      budgets,
+    })
+  }
   if (input.rerunCount <= input.maxRerun) {
     return OrchestratorPlan.parse({
       ...input.plan,
@@ -515,6 +536,8 @@ export const buildPlan = async (input: BuildInput): Promise<BuildResult> => {
   const rerunCount = nextRerun({
     sessionId: input.sessionId,
     messageId: input.messageId,
+    orchestratorMode: cached.value.orchestratorMode,
+    maxRerun: AdaptiveMaxRerun,
   })
   const plan = applyRerunLimit({
     plan: cached.value,

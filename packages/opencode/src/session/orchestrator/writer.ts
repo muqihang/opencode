@@ -28,6 +28,8 @@ const StopCodes = new Set([
 
 type Decision = "continue" | "stop"
 
+type Mode = z.infer<typeof OrchestratorPlan>["orchestratorMode"]
+
 type Progress = {
   specVersion: "progress-ledger/1.0"
   messageId: string
@@ -46,20 +48,48 @@ type Progress = {
 
 const cycles = new Map<string, number>()
 
-const nextCycle = (input: { sessionId: string; messageId: string }) => {
-  const key = `${input.sessionId}:${input.messageId}`
+const stops = new Set<string>()
+
+const degraded = new Set<string>()
+
+const workerMode = (mode: Mode) => mode === "assist" || mode === "heavy"
+
+const messageKey = (input: { sessionId: string; messageId: string }) => `${input.sessionId}:${input.messageId}`
+
+const nextCycle = (input: { sessionId: string; messageId: string; mode: Mode; frozen: boolean }) => {
+  if (!workerMode(input.mode)) return 1
+  const key = messageKey(input)
+  if (input.frozen) return cycles.get(key) ?? 1
   const value = (cycles.get(key) ?? 0) + 1
   cycles.set(key, value)
   return value
 }
 
 const progress = (input: { sessionId: string; plan: z.infer<typeof OrchestratorPlan>; cycle: number }): Progress => {
+  const maxRerun = input.plan.budgets.maxRerun ?? 1
+  const idempotencyKey = `${input.sessionId}:${input.plan.messageId}:${input.plan.orchestratorPlanId}`
+  if (!workerMode(input.plan.orchestratorMode)) {
+    return {
+      specVersion: "progress-ledger/1.0",
+      messageId: input.plan.messageId,
+      idempotencyKey,
+      cycle: 1,
+      rerunCount: 0,
+      maxRerun,
+      coverageGain: 1,
+      newEvidenceCount: 1,
+      duplicateProbeRate: 0,
+      decision: "continue",
+      stopReason: "not_stopped",
+      fallbackPath: "adaptive.ttc.continue -> dual_pass.draft",
+      evidence_gain_per_cycle: 1,
+    }
+  }
+
   const adaptive = input.plan.reasons
     .map((item) => item.code)
     .filter((code) => code.startsWith("adaptive.ttc."))
   const rerunStop = adaptive.includes("adaptive.ttc.max_rerun.stop")
-  const maxRerun = input.plan.budgets.maxRerun ?? 1
-  const idempotencyKey = `${input.sessionId}:${input.plan.messageId}:${input.plan.orchestratorPlanId}`
   const stop = adaptive.some((code) => StopCodes.has(code))
   if (stop) {
     return {
@@ -108,7 +138,13 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
   const data = OrchestratorArtifactsInput.parse(input)
   const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
   const planId = data.plan.orchestratorPlanId
-  const cycle = nextCycle({ sessionId: data.sessionId, messageId: data.plan.messageId })
+  const key = messageKey({ sessionId: data.sessionId, messageId: data.plan.messageId })
+  const cycle = nextCycle({
+    sessionId: data.sessionId,
+    messageId: data.plan.messageId,
+    mode: data.plan.orchestratorMode,
+    frozen: stops.has(key),
+  })
   const ledger = progress({ sessionId: data.sessionId, plan: data.plan, cycle })
   const base = `orchestrator/${planId}`
 
@@ -123,31 +159,43 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
     data: stableJson(data.plan),
   })
 
-  await writer.event({
-    specVersion: "event/1.0",
-    ts: new Date().toISOString(),
-    sessionId: data.sessionId,
-    severity: "info",
-    actor: "orchestrator:writer",
-    type: "orchestrator.planned",
-    summary: "orchestrator plan recorded",
-    data: {
-      planId,
-      orchestratorEnabled: data.plan.orchestratorMode === "assist" || data.plan.orchestratorMode === "heavy",
-      orchestratorMode: data.plan.orchestratorMode,
-      uxMode: data.plan.uxMode,
-      ...ledger,
-      plan_artifact: { path: planEntry.path, sha256: planEntry.sha256 },
-      features_artifact: { path: featuresEntry.path, sha256: featuresEntry.sha256 },
-    },
-    redaction: { applied: true, policyVersion: "v1" },
-  })
+  const stopExceeded = ledger.stopReason === "max_rerun_exceeded"
+  const writePlanned = !(stopExceeded && stops.has(key))
+  if (writePlanned) {
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId: data.sessionId,
+      severity: "info",
+      actor: "orchestrator:writer",
+      type: "orchestrator.planned",
+      summary: "orchestrator plan recorded",
+      data: {
+        planId,
+        orchestratorEnabled: data.plan.orchestratorMode === "assist" || data.plan.orchestratorMode === "heavy",
+        orchestratorMode: data.plan.orchestratorMode,
+        uxMode: data.plan.uxMode,
+        ...ledger,
+        plan_artifact: { path: planEntry.path, sha256: planEntry.sha256 },
+        features_artifact: { path: featuresEntry.path, sha256: featuresEntry.sha256 },
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+  }
+  if (stopExceeded) {
+    stops.add(key)
+  }
 
   const adaptive = data.plan.reasons
     .map((item) => item.code)
     .filter((code) => code.startsWith("adaptive.ttc."))
   const degradedAdaptive = adaptive.filter((code) => AdaptiveDegradedCodes.has(code))
   if (degradedAdaptive.length === 0) return
+
+  const reason = [...new Set(degradedAdaptive)].sort().join(",")
+  const degradedKey = `${key}:${reason}`
+  if (degraded.has(degradedKey)) return
+  degraded.add(degradedKey)
 
   await writer
     .event({
@@ -162,7 +210,7 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
         planId,
         messageId: data.plan.messageId,
         stage: "adaptive_ttc",
-        reason: degradedAdaptive.join(","),
+        reason,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
