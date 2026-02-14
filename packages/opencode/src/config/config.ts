@@ -237,6 +237,8 @@ export namespace Config {
         experimental.orchestrator_worker_timeout_ms ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS,
       orchestrator_worker_debug_summary:
         experimental.orchestrator_worker_debug_summary ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY,
+      compaction_llm_augment:
+        experimental.compaction_llm_augment ?? Flag.OPENCODE_EXPERIMENTAL_CAPSULE_LLM,
       retrieval_hybrid_strategy:
         experimental.retrieval_hybrid_strategy ?? hybridStrategyFlag,
       retrieval_hybrid_compensation_gate:
@@ -1244,6 +1246,10 @@ export namespace Config {
             .optional(),
           chatMaxRetries: z.number().optional().describe("Number of retries for chat completions on failure"),
           disable_paste_summary: z.boolean().optional(),
+          compaction_llm_augment: z
+            .boolean()
+            .optional()
+            .describe("Apply verified LLM-assisted compaction view over deterministic baseline"),
           batch_tool: z.boolean().optional().describe("Enable the batch tool"),
           openTelemetry: z
             .boolean()

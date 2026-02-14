@@ -8,6 +8,8 @@ import { SessionCompaction } from "../../src/session/compaction"
 import { EvidenceReader } from "../../src/evidence/reader"
 import { Log } from "../../src/util/log"
 import { ContextLedger } from "../../src/session/context-ledger"
+import { MessageV2 } from "../../src/session/message-v2"
+import { CapsuleAssistedRunner } from "../../src/session/capsule-assisted"
 
 Log.init({ print: false })
 
@@ -30,6 +32,56 @@ const writeText = async (input: { sessionId: string; text: string }) => {
     text: input.text,
   })
   return msg
+}
+
+const runStructured = async (input: { sessionId: string; parentId: string }) => {
+  const msgs = await Session.messages({ sessionID: input.sessionId })
+  return SessionCompaction.process({
+    parentID: input.parentId,
+    messages: msgs,
+    sessionID: input.sessionId,
+    abort: new AbortController().signal,
+    auto: false,
+  })
+}
+
+const summaryText = async (sessionId: string) => {
+  const msgs = await Session.messages({ sessionID: sessionId })
+  const msg = msgs.findLast((item) => item.info.role === "assistant" && item.info.summary)
+  if (!msg) return ""
+  const part = msg.parts.find((item): item is MessageV2.TextPart => item.type === "text")
+  return part?.text ?? ""
+}
+
+const findEvent = async (input: { sessionId: string; type: string }) => {
+  const events = await EvidenceReader.readEvents(input.sessionId, { cursor: 0, limit: 1000 })
+  return events.events.findLast((item) => item.type === input.type)
+}
+
+const waitFor = async (input: { ms: number; check: () => Promise<boolean> }) => {
+  const start = Date.now()
+  const loop = async (): Promise<boolean> => {
+    if (await input.check()) return true
+    if (Date.now() - start > input.ms) return false
+    await Bun.sleep(20)
+    return loop()
+  }
+  return loop()
+}
+
+const assertNoJsonLeak = (text: string) => {
+  expect(text.includes("<assistant_claims_json>")).toBe(false)
+  expect(text.includes("capsule.session.json")).toBe(false)
+  expect(text.includes("capsule.assisted.verify.json")).toBe(false)
+  expect(/```json/iu.test(text)).toBe(false)
+}
+
+const setRunner = (fn: typeof CapsuleAssistedRunner.runFromCompaction) => {
+  const old = CapsuleAssistedRunner.runFromCompaction
+  ;(CapsuleAssistedRunner as { runFromCompaction: typeof CapsuleAssistedRunner.runFromCompaction }).runFromCompaction = fn
+  return () => {
+    ;(CapsuleAssistedRunner as { runFromCompaction: typeof CapsuleAssistedRunner.runFromCompaction }).runFromCompaction = old
+  }
 }
 
 describe("session.compaction structured artifacts + events", () => {
@@ -251,4 +303,254 @@ describe("session.compaction structured artifacts + events", () => {
       },
     })
   })
+
+  test("assisted success applies llm view over deterministic baseline and keeps visible text JSON-free", async () => {
+    const llm = "# LLM Summary\n\n- keep deterministic chain, but show verified augment"
+    const restore = setRunner(
+      (async () => {
+        await Bun.sleep(80)
+        return {
+          status: "success",
+          verifyOk: true,
+          coverage: { known: 3, unknown: 0, anchors: 2 },
+          reasonCode: "none",
+          viewText: llm,
+          artifacts: {
+            view: {
+              path: "compaction/mock-success/capsule.assisted.md",
+              sha256: "a".repeat(64),
+              kind: "compaction-capsule-assisted-view",
+            },
+          },
+        } as unknown
+      }) as unknown as typeof CapsuleAssistedRunner.runFromCompaction,
+    )
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ experimental: { compaction_llm_augment: true } }))
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+        await writeText({ sessionId, text: "Round A: keep deterministic summary first. " + "x".repeat(5_000) })
+        const msg = await writeText({ sessionId, text: "Round B: please compact now" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const deterministic = await summaryText(sessionId)
+        expect(deterministic.includes("# Capsule")).toBe(true)
+        assertNoJsonLeak(deterministic)
+
+        const appliedReady = await waitFor({
+          ms: 3_000,
+          check: async () => Boolean(await findEvent({ sessionId, type: "compaction.assisted_applied" })),
+        })
+        expect(appliedReady).toBe(true)
+
+        const applied = await findEvent({ sessionId, type: "compaction.assisted_applied" })
+        expect(applied).toBeTruthy()
+        if (applied) {
+          const data = applied.data ?? {}
+          expect(data["ui_view_source"]).toBe("llm")
+          expect(typeof data["compactionId"]).toBe("string")
+          expect(typeof data["view_artifact"]).toBe("string")
+        }
+
+        const finalText = await summaryText(sessionId)
+        expect(finalText).toContain("# LLM Summary")
+        assertNoJsonLeak(finalText)
+      },
+    })
+
+    restore()
+  }, { timeout })
+
+  test("assisted degraded keeps deterministic summary and emits skipped event", async () => {
+    const restore = setRunner(
+      (async () => {
+        return {
+          status: "degraded",
+          verifyOk: false,
+          reasonCode: "schema_invalid",
+          coverage: { known: 1, unknown: 2, anchors: 1 },
+          artifacts: {
+            view: {
+              path: "compaction/mock-degraded/capsule.assisted.md",
+              sha256: "b".repeat(64),
+              kind: "compaction-capsule-assisted-view",
+            },
+          },
+        } as unknown
+      }) as unknown as typeof CapsuleAssistedRunner.runFromCompaction,
+    )
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ experimental: { compaction_llm_augment: true } }))
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+        await writeText({ sessionId, text: "Round A: keep summary deterministic" })
+        const msg = await writeText({ sessionId, text: "Round B: compact" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const deterministic = await summaryText(sessionId)
+        const skippedReady = await waitFor({
+          ms: 3_000,
+          check: async () => Boolean(await findEvent({ sessionId, type: "compaction.assisted_skipped" })),
+        })
+        expect(skippedReady).toBe(true)
+
+        const skipped = await findEvent({ sessionId, type: "compaction.assisted_skipped" })
+        expect(skipped).toBeTruthy()
+        if (skipped) {
+          const data = skipped.data ?? {}
+          expect(data["status"]).toBe("degraded")
+          expect(data["reasonCode"]).toBe("assisted_degraded")
+          expect(data["ui_view_source"]).toBe("deterministic")
+        }
+
+        const finalText = await summaryText(sessionId)
+        expect(finalText).toBe(deterministic)
+        assertNoJsonLeak(finalText)
+      },
+    })
+
+    restore()
+  }, { timeout })
+
+  test("assisted failed keeps deterministic summary and emits skipped event", async () => {
+    const restore = setRunner(
+      (async () => {
+        return {
+          status: "failed",
+          verifyOk: false,
+          reasonCode: "provider_error",
+          coverage: { known: 0, unknown: 0, anchors: 0 },
+        } as unknown
+      }) as unknown as typeof CapsuleAssistedRunner.runFromCompaction,
+    )
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ experimental: { compaction_llm_augment: true } }))
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+        await writeText({ sessionId, text: "Round A" })
+        const msg = await writeText({ sessionId, text: "Round B compact" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const deterministic = await summaryText(sessionId)
+        const skippedReady = await waitFor({
+          ms: 3_000,
+          check: async () => Boolean(await findEvent({ sessionId, type: "compaction.assisted_skipped" })),
+        })
+        expect(skippedReady).toBe(true)
+
+        const skipped = await findEvent({ sessionId, type: "compaction.assisted_skipped" })
+        expect(skipped).toBeTruthy()
+        if (skipped) {
+          const data = skipped.data ?? {}
+          expect(data["status"]).toBe("failed")
+          expect(data["reasonCode"]).toBe("assisted_failed")
+          expect(data["ui_view_source"]).toBe("deterministic")
+        }
+
+        const finalText = await summaryText(sessionId)
+        expect(finalText).toBe(deterministic)
+        assertNoJsonLeak(finalText)
+      },
+    })
+
+    restore()
+  }, { timeout })
+
+  test("config can disable llm augment and skip assisted apply entirely", async () => {
+    const calls = { value: 0 }
+    const restore = setRunner(
+      (async () => {
+        calls.value += 1
+        return {
+          status: "success",
+          verifyOk: true,
+          reasonCode: "none",
+          coverage: { known: 2, unknown: 0, anchors: 1 },
+          viewText: "# LLM Summary\n\n- should never show when disabled",
+          artifacts: {
+            view: {
+              path: "compaction/mock-disabled/capsule.assisted.md",
+              sha256: "c".repeat(64),
+              kind: "compaction-capsule-assisted-view",
+            },
+          },
+        } as unknown
+      }) as unknown as typeof CapsuleAssistedRunner.runFromCompaction,
+    )
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ experimental: { compaction_llm_augment: false } }))
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+        await writeText({ sessionId, text: "Round A" })
+        const msg = await writeText({ sessionId, text: "Round B compact" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const skippedReady = await waitFor({
+          ms: 3_000,
+          check: async () => Boolean(await findEvent({ sessionId, type: "compaction.assisted_skipped" })),
+        })
+        expect(skippedReady).toBe(true)
+
+        const skipped = await findEvent({ sessionId, type: "compaction.assisted_skipped" })
+        expect(skipped).toBeTruthy()
+        if (skipped) {
+          const data = skipped.data ?? {}
+          expect(data["status"]).toBe("disabled")
+          expect(data["reasonCode"]).toBe("disabled")
+          expect(data["ui_view_source"]).toBe("deterministic")
+        }
+
+        expect(calls.value).toBe(0)
+        const finalText = await summaryText(sessionId)
+        expect(finalText.includes("# Capsule")).toBe(true)
+        assertNoJsonLeak(finalText)
+      },
+    })
+
+    restore()
+  }, { timeout })
 })
