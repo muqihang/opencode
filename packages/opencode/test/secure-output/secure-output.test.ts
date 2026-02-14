@@ -142,6 +142,77 @@ describe("secure-output", () => {
     })
   }, { timeout: 30000 })
 
+  test("strict: does not auto-draft when inline line range is out of file bounds", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "so-auto-draft-out-of-range"
+        const messageId = "m-auto-draft-out-of-range"
+        const rel = "derived/input/out-of-range.txt"
+        const content = "line 1\nline 2\n"
+        const roots = [
+          path.join(Instance.worktree, ".opencode", "artifacts", sessionId, "derived", "input"),
+          path.join(Instance.worktree, ".opencode", "artifacts", "local", "default", sessionId, "derived", "input"),
+        ]
+        await Promise.all(roots.map((root) => Bun.write(path.join(root, "out-of-range.txt"), content)))
+
+        const text = [
+          "结论：见证据。",
+          `可核验引用为 ${rel}:1-99。`,
+        ].join("\n")
+
+        const result = await runSecureOutput({
+          sessionId,
+          messageId,
+          mode: "strict",
+          budget: { timeMs: 20000, maxScripts: 4 },
+          text,
+          ctx: buildCtx(sessionId, messageId),
+        })
+
+        expect(result.status).toBe("degraded")
+
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 120 })
+        const drafted = events.events.find((event) => event.type === "secure_output.claims_drafted")
+        expect(Boolean(drafted)).toBe(false)
+      },
+    })
+  }, { timeout: 30000 })
+
+  test("strict: does not auto-draft when reference points to current session user message path", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "so-auto-draft-user-message"
+        const messageId = "m-auto-draft-user-message"
+        const rel = `sessions/${sessionId}/messages/user.md`
+        await Bun.write(path.join(Instance.worktree, rel), "user secret\n")
+
+        const text = [
+          "结论：见证据。",
+          `可核验引用为 ${rel}:1。`,
+        ].join("\n")
+
+        const result = await runSecureOutput({
+          sessionId,
+          messageId,
+          mode: "strict",
+          budget: { timeMs: 20000, maxScripts: 4 },
+          text,
+          ctx: buildCtx(sessionId, messageId),
+        })
+
+        expect(result.status).toBe("degraded")
+
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 120 })
+        const drafted = events.events.find((event) => event.type === "secure_output.claims_drafted")
+        expect(Boolean(drafted)).toBe(false)
+      },
+    })
+  }, { timeout: 30000 })
+
   test("strict: valid fact claims pass and writes claims artifact", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
