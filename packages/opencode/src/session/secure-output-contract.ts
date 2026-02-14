@@ -1,6 +1,6 @@
 import { stableJson } from "@/util/stable-json"
+import { resolveVerificationMode } from "./verification-mode"
 
-const strictIntent = /(verify|verification|resume|handoff|summary|audit|核验|验证|续接|交接|总结|摘要|审计|复盘)/i
 const seedPattern = /path=([^\s]+)\s+sha=([a-fA-F0-9]{64})(?:\s+anchor_json=(\{.+\}))?/
 
 export type ClaimsSeedPointer = {
@@ -77,8 +77,11 @@ export const resolveSecureOutputContract = (input: {
   intentText: string
   hasVerificationIntent?: boolean
 }) => {
-  if (input.hasVerificationIntent === true) return strict
-  if (strictIntent.test(input.intentText)) return strict
+  const mode = resolveVerificationMode({
+    intentText: input.intentText,
+    hasVerificationIntent: input.hasVerificationIntent,
+  })
+  if (mode.mode === "strict") return strict
   return light
 }
 
