@@ -399,6 +399,19 @@ export namespace SessionCompaction {
             next_steps: { status: "unknown" },
           },
         })
+        const goalText = preview(lastUserText, 240)
+        const goal = {
+          status: "known" as const,
+          value: goalText || "last_user_message_preview unavailable",
+        }
+        const decisions = [
+          { status: "known" as const, value: `compaction_id=${compactionId}` },
+          { status: "known" as const, value: `trigger_parent_id=${input.parentID}` },
+        ]
+        const openQuestions = [
+          { status: "unknown" as const, value: "active_files pending confirmation" },
+          { status: "unknown" as const, value: "next_steps pending confirmation" },
+        ]
 
         const factsEntry = await writer.artifact({
           kind: "compaction-facts",
@@ -409,6 +422,9 @@ export namespace SessionCompaction {
         const capsule = Capsule.buildSession({
           sessionId: input.sessionID,
           generatedAtUtc: now,
+          goal,
+          decisions,
+          openQuestions,
           pointers: [
             { path: inputEntry.path, sha256: inputEntry.sha256, kind: inputEntry.kind },
             { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },

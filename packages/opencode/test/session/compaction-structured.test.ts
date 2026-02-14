@@ -91,6 +91,22 @@ describe("session.compaction structured artifacts + events", () => {
           expect(await Bun.file(file).exists()).toBe(true)
         }
 
+        const capsuleEntry = manifest.entries.find((e) => compactionPattern.test(e.path) && e.path.endsWith("/capsule.session.json"))
+        expect(capsuleEntry).toBeTruthy()
+        if (!capsuleEntry) throw new Error("missing capsule.session.json")
+
+        const capsuleText = await Bun.file(path.join(tmp.path, capsuleEntry.path)).text()
+        const capsule = JSON.parse(capsuleText) as {
+          goal?: { status?: string; value?: unknown }
+          decisions?: Array<{ status?: string; value?: unknown }>
+          openQuestions?: Array<{ status?: string; value?: unknown }>
+        }
+
+        expect(capsule.goal?.status).toBe("known")
+        expect(String(capsule.goal?.value ?? "").trim().length).toBeGreaterThan(0)
+        expect((capsule.decisions ?? []).length).toBeGreaterThanOrEqual(1)
+        expect((capsule.openQuestions ?? []).length).toBeGreaterThanOrEqual(1)
+
         const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 1000 })
         const types = events.events.map((e) => e.type)
         const anchorEntry = manifest.entries.find((e) => compactionPattern.test(e.path) && e.path.endsWith("/anchor.snapshot.json"))
