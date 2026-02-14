@@ -13,6 +13,7 @@ import { runToolBroker } from "./tool-broker"
 import { normalizeOrchestratorDegraded } from "./degraded-taxonomy"
 import { stableJson } from "@/util/stable-json"
 import { artifactSessionPrefix, isA2TenantNamespaceEnabled, resolveTenantScope } from "@/util/tenant-context"
+import { buildClaimsSeed, parseClaimsSeedPointers } from "../secure-output-contract"
 
 type TurnInput = {
   sessionId: string
@@ -453,6 +454,24 @@ const extractWorkingSetPointers = async (input: BrokerOutput | undefined) => {
   return toWorkingSetPointers([...snippetPreview, ...originPreview, ...top, ...artifacts])
 }
 
+const collectClaimsSeedPointers = (input: {
+  broker?: BrokerOutput
+  workingSetPointers?: string[]
+}) => {
+  const fromBroker = extractPointers(input.broker)
+  const fromWorkingSet = parseClaimsSeedPointers(input.workingSetPointers ?? [])
+  const seen = new Set<string>()
+  return [...fromBroker, ...fromWorkingSet]
+    .filter((item) => item.path.length > 0 && item.sha256.length > 0)
+    .filter((item) => {
+      const key = `${item.path}:${item.sha256}:${stableJson(item.anchor ?? {})}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, 6)
+}
+
 const rerunCriticWithPointers = async (input: {
   sessionId: string
   messageId: string
@@ -594,6 +613,15 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
       workingSetPointers: basePointers,
     })
     const workerResults = finalizedRuns.map((item) => item.run.result)
+    const strictClaims = input.features.features.hasVerificationIntent === true
+    const claimsSeed = buildClaimsSeed({
+      strict: strictClaims,
+      pointers: collectClaimsSeedPointers({
+        broker,
+        workingSetPointers: basePointers,
+      }),
+    })
+    const seedBlock = claimsSeed ? [claimsSeed] : []
 
     const injected = renderInjection({
       plan: input.plan,
@@ -620,14 +648,14 @@ export const runOrchestratorTurn = async (input: TurnInput): Promise<TurnResult>
         reason: "planner_degraded_fallback",
       })
       return {
-        system: [...input.system, input.plan.dualPass?.unknownFirst ?? "unknown-first"],
+        system: [...input.system, ...seedBlock, input.plan.dualPass?.unknownFirst ?? "unknown-first"],
         tools: gatedTools,
         degraded: true,
       }
     }
 
     return {
-      system: [...input.system, dualPass.text],
+      system: [...input.system, dualPass.text, ...seedBlock],
       tools: gatedTools,
       degraded: dualPass.degraded,
     }

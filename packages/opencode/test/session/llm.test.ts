@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { LLM } from "../../src/session/llm"
 import { resolveHybridRoutingPolicy } from "../../src/session/hybrid-routing-policy"
+import { SecureOutputContract } from "../../src/session/secure-output-contract"
 import type { ModelMessage } from "ai"
 
 describe("session.llm.hasToolCalls", () => {
@@ -229,6 +230,35 @@ describe("session.llm.compensation-retrieval", () => {
 
     expect(result).toBeUndefined()
     expect(calls.length).toBe(0)
+  })
+})
+
+describe("session.llm.secure-output contract granularity", () => {
+  test("normal chat defaults to lightweight contract instead of strict claims schema", () => {
+    const sections = LLM.buildSystemSections({
+      providerPrompt: "provider",
+      permissionText: "permissions",
+      environmentText: "environment",
+      capsuleText: "",
+      userText: "",
+    })
+
+    const contract = sections.find((item) => item.id === "stable:secure_output_contract")?.text ?? ""
+    expect(contract.includes("<assistant_claims_json>")).toBe(false)
+  })
+
+  test("strict path can still inject full claims contract explicitly", () => {
+    const sections = LLM.buildSystemSections({
+      providerPrompt: "provider",
+      permissionText: "permissions",
+      environmentText: "environment",
+      capsuleText: "",
+      userText: "",
+      secureOutputContract: SecureOutputContract.text,
+    })
+
+    const contract = sections.find((item) => item.id === "stable:secure_output_contract")?.text ?? ""
+    expect(contract.includes("<assistant_claims_json>")).toBe(true)
   })
 })
 

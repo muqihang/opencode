@@ -72,6 +72,7 @@ export namespace LLM {
     permission?: PermissionNext.Ruleset
     historySummary?: string
     retrievalRoute?: RetrievalRoute
+    secureOutputContract?: string
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
@@ -127,7 +128,7 @@ export namespace LLM {
     userText: string
     secureOutputContract?: string
   }): PromptSection[] {
-    const contract = input.secureOutputContract ?? SecureOutputContract.text
+    const contract = input.secureOutputContract ?? SecureOutputContract.light
     return [
       { id: "stable:provider", stability: "stable", text: input.providerPrompt },
       { id: "stable:permissions", stability: "stable", text: input.permissionText },
@@ -185,7 +186,10 @@ export namespace LLM {
         ? ""
         : SystemPrompt.provider(input.model).join("\n\n")
     const codexInstructions = isCodex ? SystemPrompt.instructions() : ""
-    const developerText = [codexInstructions, providerPrompt, SecureOutputContract.text].filter((x) => x.trim().length > 0).join("\n\n")
+    const secureOutputContract = input.secureOutputContract ?? SecureOutputContract.light
+    const developerText = [codexInstructions, providerPrompt, secureOutputContract]
+      .filter((x) => x.trim().length > 0)
+      .join("\n\n")
     const permissionRules = (input.permission ?? input.agent.permission)
       .map((rule) => ({
         permission: rule.permission,
@@ -220,6 +224,7 @@ export namespace LLM {
         environmentText,
         capsuleText,
         userText,
+        secureOutputContract,
       }),
     })
     const systemBase = [...packedSystem.packed]

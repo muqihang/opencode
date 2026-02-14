@@ -96,7 +96,7 @@ describe("orchestrator secure-output policy", () => {
     expect(mode).toBeNull()
   })
 
-  test("secure output contract arrival in system prompt", () => {
+  test("secure output contract uses lightweight default and supports strict override", () => {
     const build = (
       LLM as unknown as {
         buildSystemSections?: (input: {
@@ -105,6 +105,7 @@ describe("orchestrator secure-output policy", () => {
           environmentText: string
           capsuleText: string
           userText: string
+          secureOutputContract?: string
         }) => Array<{ id: string; stability: "stable" | "dynamic"; text: string }>
       }
     ).buildSystemSections
@@ -120,9 +121,20 @@ describe("orchestrator secure-output policy", () => {
       userText: "",
     })
     const contract = sections.find((item) => item.id === "stable:secure_output_contract")
-    expect(contract?.text).toBe(SecureOutputContract.text)
+    expect(contract?.text).toBe(SecureOutputContract.light)
 
     const packed = packPromptSections({ sections })
-    expect(packed.packed.join("\n\n")).toContain("<secure_output_contract>")
+    expect(packed.packed.join("\n\n")).toContain("<secure_output_contract_light>")
+
+    const strictSections = build({
+      providerPrompt: "provider",
+      permissionText: "permissions",
+      environmentText: "environment",
+      capsuleText: "",
+      userText: "",
+      secureOutputContract: SecureOutputContract.text,
+    })
+    const strict = strictSections.find((item) => item.id === "stable:secure_output_contract")
+    expect(strict?.text).toBe(SecureOutputContract.text)
   })
 })

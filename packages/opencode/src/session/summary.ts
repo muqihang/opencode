@@ -16,6 +16,7 @@ import { Bus } from "@/bus"
 
 import { LLM } from "./llm"
 import { Agent } from "@/agent/agent"
+import { resolveSecureOutputContract } from "./secure-output-contract"
 
 export namespace SessionSummary {
   const log = Log.create({ service: "session.summary" })
@@ -107,6 +108,7 @@ export namespace SessionSummary {
         abort: new AbortController().signal,
         sessionID: userMsg.sessionID,
         system: [],
+        secureOutputContract: resolveSecureOutputContract({ intentText: "summary title" }),
         retries: 3,
       })
       const result = await stream.text

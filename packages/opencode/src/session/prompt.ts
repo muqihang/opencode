@@ -43,6 +43,7 @@ import { Tool } from "@/tool/tool"
 import { PermissionNext } from "@/permission/next"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
+import { resolveSecureOutputContract } from "./secure-output-contract"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
@@ -1931,6 +1932,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       abort: new AbortController().signal,
       sessionID: input.session.id,
       retries: 2,
+      secureOutputContract: resolveSecureOutputContract({ intentText: "summary title" }),
       messages: [
         {
           role: "user",
