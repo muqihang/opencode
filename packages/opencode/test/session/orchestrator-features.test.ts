@@ -24,6 +24,29 @@ describe("orchestrator features", () => {
     expect(result.features.hasVerificationIntent).toBe(true)
   })
 
+  test("summary and handoff intents are treated as verification intent", () => {
+    const intents = [
+      "请做分析并给出下一步",
+      "请做复盘并输出结论",
+      "请进行审计总结",
+      "请写一个交接说明",
+      "请输出续接包",
+      "please provide a report",
+      "please resume this work",
+      "prepare a handoff note",
+    ]
+
+    for (const intentText of intents) {
+      const result = extractFeatures({
+        uxMode: "auto",
+        intentText,
+        hasFileParts: false,
+      })
+
+      expect(result.features.hasVerificationIntent).toBe(true)
+    }
+  })
+
   test("negated exec phrasing does not trigger exec intent", () => {
     const result = extractFeatures({
       uxMode: "auto",

@@ -31,7 +31,9 @@ const claimsOpenTag = "<assistant_claims_json>"
 const claimsCloseTag = "</assistant_claims_json>"
 const referenceCheckPolicy = [
   "<reference_check_policy>",
-  "事实必须给 file:line 引用；无证据必须 unknown/evidence_insufficient。",
+  "事实必须给 file:line 引用。",
+  "路径必须来自已提供或已读取的证据，禁止编造路径/数量。",
+  "数量与结论无证据必须 unknown/evidence_insufficient。",
   "</reference_check_policy>",
 ].join("\n")
 
