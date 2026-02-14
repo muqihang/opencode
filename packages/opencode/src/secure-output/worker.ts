@@ -34,6 +34,8 @@ type Result =
 const openTag = "<assistant_claims_json>"
 const closeTag = "</assistant_claims_json>"
 const emptyFileSha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+const inlineRef = /(?:^|[\s(（\[])([^\s\]）,;，；!?！？。]+:\d+(?:-\d+)?)(?=$|[\s)）\].,;，；!?！？。])/g
+const refShape = /^([^:\s]+):(\d+)(?:-(\d+))?$/
 
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
 
@@ -53,6 +55,7 @@ const record = (value: unknown) => {
 }
 
 const text = (value: unknown) => (typeof value === "string" ? value : undefined)
+const normalizePath = (value: string) => value.replace(/\\/g, "/").replace(/^\.\//, "")
 
 const parseAnchorPiece = (value: string) => {
   const trimmed = value.trim()
@@ -82,9 +85,17 @@ const parseAnchorText = (value: string) => {
   return Object.fromEntries(parts)
 }
 
+const normalizeAnchorObject = (value: Record<string, unknown>) =>
+  Object.fromEntries(
+    Object.entries(value).map(([key, item]) => {
+      if (typeof item !== "string") return [key, item]
+      return [key, parseAnchorPiece(item)]
+    }),
+  )
+
 const normalizeAnchor = (value: unknown) => {
   const obj = record(value)
-  if (obj) return obj
+  if (obj) return normalizeAnchorObject(obj)
   const raw = text(value)
   if (!raw) return undefined
   return parseAnchorText(raw)
@@ -140,13 +151,26 @@ const completePointerSha = async (input: {
   )
   const value = match.find((item) => typeof item === "string" && item.length > 0)
   if (value) return value
-  return input.sha
+  return undefined
+}
+
+const resolvePointerRoots = (sessionId: string) => {
+  const scope = resolveTenantScope()
+  const roots = artifactCandidates({
+    base: baseDir(),
+    sessionId,
+    tenantId: scope.tenantId,
+    orgId: scope.orgId,
+  })
+  return Array.from(new Set([baseDir(), ...roots]))
 }
 
 const normalizePointer = async (value: unknown, roots: string[]) => {
   const item = record(value)
   if (!item) return undefined
-  const path = text(item.path) ?? ""
+  const path = normalizePath(text(item.path) ?? "")
+  const safe = roots.some((root) => Boolean(safePointerTarget(root, path)))
+  if (!safe) return { path }
   const sha = text(item.sha256)
   const completeSha = await completePointerSha({
     roots,
@@ -167,13 +191,7 @@ const normalizeClaimsPayload = async (input: {
 }) => {
   const root = record(input.value)
   if (!root) return { payload: input.value, adjusted: false }
-  const scope = resolveTenantScope()
-  const roots = artifactCandidates({
-    base: baseDir(),
-    sessionId: input.sessionId,
-    tenantId: scope.tenantId,
-    orgId: scope.orgId,
-  })
+  const roots = resolvePointerRoots(input.sessionId)
 
   const claims = Array.isArray(root.claims) ? root.claims : []
   const normalizedClaims = await Promise.all(
@@ -240,6 +258,113 @@ const readReport = async (root: string) => {
   return { ok: true as const, value: report.data }
 }
 
+type ParsedRef = {
+  path: string
+  lineStart: number
+  lineEnd: number
+  raw: string
+}
+
+const trimRefToken = (value: string) =>
+  value
+    .trim()
+    .replace(/^[\[\](){}<>"'`]+/, "")
+    .replace(/[\[\](){}<>"'`.,;:!?，。；！？]+$/, "")
+    .trim()
+
+const listInlineRefs = (input: string) =>
+  Array.from(input.matchAll(inlineRef))
+    .map((item) => trimRefToken(item[1] ?? ""))
+    .filter((item) => item.length > 0)
+
+const parseRefToken = (token: string): ParsedRef | undefined => {
+  const match = token.match(refShape)
+  if (!match) return
+  const path = normalizePath(match[1] ?? "")
+  const lineStart = Number(match[2])
+  const lineEnd = Number(match[3] ?? match[2])
+  if (!path) return
+  if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd)) return
+  if (lineStart <= 0 || lineEnd <= 0 || lineEnd < lineStart) return
+  return {
+    path,
+    lineStart,
+    lineEnd,
+    raw: token,
+  }
+}
+
+const draftClaimsPayload = async (input: {
+  sessionId: string
+  text: string
+}) => {
+  const refs = listInlineRefs(input.text)
+    .map((token) => parseRefToken(token))
+    .flatMap((item) => (item ? [item] : []))
+  if (refs.length === 0) return
+
+  const roots = resolvePointerRoots(input.sessionId)
+  const uniqueRefs = refs.filter((item, index, list) => {
+    const key = `${item.path}:${item.lineStart}:${item.lineEnd}`
+    const first = list.findIndex((entry) => `${entry.path}:${entry.lineStart}:${entry.lineEnd}` === key)
+    return first === index
+  })
+
+  const claims = (
+    await Promise.all(
+      uniqueRefs.map(async (item, index) => {
+        const safe = roots.some((root) => Boolean(safePointerTarget(root, item.path)))
+        if (!safe) return undefined
+        const sha256 = await completePointerSha({ roots, rel: item.path })
+        if (!sha256) return undefined
+        return {
+          id: `c${index + 1}`,
+          kind: "fact",
+          text: `auto-drafted reference ${item.raw}`,
+          pointers: [
+            {
+              path: item.path,
+              sha256,
+              anchor: `lineStart:${item.lineStart},lineEnd:${item.lineEnd}`,
+            },
+          ],
+        }
+      }),
+    )
+  ).flatMap((item) => (item ? [item] : []))
+
+  if (claims.length === 0) return
+  return {
+    specVersion: "assistant-claims/1.0",
+    policyVersion: "v1",
+    claims,
+  }
+}
+
+const buildReferenceFeedback = (report: Awaited<ReturnType<typeof readReport>>) => {
+  if (!report.ok) {
+    return {
+      invalidRefsCount: 0,
+      reasonCodes: ["reference_check_unavailable"],
+    }
+  }
+
+  const invalid = new Set(["missing", "hash_mismatch", "anchor_invalid", "invalid_path"])
+  const statuses = report.value.claims.flatMap((claim) =>
+    claim.evidence
+      .map((evidence) => evidence.status ?? "")
+      .filter((status) => invalid.has(status)),
+  )
+  const reasonCodes = Array.from(
+    new Set([...statuses, ...report.value.reasons.map((reason) => reason.code), ...report.value.claims.flatMap((claim) => claim.reasons ?? [])]),
+  )
+
+  return {
+    invalidRefsCount: statuses.length,
+    reasonCodes,
+  }
+}
+
 export const runSecureOutput = async (input: {
   sessionId: string
   messageId: string
@@ -273,7 +398,10 @@ export const runSecureOutput = async (input: {
   })
 
   const stripped = stripClaims(input.text)
-  if (!stripped.ok) {
+  const drafted = !stripped.ok && mode === "strict" ? await draftClaimsPayload({ sessionId, text: input.text }) : undefined
+  const cleaned = stripped.ok ? stripped.cleaned : input.text.trimEnd()
+
+  if (!stripped.ok && !drafted) {
     const reasons = [
       "未提供结构化断言块（assistant_claims_json），无法对事实断言做核验",
       looksCertain(input.text) ? "检测到确定性表述，但缺少 fact 断言与证据指针" : "",
@@ -319,10 +447,29 @@ export const runSecureOutput = async (input: {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    return { status: "degraded", text: input.text.trimEnd(), artifacts: [inputEntry.path, errorEntry.path] }
+    return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, errorEntry.path] }
   }
 
-  const parsed = safeJson(stripped.raw)
+  if (drafted) {
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId,
+      severity: "info",
+      actor: "worker:secure_output",
+      type: "secure_output.claims_drafted",
+      summary: "strict 模式已从可见文本自动生成最小 claims 草稿",
+      data: {
+        mode,
+        input_artifact: inputEntry.path,
+        claim_count: drafted.claims.length,
+        reason_codes: ["claims_auto_drafted"],
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+  }
+
+  const parsed = stripped.ok ? safeJson(stripped.raw) : { ok: true as const, value: drafted }
   if (!parsed.ok) {
     const reason = "断言块不是合法 JSON（无法解析）"
     const errorEntry = await writer.artifact({
@@ -355,7 +502,7 @@ export const runSecureOutput = async (input: {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    return { status: "degraded", text: stripped.cleaned, artifacts: [inputEntry.path, errorEntry.path] }
+    return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, errorEntry.path] }
   }
 
   const normalized = await normalizeClaimsPayload({
@@ -401,7 +548,7 @@ export const runSecureOutput = async (input: {
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    return { status: "degraded", text: stripped.cleaned, artifacts: [inputEntry.path, errorEntry.path] }
+    return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, errorEntry.path] }
   }
 
   const claimList = claims.data.claims
@@ -413,8 +560,6 @@ export const runSecureOutput = async (input: {
     path: `secure-output/${messageId}.claims.json`,
     data: stableJson(claims.data),
   })
-
-  const cleaned = stripped.cleaned
 
   if (factList.length === 0) {
     if (nonfactList.length > 0 && !hasDisclaimer(cleaned)) {
@@ -474,13 +619,41 @@ export const runSecureOutput = async (input: {
 
   if (!verify.ok) {
     const report = await readReport(path.join(Instance.worktree, verify.reportPath))
-    const reasons = (() => {
-      if (!report.ok) return [verify.hint]
-      const codes = report.value.claims.flatMap((c) => c.reasons ?? [])
-      const base = [verify.hint, ...codes]
-      const unique = Array.from(new Set(base.map((x) => x.trim()).filter(Boolean)))
-      return unique.length > 0 ? unique : ["证据不足或核验未通过"]
-    })()
+    const feedback = buildReferenceFeedback(report)
+    const reasonCodes = Array.from(new Set([verify.hint, ...feedback.reasonCodes].map((item) => item.trim()).filter(Boolean)))
+    const fallbackCodes = reasonCodes.length > 0 ? reasonCodes : ["citations_required"]
+
+    const feedbackEntry = await writer.artifact({
+      kind: "secure-output-reference-check",
+      path: `secure-output/${messageId}.reference-check.json`,
+      data: stableJson({
+        specVersion: "secure-output-reference-check/1.0",
+        mode,
+        messageId,
+        verification_report_artifact: verify.reportPath,
+        invalid_refs_count: feedback.invalidRefsCount,
+        reason_codes: fallbackCodes,
+      }),
+    })
+
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId,
+      severity: "warn",
+      actor: "worker:secure_output",
+      type: "reference_check.feedback",
+      summary: "reference-check 输出已结构化落盘",
+      data: {
+        mode,
+        messageId,
+        verification_report_artifact: verify.reportPath,
+        reference_check_artifact: feedbackEntry.path,
+        invalid_refs_count: feedback.invalidRefsCount,
+        reason_codes: fallbackCodes,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
 
     await writer.event({
       specVersion: "event/1.0",
@@ -495,12 +668,14 @@ export const runSecureOutput = async (input: {
         input_artifact: inputEntry.path,
         claims_artifact: claimsEntry.path,
         verification_report_artifact: verify.reportPath,
-        reason_codes: ["citations_required"],
+        reference_check_artifact: feedbackEntry.path,
+        invalid_refs_count: feedback.invalidRefsCount,
+        reason_codes: fallbackCodes,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
 
-    return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path, verify.reportPath] }
+    return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path, verify.reportPath, feedbackEntry.path] }
   }
 
   await writer.event({

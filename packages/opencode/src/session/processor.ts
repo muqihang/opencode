@@ -26,9 +26,11 @@ import { normalizeOrchestratorDegraded } from "./orchestrator/degraded-taxonomy"
 import { renderForkNotice, runForkTask } from "./orchestrator/fork"
 import { resolveForkStrategy, resolveSecureOutputMode } from "./orchestrator/policy"
 import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
+import { stableJson } from "@/util/stable-json"
 import { resolveHybridRoutingPolicy } from "./hybrid-routing-policy"
 import { Instance } from "@/project/instance"
 import { applyStrictReferenceCheck, strictReferenceFailClosedText } from "./reference-check"
+import { resolveSecureOutputContract } from "./secure-output-contract"
 
 const claimsOpenTag = "<assistant_claims_json>"
 const claimsCloseTag = "</assistant_claims_json>"
@@ -752,6 +754,20 @@ export namespace SessionProcessor {
   }) => {
     const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
     if (!writer) return
+    const artifact = await writer
+      .artifact({
+        kind: "reference-check",
+        path: `reference-check/${input.messageId}.failed.json`,
+        data: stableJson({
+          specVersion: "reference-check-failed/1.0",
+          messageId: input.messageId,
+          intent: input.intentText,
+          invalid_refs_count: input.reasonCodes.length,
+          reason_codes: input.reasonCodes,
+          fallback: strictReferenceFailClosedText,
+        }),
+      })
+      .catch(() => undefined)
     await writer
       .event({
         specVersion: "event/1.0",
@@ -764,7 +780,9 @@ export namespace SessionProcessor {
         data: {
           messageId: input.messageId,
           intent: input.intentText,
+          invalid_refs_count: input.reasonCodes.length,
           reason_codes: input.reasonCodes,
+          artifact: artifact?.path,
           fallback: strictReferenceFailClosedText,
         },
         redaction: { applied: true, policyVersion: "v1" },
@@ -982,6 +1000,10 @@ export namespace SessionProcessor {
             })()
             const hasVerificationIntent =
               orchestrator.enabled && !orchestrator.degraded ? orchestrator.features.features.hasVerificationIntent === true : false
+            const secureOutputContract = resolveSecureOutputContract({
+              intentText,
+              hasVerificationIntent,
+            })
             const baseSystem = forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system
             const system = enforceReferenceCheckPolicy({
               system: baseSystem,
@@ -993,6 +1015,7 @@ export namespace SessionProcessor {
               ...streamInput,
               system,
               tools: orchestratorTurn.tools,
+              secureOutputContract,
               retrievalRoute: {
                 policy: routingPolicy,
                 main: {
