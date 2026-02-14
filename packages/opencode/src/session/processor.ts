@@ -27,6 +27,8 @@ import { renderForkNotice, runForkTask } from "./orchestrator/fork"
 import { resolveForkStrategy, resolveSecureOutputMode } from "./orchestrator/policy"
 import type { OrchestratorMode } from "@/protocol/orchestrator-plan"
 import { resolveHybridRoutingPolicy } from "./hybrid-routing-policy"
+import { Instance } from "@/project/instance"
+import { applyStrictReferenceCheck, strictReferenceFailClosedText } from "./reference-check"
 
 const claimsOpenTag = "<assistant_claims_json>"
 const claimsCloseTag = "</assistant_claims_json>"
@@ -119,6 +121,51 @@ export const flushClaimsStreamMask = (state: ClaimsStreamMask) => {
   if (state.hidden) return ""
   return state.tail
 }
+
+export const resolveFrontendTextDelta = (input: {
+  secureMode: "strict" | "balanced" | "loose" | null
+  synthetic: boolean
+  state: ClaimsStreamMask
+  delta: string
+}) => {
+  if (!input.secureMode && input.synthetic) {
+    return {
+      state: input.state,
+      delta: input.delta,
+    }
+  }
+  if (input.synthetic) {
+    return {
+      state: input.state,
+      delta: input.delta,
+    }
+  }
+  const masked = applyClaimsStreamMask({
+    state: input.state,
+    delta: input.delta,
+  })
+  return {
+    state: masked.state,
+    delta: masked.delta,
+  }
+}
+
+const intentTextFromModelMessages = (messages: LLM.StreamInput["messages"]) => {
+  const match = messages.toReversed().find((item) => item.role === "user")
+  if (!match) return ""
+  if (typeof match.content === "string") return match.content.trim()
+  if (!Array.isArray(match.content)) return ""
+  const chunks = match.content.flatMap((part) => {
+    const node = part as unknown as { type?: unknown; text?: unknown }
+    if (node["type"] !== "text") return [] as string[]
+    const text = typeof node["text"] === "string" ? node["text"].trim() : ""
+    if (!text) return [] as string[]
+    return [text]
+  })
+  return chunks.join("\n").trim()
+}
+
+const sessionBaseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
 
 export const enforceReferenceCheckPolicy = (input: {
   system: string[]
@@ -697,6 +744,34 @@ export namespace SessionProcessor {
       .catch(() => {})
   }
 
+  const writeReferenceCheckFailClosed = async (input: {
+    sessionId: string
+    messageId: string
+    intentText: string
+    reasonCodes: string[]
+  }) => {
+    const writer = await EvidenceWriter.open({ sessionId: input.sessionId }).catch(() => undefined)
+    if (!writer) return
+    await writer
+      .event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionId,
+        severity: "warn",
+        actor: "orchestrator:processor",
+        type: "reference_check.failed",
+        summary: "strict reference-check fail-closed",
+        data: {
+          messageId: input.messageId,
+          intent: input.intentText,
+          reason_codes: input.reasonCodes,
+          fallback: strictReferenceFailClosedText,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+      .catch(() => {})
+  }
+
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
 
@@ -890,6 +965,7 @@ export namespace SessionProcessor {
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
+            let currentRaw = ""
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
             const routingPolicy = resolveHybridRoutingPolicy({
               strategy: config.experimental?.retrieval_hybrid_strategy,
@@ -899,6 +975,11 @@ export namespace SessionProcessor {
               envGate: Flag.OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE,
               envRollback: Flag.OPENCODE_RETRIEVAL_HYBRID_ROLLBACK,
             })
+            const intentText = (() => {
+              const intent = orchestrator.enabled && !orchestrator.degraded ? orchestrator.intentText.trim() : ""
+              if (intent) return intent
+              return intentTextFromModelMessages(streamInput.messages)
+            })()
             const hasVerificationIntent =
               orchestrator.enabled && !orchestrator.degraded ? orchestrator.features.features.hasVerificationIntent === true : false
             const baseSystem = forkNotice ? [...orchestratorTurn.system, forkNotice] : orchestratorTurn.system
@@ -1197,24 +1278,25 @@ export namespace SessionProcessor {
                     },
                     metadata: value.providerMetadata,
                   }
-                  claimsMask = secureMode ? createClaimsStreamMask() : undefined
+                  currentRaw = ""
+                  claimsMask = createClaimsStreamMask()
                   break
 
                 case "text-delta":
                   if (currentText) {
-                    currentText.text += value.text
+                    currentRaw += value.text
                     if (value.providerMetadata) currentText.metadata = value.providerMetadata
-                    const delta = (() => {
-                      if (!secureMode) return value.text
-                      if (currentText.synthetic) return value.text
-                      if (!claimsMask) claimsMask = createClaimsStreamMask()
-                      const masked = applyClaimsStreamMask({
-                        state: claimsMask,
-                        delta: value.text,
-                      })
-                      claimsMask = masked.state
-                      return masked.delta
-                    })()
+                    const state = claimsMask ?? createClaimsStreamMask()
+                    const masked = resolveFrontendTextDelta({
+                      secureMode,
+                      synthetic: currentText.synthetic === true,
+                      state,
+                      delta: value.text,
+                    })
+                    claimsMask = masked.state
+                    const delta = masked.delta
+                    if (delta)
+                      currentText.text += delta
                     if (delta)
                       await Session.updatePart({
                         part: currentText,
@@ -1228,6 +1310,8 @@ export namespace SessionProcessor {
                     if (claimsMask) {
                       const tail = flushClaimsStreamMask(claimsMask)
                       claimsMask = undefined
+                      if (tail)
+                        currentText.text += tail
                       if (tail)
                         await Session.updatePart({
                           part: currentText,
@@ -1255,7 +1339,7 @@ export namespace SessionProcessor {
                         messageId: input.assistantMessage.id,
                         mode: secureMode,
                         budget: { timeMs: 8000, maxScripts: 4 },
-                        text: currentText.text,
+                        text: currentRaw.trimEnd(),
                         ctx: {
                           sessionID: input.sessionID,
                           messageID: input.assistantMessage.id,
@@ -1274,6 +1358,22 @@ export namespace SessionProcessor {
                       currentText.text = gated.value.text
                     }
 
+                    const strictChecked = await applyStrictReferenceCheck({
+                      intentText,
+                      text: currentText.text,
+                      baseDir: sessionBaseDir(),
+                      sessionId: input.sessionID,
+                    })
+                    if (strictChecked.blocked) {
+                      currentText.text = strictChecked.text
+                      await writeReferenceCheckFailClosed({
+                        sessionId: input.sessionID,
+                        messageId: input.assistantMessage.id,
+                        intentText,
+                        reasonCodes: strictChecked.reasonCodes,
+                      })
+                    }
+
                     currentText.time = {
                       start: Date.now(),
                       end: Date.now(),
@@ -1281,6 +1381,7 @@ export namespace SessionProcessor {
                     if (value.providerMetadata) currentText.metadata = value.providerMetadata
                     await Session.updatePart(currentText)
                   }
+                  currentRaw = ""
                   currentText = undefined
                   break
 
