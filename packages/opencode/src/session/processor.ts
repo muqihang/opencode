@@ -240,6 +240,7 @@ type OrchestratorTurnShape = {
   system: string[]
   tools: Record<string, Tool>
   degraded: boolean
+  runGate?: OrchestratorRunGate
   retrievalMain?: {
     enabled: boolean
     coversRetrieval?: boolean
@@ -907,6 +908,7 @@ export namespace SessionProcessor {
             enabled: false,
             mode: "chat" as OrchestratorMode,
           }
+          const gateState = { value: undefined as OrchestratorRunGate | undefined }
           const runAssistBeforeFork =
             orchestrator.plan.orchestratorMode === "fork" &&
             orchestrator.features.features.hasVerificationIntent === true &&
@@ -915,7 +917,8 @@ export namespace SessionProcessor {
             rollout,
             base,
             run: async (gate) =>
-              (main.enabled = true,
+              ((gateState.value = gate),
+              main.enabled = true,
               main.mode = runAssistBeforeFork ? "assist" : orchestrator.plan.orchestratorMode,
               runOrchestratorTurn({
                 sessionId: input.sessionID,
@@ -940,6 +943,7 @@ export namespace SessionProcessor {
           })
           return {
             ...turn,
+            runGate: gateState.value,
             retrievalMain: main,
           }
         })().catch(async (error) => {
@@ -1047,6 +1051,7 @@ export namespace SessionProcessor {
               system,
               tools: orchestratorTurn.tools,
               secureOutputContract,
+              orchestratorV16DeepseekThinking: orchestratorTurn.runGate?.v16DeepseekThinking === true,
               retrievalRoute: {
                 policy: routingPolicy,
                 main: {
@@ -1391,6 +1396,7 @@ export namespace SessionProcessor {
                       return runSecureOutput({
                         sessionId: input.sessionID,
                         messageId: input.assistantMessage.id,
+                        contextPackId: stream.contextPackId,
                         mode: secureMode,
                         budget: { timeMs: 8000, maxScripts: 4 },
                         text: currentRaw.trimEnd(),

@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import z from "zod"
-import { EvidenceManifest } from "@/protocol/evidence-manifest"
+import { EvidenceManifest, latestManifestEntries } from "@/protocol/evidence-manifest"
 import { Instance } from "@/project/instance"
 import { Filesystem } from "@/util/filesystem"
 import { EvidenceWriter } from "@/evidence/writer"
@@ -253,6 +253,7 @@ export async function exportEvidence(input: z.infer<typeof ExportInput>) {
   try {
     const manifestData = JSON.parse(await Bun.file(manifestPath).text()) as unknown
     const manifest = EvidenceManifest.parse(manifestData)
+    const entries = latestManifestEntries(manifest.entries)
 
     await fs.mkdir(outDir, { recursive: true })
     await rejectSymlinkChain(outDir)
@@ -260,7 +261,7 @@ export async function exportEvidence(input: z.infer<typeof ExportInput>) {
     const exportedEvidence = new Set<string>()
 
     let exported = 0
-    for (const entry of manifest.entries) {
+    for (const entry of entries) {
       if (!ALLOWLIST_KINDS.has(entry.kind)) continue
       const normalized = normalizeRel(entry.path)
       const classification = classifyEntry({

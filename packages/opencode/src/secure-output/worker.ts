@@ -248,6 +248,14 @@ const hasDisclaimer = (text: string) => {
   return patterns.some((p) => text.includes(p))
 }
 
+const resolveContextPackId = (value: string | undefined) => {
+  if (!value) return undefined
+  const id = value.trim()
+  if (!id) return undefined
+  if (id.toLowerCase() === "unknown") return undefined
+  return id
+}
+
 const readReport = async (root: string) => {
   const text = await Bun.file(root).text().catch(() => "")
   if (!text) return { ok: false as const, error: "report_empty" as const }
@@ -418,6 +426,7 @@ const buildReferenceFeedback = (report: Awaited<ReturnType<typeof readReport>>) 
 export const runSecureOutput = async (input: {
   sessionId: string
   messageId: string
+  contextPackId?: string
   mode: z.infer<typeof Mode>
   budget: z.infer<typeof Budget>
   text: string
@@ -427,12 +436,20 @@ export const runSecureOutput = async (input: {
   const messageId = z.string().min(1).parse(input.messageId)
   const mode = Mode.parse(input.mode)
   const budget = Budget.parse(input.budget)
+  const contextPackId = resolveContextPackId(input.contextPackId)
   const writer = await EvidenceWriter.open({ sessionId })
 
   const inputEntry = await writer.artifact({
     kind: "secure-output-input",
     path: `secure-output/${messageId}.input.json`,
-    data: stableJson({ specVersion: "secure-output-input/1.0", sessionId, messageId, mode, budget }),
+    data: stableJson({
+      specVersion: "secure-output-input/1.0",
+      sessionId,
+      messageId,
+      mode,
+      budget,
+      contextPackId: contextPackId ?? null,
+    }),
   })
 
   await writer.event({
@@ -443,7 +460,7 @@ export const runSecureOutput = async (input: {
     actor: "worker:secure_output",
     type: "secure_output.requested",
     summary: "输出门禁已启动",
-    data: { mode, input_artifact: inputEntry.path },
+    data: { mode, contextPackId: contextPackId ?? null, input_artifact: inputEntry.path },
     redaction: { applied: true, policyVersion: "v1" },
   })
 
@@ -659,8 +676,52 @@ export const runSecureOutput = async (input: {
     return { status: "ok", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path] }
   }
 
+  if (!contextPackId) {
+    const reasonCodes = ["context_pack_id_missing"]
+    if (mode === "strict") {
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId,
+        severity: "error",
+        actor: "worker:secure_output",
+        type: "secure_output.fail_closed",
+        summary: "strict 模式缺少 contextPackId，已 fail-closed",
+        data: {
+          mode,
+          messageId,
+          reason_code: "context_pack_id_missing",
+          reason_codes: reasonCodes,
+          claims_artifact: claimsEntry.path,
+          input_artifact: inputEntry.path,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
+
+    await writer.event({
+      specVersion: "event/1.0",
+      ts: new Date().toISOString(),
+      sessionId,
+      severity: "warn",
+      actor: "worker:secure_output",
+      type: "secure_output.degraded",
+      summary: "context checkpoint 缺失，输出已降级",
+      data: {
+        mode,
+        messageId,
+        input_artifact: inputEntry.path,
+        claims_artifact: claimsEntry.path,
+        reason_codes: reasonCodes,
+      },
+      redaction: { applied: true, policyVersion: "v1" },
+    })
+
+    return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path] }
+  }
+
   const verify = await runVerification({
-    taskFrame: { specVersion: "task-frame/1.0", sessionId, contextPackId: "unknown" },
+    taskFrame: { specVersion: "task-frame/1.0", sessionId, contextPackId },
     mode,
     budget,
     claims: factList.map((c) => ({ id: c.id, text: c.text, pointers: c.pointers })),
@@ -715,6 +776,7 @@ export const runSecureOutput = async (input: {
       summary: "事实断言未通过核验，输出已降级",
       data: {
         mode,
+        contextPackId,
         input_artifact: inputEntry.path,
         claims_artifact: claimsEntry.path,
         verification_report_artifact: verify.reportPath,
@@ -738,6 +800,7 @@ export const runSecureOutput = async (input: {
     summary: "事实断言已通过核验",
     data: {
       mode,
+      contextPackId,
       input_artifact: inputEntry.path,
       claims_artifact: claimsEntry.path,
       verification_report_artifact: verify.reportPath,

@@ -22,6 +22,8 @@ const buildCtx = (sessionId: string, messageId: string) => ({
   ask: async () => {},
 })
 
+const run = (input: Parameters<typeof runSecureOutput>[0] & { contextPackId?: string }) => runSecureOutput(input)
+
 describe("secure-output", () => {
   test("strict: missing claims block degrades but keeps the original answer text (no intrusive fallback)", async () => {
     await using tmp = await tmpdir({ git: true })
@@ -104,12 +106,13 @@ describe("secure-output", () => {
           "请据此给出结果。",
         ].join("\n")
 
-        const result = await runSecureOutput({
+        const result = await run({
           sessionId,
           messageId,
           mode: "strict",
           budget: { timeMs: 20000, maxScripts: 4 },
           text,
+          contextPackId: "ctx-auto-draft",
           ctx: buildCtx(sessionId, messageId),
         })
 
@@ -253,12 +256,13 @@ describe("secure-output", () => {
           "</assistant_claims_json>",
         ].join("\n")
 
-        const result = await runSecureOutput({
+        const result = await run({
           sessionId,
           messageId,
           mode: "strict",
           budget: { timeMs: 20000, maxScripts: 4 },
           text: answer,
+          contextPackId: "ctx-valid-claims",
           ctx: buildCtx(sessionId, messageId),
         })
 
@@ -316,12 +320,13 @@ describe("secure-output", () => {
           "</assistant_claims_json>",
         ].join("\n")
 
-        const result = await runSecureOutput({
+        const result = await run({
           sessionId,
           messageId,
           mode: "strict",
           budget: { timeMs: 20000, maxScripts: 4 },
           text: answer,
+          contextPackId: "ctx-legacy-claims",
           ctx: buildCtx(sessionId, messageId),
         })
 
@@ -389,12 +394,13 @@ describe("secure-output", () => {
           "</assistant_claims_json>",
         ].join("\n")
 
-        const result = await runSecureOutput({
+        const result = await run({
           sessionId,
           messageId,
           mode: "strict",
           budget: { timeMs: 20000, maxScripts: 4 },
           text: answer,
+          contextPackId: "ctx-fill-missing-sha",
           ctx: buildCtx(sessionId, messageId),
         })
 
@@ -456,12 +462,13 @@ describe("secure-output", () => {
           "</assistant_claims_json>",
         ].join("\n")
 
-        const result = await runSecureOutput({
+        const result = await run({
           sessionId,
           messageId,
           mode: "strict",
           budget: { timeMs: 20000, maxScripts: 4 },
           text: answer,
+          contextPackId: "ctx-fill-placeholder-sha",
           ctx: buildCtx(sessionId, messageId),
         })
 
@@ -516,12 +523,13 @@ describe("secure-output", () => {
           "</assistant_claims_json>",
         ].join("\n")
 
-        const result = await runSecureOutput({
+        const result = await run({
           sessionId,
           messageId,
           mode: "strict",
           budget: { timeMs: 20000, maxScripts: 4 },
           text: answer,
+          contextPackId: "ctx-reference-feedback",
           ctx: buildCtx(sessionId, messageId),
         })
 
@@ -585,12 +593,13 @@ describe("secure-output", () => {
           "</assistant_claims_json>",
         ].join("\n")
 
-        const result = await runSecureOutput({
+        const result = await run({
           sessionId,
           messageId,
           mode: "balanced",
           budget: { timeMs: 20000, maxScripts: 4 },
           text: answer,
+          contextPackId: "ctx-balanced-missing-evidence",
           ctx: buildCtx(sessionId, messageId),
         })
 
@@ -600,4 +609,133 @@ describe("secure-output", () => {
       },
     })
   })
+
+  test("strict: verification report binds provided contextPackId (never unknown)", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "so-bind-context-pack"
+        const messageId = "m-bind-context-pack"
+        const contextPackId = "ctx-bind-01"
+        const rel = "derived/input/bind-proof.txt"
+        const content = "line 1\nline 2\n"
+        const roots = [
+          path.join(Instance.worktree, ".opencode", "artifacts", sessionId, "derived", "input"),
+          path.join(Instance.worktree, ".opencode", "artifacts", "local", "default", sessionId, "derived", "input"),
+        ]
+        await Promise.all(roots.map((root) => Bun.write(path.join(root, "bind-proof.txt"), content)))
+
+        const answer = [
+          "这是可核验结论。",
+          "",
+          "<assistant_claims_json>",
+          JSON.stringify({
+            specVersion: "assistant-claims/1.0",
+            policyVersion: "v1",
+            claims: [
+              {
+                id: "c1",
+                kind: "fact",
+                text: "bind report context pack",
+                pointers: [
+                  {
+                    path: rel,
+                    sha256: sha256(content),
+                    anchor: { lineStart: 1, lineEnd: 1 },
+                  },
+                ],
+              },
+            ],
+          }),
+          "</assistant_claims_json>",
+        ].join("\n")
+
+        const result = await run({
+          sessionId,
+          messageId,
+          mode: "strict",
+          budget: { timeMs: 20000, maxScripts: 4 },
+          text: answer,
+          contextPackId,
+          ctx: buildCtx(sessionId, messageId),
+        })
+
+        expect(result.status).toBe("ok")
+        const reportPath = result.artifacts.find((item) => item.endsWith("verification.report.json"))
+        expect(reportPath).toBeDefined()
+        if (!reportPath) return
+
+        const report = (await Bun.file(path.join(Instance.worktree, reportPath)).json()) as {
+          contextPackId?: string
+        }
+        expect(report.contextPackId).toBe(contextPackId)
+        expect(report.contextPackId).not.toBe("unknown")
+      },
+    })
+  }, { timeout: 30000 })
+
+  test("strict: missing contextPackId fail-closes with explicit reason code and event", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionId = "so-missing-context-pack"
+        const messageId = "m-missing-context-pack"
+        const rel = "derived/input/missing-context-pack.txt"
+        const content = "proof\n"
+        const roots = [
+          path.join(Instance.worktree, ".opencode", "artifacts", sessionId, "derived", "input"),
+          path.join(Instance.worktree, ".opencode", "artifacts", "local", "default", sessionId, "derived", "input"),
+        ]
+        await Promise.all(roots.map((root) => Bun.write(path.join(root, "missing-context-pack.txt"), content)))
+
+        const answer = [
+          "这是可核验结论。",
+          "",
+          "<assistant_claims_json>",
+          JSON.stringify({
+            specVersion: "assistant-claims/1.0",
+            policyVersion: "v1",
+            claims: [
+              {
+                id: "c1",
+                kind: "fact",
+                text: "context pack is required",
+                pointers: [
+                  {
+                    path: rel,
+                    sha256: sha256(content),
+                    anchor: { lineStart: 1, lineEnd: 1 },
+                  },
+                ],
+              },
+            ],
+          }),
+          "</assistant_claims_json>",
+        ].join("\n")
+
+        const result = await run({
+          sessionId,
+          messageId,
+          mode: "strict",
+          budget: { timeMs: 20000, maxScripts: 4 },
+          text: answer,
+          ctx: buildCtx(sessionId, messageId),
+        })
+
+        expect(result.status).toBe("degraded")
+
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 120 })
+        const failClosed = events.events.find((event) => event.type === "secure_output.fail_closed")
+        expect(Boolean(failClosed)).toBe(true)
+        expect(failClosed?.data?.["reason_code"]).toBe("context_pack_id_missing")
+
+        const degraded = events.events.find((event) => event.type === "secure_output.degraded")
+        const reasonCodes = degraded?.data?.["reason_codes"] as string[] | undefined
+        expect(Array.isArray(reasonCodes)).toBe(true)
+        expect(reasonCodes?.includes("context_pack_id_missing")).toBe(true)
+      },
+    })
+  }, { timeout: 30000 })
 })

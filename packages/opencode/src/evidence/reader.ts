@@ -2,7 +2,7 @@ import fs from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Instance } from "@/project/instance"
-import { EvidenceManifest } from "@/protocol/evidence-manifest"
+import { EvidenceManifest, validateManifestEntries } from "@/protocol/evidence-manifest"
 import { EventV1 } from "@/protocol/event"
 import { evidenceCandidates, resolveTenantScope } from "@/util/tenant-context"
 
@@ -131,7 +131,13 @@ async function readManifest(sessionId: string, input?: z.infer<typeof ReadManife
       entries: [],
     })
   }
-  return EvidenceManifest.parse(JSON.parse(text) as unknown)
+  const manifest = EvidenceManifest.parse(JSON.parse(text) as unknown)
+  const checked = validateManifestEntries(manifest.entries)
+  if (checked.state === "legacy") return manifest
+  return {
+    ...manifest,
+    entries: checked.entries,
+  }
 }
 
 export const EvidenceReader = {
