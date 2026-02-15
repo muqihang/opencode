@@ -99,6 +99,7 @@ const assertHumanSummary = (text: string) => {
 
 const degradedNote = (reason: "timeout" | "failed") =>
   `LLM 摘要不可用（原因：${reason}），当前显示 deterministic 摘要`
+const disabledNote = "LLM 摘要已禁用，当前显示 deterministic 摘要"
 
 const readReport = async (input: { root: string; sessionId: string }) => {
   const manifest = await EvidenceReader.readManifest(input.sessionId)
@@ -741,6 +742,79 @@ describe("session.compaction structured artifacts + events", () => {
     restore()
   }, { timeout })
 
+  test("defaults to assisted flow when config/env are unset and still records report runtime fields", async () => {
+    const calls = { value: 0 }
+    const restore = setRunner(
+      (async () => {
+        calls.value += 1
+        return {
+          status: "failed",
+          verifyOk: false,
+          reasonCode: "provider_error",
+          coverage: { known: 0, unknown: 0, anchors: 0 },
+        } as unknown
+      }) as unknown as typeof CapsuleAssistedRunner.runFromCompaction,
+    )
+
+    const prev = process.env["OPENCODE_EXPERIMENTAL_CAPSULE_LLM"]
+
+    try {
+      delete process.env["OPENCODE_EXPERIMENTAL_CAPSULE_LLM"]
+
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({})
+          const sessionId = session.id
+          await writeText({ sessionId, text: "Round A" })
+          const msg = await writeText({ sessionId, text: "Round B compact" })
+
+          const result = await runStructured({ sessionId, parentId: msg.id })
+          expect(result).toBe("continue")
+
+          const skippedReady = await waitFor({
+            ms: 3_000,
+            check: async () => Boolean(await findEvent({ sessionId, type: "compaction.assisted_skipped" })),
+          })
+          expect(skippedReady).toBe(true)
+
+          const skipped = await findEvent({ sessionId, type: "compaction.assisted_skipped" })
+          expect(skipped).toBeTruthy()
+          if (skipped) {
+            const data = skipped.data ?? {}
+            expect(data["status"]).toBe("failed")
+            expect(data["reasonCode"]).toBe("assisted_failed")
+            expect(data["ui_view_source"]).toBe("deterministic")
+            expect(data["assisted_status"]).toBe("failed")
+            expect(data["assisted_reason_code"]).toBe("provider_error")
+            expect(data["assisted_timeout_ms"]).toBe(30_000)
+            expect(data["summary_format_version"]).toBe("human-summary/1.0")
+
+            const report = await readReport({ root: tmp.path, sessionId })
+            expect(report?.["ui_view_source"]).toBe(data["ui_view_source"])
+            expect(report?.["assisted_status"]).toBe(data["assisted_status"])
+            expect(report?.["assisted_reason_code"]).toBe(data["assisted_reason_code"])
+            expect(report?.["assisted_timeout_ms"]).toBe(data["assisted_timeout_ms"])
+            expect(report?.["summary_format_version"]).toBe(data["summary_format_version"])
+          }
+
+          expect(calls.value).toBe(1)
+
+          const finalText = await summaryText(sessionId)
+          expect(finalText.includes(degradedNote("failed"))).toBe(true)
+        },
+      })
+    } finally {
+      if (prev === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_CAPSULE_LLM"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_CAPSULE_LLM"] = prev
+      }
+      restore()
+    }
+  }, { timeout })
+
   test("config can disable llm augment and skip assisted apply entirely", async () => {
     const calls = { value: 0 }
     const restore = setRunner(
@@ -811,7 +885,7 @@ describe("session.compaction structured artifacts + events", () => {
         const finalText = await summaryText(sessionId)
         assertHumanSummary(finalText)
         assertNoJsonLeak(finalText)
-        expect(finalText.includes("LLM 摘要不可用（原因：")).toBe(false)
+        expect(finalText.includes(disabledNote)).toBe(true)
       },
     })
 

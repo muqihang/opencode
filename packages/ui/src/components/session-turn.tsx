@@ -45,6 +45,7 @@ import { createStore } from "solid-js/store"
 import { DateTime, DurationUnit, Interval } from "luxon"
 import { createAutoScroll } from "../hooks"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
+import { selectResponsePart } from "./session-turn-response"
 
 type Translator = (key: UiI18nKey, params?: UiI18nParams) => string
 
@@ -248,17 +249,12 @@ export function SessionTurn(
 
   const error = createMemo(() => assistantMessages().find((m) => m.error)?.error)
 
-  const lastTextPart = createMemo(() => {
-    const msgs = assistantMessages()
-    for (let mi = msgs.length - 1; mi >= 0; mi--) {
-      const msgParts = data.store.part[msgs[mi].id] ?? emptyParts
-      for (let pi = msgParts.length - 1; pi >= 0; pi--) {
-        const part = msgParts[pi]
-        if (part?.type === "text") return part as TextPart
-      }
-    }
-    return undefined
-  })
+  const lastTextPart = createMemo(() =>
+    selectResponsePart({
+      messages: assistantMessages(),
+      parts: data.store.part as Record<string, PartType[] | undefined>,
+    }),
+  )
 
   const hasSteps = createMemo(() => {
     for (const m of assistantMessages()) {

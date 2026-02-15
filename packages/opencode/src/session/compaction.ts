@@ -430,12 +430,19 @@ export namespace SessionCompaction {
   const assistedTimeoutDefault = 30_000
 
   const runtimeReason = (value: string | undefined) => (value === "timeout" ? "timeout" : "failed")
+  const disabledNote = "LLM 摘要已禁用，当前显示 deterministic 摘要"
 
-  const degradedNote = (value: "timeout" | "failed") =>
-    `LLM 摘要不可用（原因：${value}），当前显示 deterministic 摘要`
+  const degradedNote = (input: { status: CapsuleAssistedRunResult["status"]; reason: string | undefined }) => {
+    if (input.status === "disabled") return disabledNote
+    return `LLM 摘要不可用（原因：${runtimeReason(input.reason)}），当前显示 deterministic 摘要`
+  }
 
-  const withDegradedNote = (input: { text: string; reason: string | undefined }) => {
-    const note = degradedNote(runtimeReason(input.reason))
+  const withDegradedNote = (input: {
+    text: string
+    status: CapsuleAssistedRunResult["status"]
+    reason: string | undefined
+  }) => {
+    const note = degradedNote({ status: input.status, reason: input.reason })
     if (input.text.includes(note)) return input.text
     return `${input.text.trimEnd()}\n\n> ${note}`
   }
@@ -1111,23 +1118,22 @@ export namespace SessionCompaction {
             summaryFormatVersion: "human-summary/1.0",
           })
 
-          if (input2.status !== "disabled") {
-            const text = withDegradedNote({
-              text: summaryRendered,
-              reason: input2.assistedReasonCode,
-            })
-            await Session.updatePart({
-              id: summaryPart.id,
-              messageID: summaryPart.messageID,
-              sessionID: summaryPart.sessionID,
-              type: "text",
-              text,
-              time: {
-                start: summaryPart.time?.start ?? Date.now(),
-                end: Date.now(),
-              },
-            })
-          }
+          const text = withDegradedNote({
+            text: summaryRendered,
+            status: input2.status,
+            reason: input2.assistedReasonCode,
+          })
+          await Session.updatePart({
+            id: summaryPart.id,
+            messageID: summaryPart.messageID,
+            sessionID: summaryPart.sessionID,
+            type: "text",
+            text,
+            time: {
+              start: summaryPart.time?.start ?? Date.now(),
+              end: Date.now(),
+            },
+          })
 
           await writer.event({
             specVersion: "event/1.0",
@@ -1156,7 +1162,7 @@ export namespace SessionCompaction {
 
         void (async () => {
           const cfg = await Config.get()
-          const assistedEnabled = cfg.experimental?.compaction_llm_augment ?? false
+          const assistedEnabled = cfg.experimental?.compaction_llm_augment ?? true
           const assistedTimeoutMs = cfg.experimental?.compaction_llm_timeout_ms ?? assistedTimeoutDefault
           if (!assistedEnabled) {
             await emitSkipped({

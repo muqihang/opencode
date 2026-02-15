@@ -215,6 +215,14 @@ export namespace Config {
       if (Flag.OPENCODE_RETRIEVAL_HYBRID_ROLLBACK === "orchestrator_main") return "orchestrator_main" as const
       return
     })()
+    const compactionLlmAugmentFlag = (() => {
+      const raw = process.env["OPENCODE_EXPERIMENTAL_CAPSULE_LLM"]
+      if (raw === undefined) return
+      const value = raw.trim().toLowerCase()
+      if (value === "true" || value === "1") return true
+      if (value === "false" || value === "0") return false
+      return
+    })()
 
     const experimental = result.experimental ?? {}
     result.experimental = {
@@ -238,7 +246,7 @@ export namespace Config {
       orchestrator_worker_debug_summary:
         experimental.orchestrator_worker_debug_summary ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY,
       compaction_llm_augment:
-        experimental.compaction_llm_augment ?? Flag.OPENCODE_EXPERIMENTAL_CAPSULE_LLM,
+        experimental.compaction_llm_augment ?? compactionLlmAugmentFlag ?? true,
       compaction_llm_timeout_ms:
         experimental.compaction_llm_timeout_ms ?? Flag.OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS ?? 30_000,
       retrieval_hybrid_strategy:
