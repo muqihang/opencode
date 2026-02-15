@@ -9,7 +9,6 @@ import { stableJson } from "@/util/stable-json"
 import { sha256Text } from "@/routing/cache"
 import { withTimeout } from "@/util/timeout"
 import { Provider } from "@/provider/provider"
-import { Flag } from "@/flag/flag"
 import { ContextLedger } from "@/session/context-ledger"
 import { CapsuleAssisted, CapsuleAssistedAnchor, CapsuleAssistedBudget, CapsuleAssistedInput, CapsuleAssistedItem, CapsuleAssistedVerify } from "./capsule-assisted-protocol"
 import { CapsuleAssistedVerifier } from "./capsule-assisted-verifier"
@@ -231,15 +230,6 @@ export const CapsuleAssistedRunner = {
     modelFallback: { providerID: string; modelID: string }
     artifacts: Artifact[]
   }): Promise<CapsuleAssistedRunResult> {
-    if (!Flag.OPENCODE_EXPERIMENTAL_CAPSULE_LLM) {
-      return {
-        status: "disabled",
-        verifyOk: false,
-        reasonCode: "disabled",
-        coverage: coverageNone,
-      }
-    }
-
     const start = Date.now()
     const now = new Date().toISOString()
     const writer = await EvidenceWriter.open({ sessionId: input.sessionId })

@@ -65,6 +65,15 @@ export namespace SessionCompaction {
   const COMPACT_RE = /^(?:\/?compact|please compact)\b/i
   const NEGATIVE_RE =
     /\b(do not|don't|not|never|without|avoid|skip|remove|disable|drop|no)\b|不要|禁止|别|移除|禁用|跳过|无须|不需要/iu
+  const MACHINE_FIELDS = [
+    "specversion:",
+    "sessionid:",
+    "generatedatutc:",
+    "sha256:",
+    "plugin_prompt:",
+    "compaction-input:",
+    "compaction-facts:",
+  ]
 
   const STOP = new Set([
     "a",
@@ -119,6 +128,51 @@ export namespace SessionCompaction {
 
   const clip = (text: string) => text.replace(/^[`"'(<\[{]+/, "").replace(/[`"')>\]}.,;:!?]+$/, "")
 
+  const uniq = <T>(items: T[], key: (item: T) => string) => {
+    const seen = new Set<string>()
+    return items.filter((item) => {
+      const id = key(item)
+      if (seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+  }
+
+  const stripNoise = (text: string) =>
+    [0, 1, 2].reduce(
+      (acc) =>
+        acc
+          .replace(/\b(?:known|unknown)\s*:\s*/giu, "")
+          .replace(/\b(?:next[_\s-]*steps?|active[_\s-]*files?)\s*:\s*/giu, ""),
+      text,
+    )
+
+  const cleanValue = (text: string) => {
+    const raw = clip(text.trim())
+    if (!raw) return ""
+    const flat = raw.replace(/\s+/g, " ").replace(/[|｜]{2,}/g, "|").trim()
+    if (!flat) return ""
+    const value = clip(stripNoise(flat).replace(/\s+/g, " ").trim())
+    if (!value) return ""
+    if (value === "|" || value === "-" || value === "pending") return ""
+    const lower = value.toLowerCase()
+    if (MACHINE_FIELDS.some((item) => lower.includes(item))) return ""
+    return value
+  }
+
+  const stepSignal = (text: string) => {
+    const words = text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}._/-]+/gu, " ")
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 2)
+      .filter((item) => !STOP.has(item))
+    return words.length > 0
+  }
+
+  const bullets = (items: string[], fallback: string) => (items.length > 0 ? items.map((item) => `- ${item}`) : [`- ${fallback}`])
+
   const lines = (text: string) =>
     text
       .split(/\r?\n/)
@@ -133,6 +187,39 @@ export namespace SessionCompaction {
         ),
       )
       .filter((item) => item.length > 0)
+
+  const renderSummary = (input: { goal: string; triggerSource: string; files: string[]; steps: string[] }) => {
+    const goal = cleanValue(input.goal)
+    const files = uniq(
+      input.files.map((item) => cleanValue(item)).filter((item): item is string => Boolean(item)),
+      (item) => item.toLowerCase(),
+    )
+    const steps = uniq(
+      input.steps.map((item) => cleanValue(item)).filter((item): item is string => Boolean(item)),
+      (item) => item.toLowerCase(),
+    )
+    const trigger = input.triggerSource.startsWith("auto:") ? `Compaction trigger: ${input.triggerSource}` : "Compaction trigger: manual"
+    const decisions = [trigger, files.length > 0 ? `Active files in scope: ${files.join(", ")}` : "Active files in scope: unknown"]
+    const open = [
+      ...(files.length === 0 ? ["Active files still need confirmation"] : []),
+      ...(steps.length === 0 ? ["Next steps still need confirmation"] : []),
+    ]
+    return [
+      "# Compaction Summary",
+      "",
+      "## Goal",
+      ...bullets(goal ? [goal] : [], "unknown"),
+      "",
+      "## Decisions",
+      ...bullets(decisions, "none"),
+      "",
+      "## Open Questions",
+      ...bullets(open, "none"),
+      "",
+      "## Next Steps",
+      ...bullets(steps, "unknown"),
+    ].join("\n")
+  }
 
   const safePath = (raw: string) => {
     const item = clip(raw.trim().replaceAll("\\", "/"))
@@ -170,25 +257,29 @@ export namespace SessionCompaction {
     const userLines = users.flatMap((item) => lines(item.text))
     const primaryGoal = userLines.find((item) => GOAL_RE.test(item) && !COMPACT_RE.test(item))
     const fallbackGoal = userLines.find((item) => !COMPACT_RE.test(item)) ?? userLines[0] ?? ""
-    const goal = preview(primaryGoal ?? fallbackGoal, 240)
+    const goal = preview(cleanValue(primaryGoal ?? fallbackGoal), 240)
 
-    const files = Array.from(
-      new Set(
-        rev
-          .flatMap((item) => item.text.match(PATH_RE) ?? [])
-          .map((item) => safePath(item))
-          .filter((item): item is string => Boolean(item)),
-      ),
+    const files = uniq(
+      rev
+        .flatMap((item) => item.text.match(PATH_RE) ?? [])
+        .map((item) => safePath(cleanValue(item)))
+        .filter((item): item is string => Boolean(item)),
+      (item) => item.toLowerCase(),
     ).slice(0, PATH_LIMIT)
 
-    const steps = Array.from(
-      new Set(
-        rev
-          .flatMap((item) => lines(item.text))
-          .filter((item) => item.length >= 8 && item.length <= 220)
-          .filter((item) => STEP_RE.test(item))
-          .filter((item) => !COMPACT_RE.test(item)),
-      ),
+    const steps = uniq(
+      rev
+        .flatMap((item) => lines(item.text))
+        .filter((item) => item.length >= 8 && item.length <= 220)
+        .filter((item) => STEP_RE.test(item))
+        .filter((item) => !COMPACT_RE.test(item))
+        .flatMap((item) => item.split(/\s*[|｜]\s*/u))
+        .filter((item) => STEP_RE.test(item))
+        .map((item) => cleanValue(item))
+        .filter((item): item is string => Boolean(item))
+        .filter((item) => stepSignal(item))
+        .filter((item) => item.length >= 4 && item.length <= 220),
+      (item) => item.toLowerCase(),
     ).slice(0, STEP_LIMIT)
 
     return {
@@ -324,6 +415,13 @@ export namespace SessionCompaction {
     /capsule\.session\.json/iu,
     /capsule\.assisted\.verify\.json/iu,
     /```json/iu,
+    /\bspecVersion\s*:/iu,
+    /\bsessionId\s*:/iu,
+    /\bgeneratedAtUtc\s*:/iu,
+    /\bsha256\s*:/iu,
+    /\bplugin_prompt\s*:/iu,
+    /\bcompaction-input\s*:/iu,
+    /\bcompaction-facts\s*:/iu,
   ]
 
   const viewSafe = (text: string) => blockedViewPatterns.every((p) => !p.test(text))
@@ -734,6 +832,12 @@ export namespace SessionCompaction {
           ],
         })
         const capsuleRendered = Capsule.render(capsule)
+        const summaryRendered = renderSummary({
+          goal: insight.goal,
+          triggerSource,
+          files: insight.files,
+          steps: insight.steps,
+        })
 
         const capsuleSessionEntry = await writer.artifact({
           kind: "compaction-capsule-session",
@@ -945,7 +1049,7 @@ export namespace SessionCompaction {
             messageID: msg.id,
             sessionID: input.sessionID,
             type: "text",
-            text: capsuleRendered,
+            text: summaryRendered,
             time: { start: Date.now(), end: Date.now() },
           }),
         )
@@ -985,7 +1089,8 @@ export namespace SessionCompaction {
 
         void (async () => {
           const cfg = await Config.get()
-          if (cfg.experimental?.compaction_llm_augment === false) {
+          const assistedEnabled = cfg.experimental?.compaction_llm_augment ?? false
+          if (!assistedEnabled) {
             await emitSkipped({
               status: "disabled",
               reasonCode: "disabled",
@@ -998,7 +1103,7 @@ export namespace SessionCompaction {
             sessionId: input.sessionID,
             compactionId,
             parentId: input.parentID,
-            hintText: capsuleRendered,
+            hintText: summaryRendered,
             modelFallback: { providerID: user.model.providerID, modelID: user.model.modelID },
             artifacts: [
               { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
