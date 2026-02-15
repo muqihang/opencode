@@ -97,10 +97,13 @@ const Delta = z
 export const CompactionQuality = z
   .object({
     semantic_coverage: z.number().min(0).max(1),
+    consistency_score: z.number().min(0).max(1),
     known_facts: NonNegativeInt,
     unknown_facts: NonNegativeInt,
+    contradiction_count: NonNegativeInt,
     active_files_count: NonNegativeInt,
     next_steps_count: NonNegativeInt,
+    reason_codes: z.array(z.string().regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/)),
   })
   .strict()
 

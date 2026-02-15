@@ -203,10 +203,17 @@ describe("session.compaction structured artifacts + events", () => {
         if (quality) {
           const qualityData = quality.data ?? {}
           expect(typeof qualityData["semantic_coverage"]).toBe("number")
+          expect(typeof qualityData["consistency_score"]).toBe("number")
           expect(typeof qualityData["known_facts"]).toBe("number")
           expect(typeof qualityData["unknown_facts"]).toBe("number")
+          expect(typeof qualityData["contradiction_count"]).toBe("number")
           expect(typeof qualityData["active_files_count"]).toBe("number")
           expect(typeof qualityData["next_steps_count"]).toBe("number")
+          expect(Array.isArray(qualityData["reason_codes"])).toBe(true)
+          expect(Number(qualityData["consistency_score"])).toBeGreaterThanOrEqual(0)
+          expect(Number(qualityData["consistency_score"])).toBeLessThanOrEqual(1)
+          expect(Number(qualityData["contradiction_count"])).toBeGreaterThanOrEqual(0)
+          expect((qualityData["reason_codes"] as unknown[]).every((item) => typeof item === "string")).toBe(true)
         }
 
         const reportEntry = manifest.entries.find((e) => compactionPattern.test(e.path) && e.path.endsWith("/compaction.report.json"))
@@ -219,11 +226,55 @@ describe("session.compaction structured artifacts + events", () => {
           expect(report.quality).toBeTruthy()
           const qualityData = quality.data ?? {}
           expect(report.quality?.["semantic_coverage"]).toBe(qualityData["semantic_coverage"])
+          expect(report.quality?.["consistency_score"]).toBe(qualityData["consistency_score"])
           expect(report.quality?.["known_facts"]).toBe(qualityData["known_facts"])
           expect(report.quality?.["unknown_facts"]).toBe(qualityData["unknown_facts"])
+          expect(report.quality?.["contradiction_count"]).toBe(qualityData["contradiction_count"])
           expect(report.quality?.["active_files_count"]).toBe(qualityData["active_files_count"])
           expect(report.quality?.["next_steps_count"]).toBe(qualityData["next_steps_count"])
+          expect(report.quality?.["reason_codes"]).toEqual(qualityData["reason_codes"])
         }
+      },
+    })
+  }, { timeout })
+
+  test("contradiction metrics detect conflicting working_set statements", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+
+        await writeText({
+          sessionId,
+          text:
+            "Round 1 goal: add packages/opencode/src/session/compaction.ts validation and keep working set focused. " +
+            "x".repeat(8_000),
+        })
+        await writeText({
+          sessionId,
+          text:
+            "Round 2 next step: add packages/opencode/src/session/compaction.ts checks. " +
+            "Round 2 next step: do not add packages/opencode/src/session/compaction.ts checks. " +
+            "y".repeat(8_000),
+        })
+        const msg = await writeText({ sessionId, text: "Round 3: please compact" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const quality = await findEvent({ sessionId, type: "compaction.quality" })
+        expect(quality).toBeTruthy()
+        if (!quality) return
+        const data = quality.data ?? {}
+        expect(Number(data["contradiction_count"])).toBeGreaterThan(0)
+        expect(Number(data["consistency_score"])).toBeGreaterThanOrEqual(0)
+        expect(Number(data["consistency_score"])).toBeLessThanOrEqual(1)
+        const reasonCodes = Array.isArray(data["reason_codes"])
+          ? (data["reason_codes"] as unknown[]).map((item) => String(item))
+          : []
+        expect(reasonCodes.includes("contradiction_detected")).toBe(true)
       },
     })
   }, { timeout })

@@ -61,6 +61,59 @@ export namespace SessionCompaction {
   const STEP_RE = /\b(next step|next steps|todo|to-do|need to|needs to|should|must|fix|add|update|implement|write|verify|refresh|run|check|ensure|continue|plan)\b|请|下一步|需要|修复|新增|更新|验证/iu
   const GOAL_RE = /\b(goal|task|need|needs|please|todo|next step|fix|add|update|implement|write|ensure|verify|upgrade|refresh)\b|目标|任务|请|下一步|需要|修复|新增|更新|验证/iu
   const COMPACT_RE = /^(?:\/?compact|please compact)\b/i
+  const NEGATIVE_RE =
+    /\b(do not|don't|not|never|without|avoid|skip|remove|disable|drop|no)\b|不要|禁止|别|移除|禁用|跳过|无须|不需要/iu
+
+  const STOP = new Set([
+    "a",
+    "an",
+    "and",
+    "the",
+    "to",
+    "for",
+    "of",
+    "in",
+    "on",
+    "with",
+    "from",
+    "by",
+    "at",
+    "is",
+    "are",
+    "be",
+    "this",
+    "that",
+    "please",
+    "next",
+    "step",
+    "steps",
+    "todo",
+    "need",
+    "needs",
+    "must",
+    "should",
+    "ensure",
+    "verify",
+    "run",
+    "check",
+    "continue",
+    "plan",
+    "add",
+    "update",
+    "implement",
+    "write",
+    "fix",
+    "refresh",
+    "keep",
+    "remove",
+    "disable",
+    "avoid",
+    "skip",
+    "not",
+    "no",
+    "do",
+    "don't",
+  ])
 
   const clip = (text: string) => text.replace(/^[`"'(<\[{]+/, "").replace(/[`"')>\]}.,;:!?]+$/, "")
 
@@ -141,6 +194,87 @@ export namespace SessionCompaction {
       files,
       steps,
       lastUser: users[0]?.text ?? "",
+    }
+  }
+
+  type QualityRow = {
+    status: "known" | "unknown"
+    value?: string
+  }
+
+  const keyFrom = (text: string) => {
+    const safe = (text.match(PATH_RE) ?? [])
+      .map((item) => safePath(item))
+      .find((item): item is string => Boolean(item))
+    if (safe) return safe.toLowerCase()
+
+    const words = clip(text.toLowerCase())
+      .replace(/[^\p{L}\p{N}._/-]+/gu, " ")
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 2)
+      .filter((item) => !STOP.has(item))
+      .slice(0, 6)
+    if (words.length === 0) return ""
+    return words.join("_")
+  }
+
+  const qualitySignals = (input: {
+    goal: QualityRow
+    decisions: QualityRow[]
+    openQuestions: QualityRow[]
+    workingSet: string[]
+  }) => {
+    const rows = [
+      input.goal,
+      ...input.decisions,
+      ...input.openQuestions,
+      ...input.workingSet.map((item) => ({ status: "known" as const, value: item })),
+    ]
+    const claims = rows
+      .map((item) => {
+        if (!item.value) return
+        const text = String(item.value).trim()
+        if (!text) return
+        const key = keyFrom(text)
+        if (!key) return
+        const polarity = NEGATIVE_RE.test(text) ? -1 : 1
+        return { key, polarity }
+      })
+      .filter((item): item is { key: string; polarity: -1 | 1 } => Boolean(item))
+
+    const polarityMap = claims.reduce(
+      (acc, item) => {
+        const prev = acc.get(item.key) ?? new Set<number>()
+        prev.add(item.polarity)
+        acc.set(item.key, prev)
+        return acc
+      },
+      new Map<string, Set<number>>(),
+    )
+
+    const contradictionCount = [...polarityMap.values()].filter((item) => item.size > 1).length
+    const domainSignals = [
+      input.goal.status === "known",
+      input.decisions.some((item) => item.status === "known"),
+      input.openQuestions.some((item) => item.status === "known"),
+      input.workingSet.length > 0,
+    ]
+    const domainScore = domainSignals.filter(Boolean).length / domainSignals.length
+    const consistencyScore = Number((domainScore * (1 / (1 + contradictionCount))).toFixed(3))
+    const reasonCodes = [
+      ...(input.goal.status === "unknown" ? ["goal_unknown"] : []),
+      ...(input.workingSet.length === 0 ? ["working_set_empty"] : []),
+      ...(input.openQuestions.some((item) => item.status === "unknown") ? ["open_questions_pending"] : []),
+      ...(contradictionCount > 0 ? ["contradiction_detected"] : []),
+      ...(consistencyScore < 0.75 ? ["consistency_low"] : []),
+      ...(domainScore < 1 ? ["consistency_partial"] : []),
+    ]
+
+    return {
+      consistencyScore,
+      contradictionCount,
+      reasonCodes: [...new Set(reasonCodes)].sort(),
     }
   }
 
@@ -537,6 +671,7 @@ export namespace SessionCompaction {
             ? ({ status: "unknown" as const, value: "next_steps pending confirmation" })
             : ({ status: "known" as const, value: `next_steps extracted (${insight.steps.length})` }),
         ]
+        const workingSet = [...insight.files, ...insight.steps]
 
         const factsEntry = await writer.artifact({
           kind: "compaction-facts",
@@ -627,12 +762,21 @@ export namespace SessionCompaction {
           { known: 0, unknown: 0 },
         )
         const semanticKnown = [goal.status, active.status, steps.status].filter((item) => item === "known").length
+        const consistency = qualitySignals({
+          goal,
+          decisions,
+          openQuestions,
+          workingSet,
+        })
         const quality = CompactionQuality.parse({
           semantic_coverage: Number((semanticKnown / 3).toFixed(3)),
+          consistency_score: consistency.consistencyScore,
           known_facts: factTotals.known,
           unknown_facts: factTotals.unknown,
+          contradiction_count: consistency.contradictionCount,
           active_files_count: insight.files.length,
           next_steps_count: insight.steps.length,
+          reason_codes: consistency.reasonCodes,
         })
 
         const reportRel = `${base}/compaction.report.json`
@@ -683,10 +827,13 @@ export namespace SessionCompaction {
           data: {
             compactionId,
             semantic_coverage: finalReport.quality.semantic_coverage,
+            consistency_score: finalReport.quality.consistency_score,
             known_facts: finalReport.quality.known_facts,
             unknown_facts: finalReport.quality.unknown_facts,
+            contradiction_count: finalReport.quality.contradiction_count,
             active_files_count: finalReport.quality.active_files_count,
             next_steps_count: finalReport.quality.next_steps_count,
+            reason_codes: finalReport.quality.reason_codes,
             report_artifact: reportEntry.path,
           },
           redaction: { applied: true, policyVersion: "v1" },

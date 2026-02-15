@@ -168,6 +168,19 @@ describe("structured compaction regression", () => {
         const capsuleFile = path.join(tmp.path, capsule.path)
         expect(await Bun.file(capsuleFile).exists()).toBe(true)
         expect(capsule.sha256.length).toBe(64)
+
+        const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 1000 })
+        const quality = events.events.findLast((item) => item.type === "compaction.quality")
+        expect(quality).toBeTruthy()
+        if (!quality) return
+        const data = quality.data ?? {}
+        expect(typeof data["consistency_score"]).toBe("number")
+        expect(typeof data["contradiction_count"]).toBe("number")
+        expect(Number(data["consistency_score"])).toBeGreaterThanOrEqual(0)
+        expect(Number(data["consistency_score"])).toBeLessThanOrEqual(1)
+        expect(Number(data["contradiction_count"])).toBeGreaterThanOrEqual(0)
+        expect(Array.isArray(data["reason_codes"])).toBe(true)
+        expect((data["reason_codes"] as unknown[]).every((item) => typeof item === "string")).toBe(true)
       },
     })
   }, { timeout })
