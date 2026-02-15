@@ -16,6 +16,9 @@ function mimeToModality(mime: string): Modality | undefined {
 }
 
 export namespace ProviderTransform {
+  export type DeepseekMode = "non_deepseek" | "chat" | "thinking" | "reasoner"
+  export type DeepseekProfile = "normal" | "strict"
+
   // Maps npm package to the key the AI SDK expects for providerOptions
   function sdkKey(npm: string): string | undefined {
     switch (npm) {
@@ -39,17 +42,26 @@ export namespace ProviderTransform {
     return undefined
   }
 
-  function deepseekThinking(model: Provider.Model, options: { [x: string]: any }) {
-    if (model.providerID !== "deepseek") return false
-    if (model.id.toLowerCase().includes("reasoner") || model.api.id.toLowerCase().includes("reasoner")) return true
-    const thinking = options["thinking"]
-    if (!thinking || typeof thinking !== "object") return false
-    return thinking["type"] === "enabled"
+  const isDeepseek = (model: Pick<Provider.Model, "providerID" | "id" | "api">) => {
+    if (model.providerID === "deepseek") return true
+    if (model.id.toLowerCase().includes("deepseek")) return true
+    return model.api.id.toLowerCase().includes("deepseek")
   }
 
-  function sanitizeDeepseekOptions(model: Provider.Model, options: { [x: string]: any }) {
-    if (!deepseekThinking(model, options)) return options
-    const blocked = new Set([
+  export function resolveDeepseekMode(
+    model: Pick<Provider.Model, "providerID" | "id" | "api">,
+    options: Record<string, any>,
+  ): DeepseekMode {
+    if (!isDeepseek(model)) return "non_deepseek"
+    if (model.id.toLowerCase().includes("reasoner") || model.api.id.toLowerCase().includes("reasoner")) return "reasoner"
+    const thinking = options["thinking"]
+    if (!thinking || typeof thinking !== "object") return "chat"
+    if ((thinking as Record<string, unknown>)["type"] !== "enabled") return "chat"
+    return "thinking"
+  }
+
+  function blockedDeepseekKeys(profile: DeepseekProfile) {
+    const list = [
       "temperature",
       "topP",
       "top_p",
@@ -60,8 +72,37 @@ export namespace ProviderTransform {
       "presence_penalty",
       "frequencyPenalty",
       "frequency_penalty",
-    ])
-    return Object.fromEntries(Object.entries(options).filter((item) => !blocked.has(item[0])))
+    ]
+    if (profile === "normal") return new Set(list)
+    return new Set([...list, "topK", "top_k"])
+  }
+
+  export function deepseekSampling(input: {
+    model: Pick<Provider.Model, "providerID" | "id" | "api">
+    options: Record<string, any>
+    profile?: DeepseekProfile
+  }) {
+    const modeResolved = resolveDeepseekMode(input.model, input.options)
+    const profile = input.profile ?? "normal"
+    if (modeResolved !== "reasoner" && modeResolved !== "thinking") {
+      return {
+        modeResolved,
+        profile,
+        options: input.options,
+        optionDropped: [] as string[],
+      }
+    }
+
+    const blocked = blockedDeepseekKeys(profile)
+    const entries = Object.entries(input.options)
+    const optionDropped = entries.filter((item) => blocked.has(item[0])).map((item) => item[0])
+    const options = Object.fromEntries(entries.filter((item) => !blocked.has(item[0])))
+    return {
+      modeResolved,
+      profile,
+      options,
+      optionDropped,
+    }
   }
 
   function normalizeMessages(
@@ -658,10 +699,20 @@ export namespace ProviderTransform {
     return {}
   }
 
-  export function providerOptions(model: Provider.Model, options: { [x: string]: any }) {
+  export function providerOptions(
+    model: Provider.Model,
+    options: Record<string, any>,
+    input?: {
+      deepseekProfile?: DeepseekProfile
+    },
+  ): Record<string, Record<string, any>> {
     const key = sdkKey(model.api.npm) ?? model.providerID
-    const cleaned = sanitizeDeepseekOptions(model, options)
-    return { [key]: cleaned }
+    const sampling = deepseekSampling({
+      model,
+      options,
+      profile: input?.deepseekProfile,
+    })
+    return { [key]: sampling.options }
   }
 
   export function maxOutputTokens(

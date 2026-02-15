@@ -73,9 +73,31 @@ export namespace LLM {
     historySummary?: string
     retrievalRoute?: RetrievalRoute
     secureOutputContract?: string
+    orchestratorV16DeepseekThinking?: boolean
   }
 
-  export type StreamOutput = StreamTextResult<ToolSet, unknown>
+  export type DeepseekSamplingPolicy = {
+    profile: ProviderTransform.DeepseekProfile
+    modeResolved: ProviderTransform.DeepseekMode
+    reasonCodes: string[]
+    options: Record<string, unknown>
+    temperature?: number
+    topP?: number
+    topK?: number
+    audit: {
+      optionDropped: string[]
+      topLevel: {
+        temperature: "kept" | "dropped"
+        topP: "kept" | "dropped"
+        topK: "kept" | "dropped"
+      }
+    }
+  }
+
+  export type StreamOutput = StreamTextResult<ToolSet, unknown> & {
+    contextPackId: string
+    deepseekSampling: DeepseekSamplingPolicy
+  }
 
   export type RetrievalRoute = {
     policy?: HybridRoutingPolicy
@@ -85,6 +107,52 @@ export namespace LLM {
       coversRetrieval?: boolean
       mode: OrchestratorMode
       degraded: boolean
+    }
+  }
+
+  export function resolveDeepseekSamplingPolicy(input: {
+    model: Pick<Provider.Model, "providerID" | "id" | "api">
+    options: Record<string, unknown>
+    temperature?: number
+    topP?: number
+    topK?: number
+    orchestratorV16DeepseekThinking: boolean
+  }): DeepseekSamplingPolicy {
+    const modeResolved = ProviderTransform.resolveDeepseekMode(input.model, input.options)
+    const strictCandidate = modeResolved === "reasoner" || modeResolved === "thinking"
+    const profile = input.orchestratorV16DeepseekThinking && strictCandidate ? "strict" : "normal"
+    const sampled = ProviderTransform.deepseekSampling({
+      model: input.model,
+      options: input.options,
+      profile,
+    })
+    const dropTop = profile === "strict" && strictCandidate
+    const temperature = dropTop ? undefined : input.temperature
+    const topP = dropTop ? undefined : input.topP
+    const topK = dropTop ? undefined : input.topK
+    const reasonCodes = [
+      modeResolved === "reasoner" ? "deepseek_reasoner_mode" : "",
+      modeResolved === "thinking" ? "deepseek_thinking_mode" : "",
+      input.orchestratorV16DeepseekThinking ? "orchestrator_v16_deepseek_thinking" : "",
+      profile === "strict" ? "deepseek_sampling_profile_strict" : "deepseek_sampling_profile_normal",
+    ].filter((item) => item)
+
+    return {
+      profile,
+      modeResolved,
+      reasonCodes,
+      options: sampled.options,
+      temperature,
+      topP,
+      topK,
+      audit: {
+        optionDropped: sampled.optionDropped,
+        topLevel: {
+          temperature: input.temperature !== undefined && temperature === undefined ? "dropped" : "kept",
+          topP: input.topP !== undefined && topP === undefined ? "dropped" : "kept",
+          topK: input.topK !== undefined && topK === undefined ? "dropped" : "kept",
+        },
+      },
     }
   }
 
@@ -758,7 +826,39 @@ export namespace LLM {
       return system.filter((item) => isRoutingCapsule(item))
     })
 
-    return streamText({
+    const deepseekSampling = resolveDeepseekSamplingPolicy({
+      model: input.model,
+      options: paramsOptions,
+      temperature: params.temperature,
+      topP: params.topP,
+      topK: params.topK,
+      orchestratorV16DeepseekThinking: input.orchestratorV16DeepseekThinking === true,
+    })
+
+    if (deepseekSampling.modeResolved !== "non_deepseek") {
+      await writer.event({
+        specVersion: "event/1.0",
+        ts: new Date().toISOString(),
+        sessionId: input.sessionID,
+        severity: "info",
+        actor: "session:llm",
+        type: "deepseek.sampling_profile",
+        summary: "deepseek sampling profile resolved",
+        data: {
+          messageId: input.user.id,
+          contextPackId: pack.contextPackId,
+          mode_resolved: deepseekSampling.modeResolved,
+          profile: deepseekSampling.profile,
+          reason_codes: deepseekSampling.reasonCodes,
+          orchestrator_v16_deepseek_thinking: input.orchestratorV16DeepseekThinking === true,
+          option_dropped: deepseekSampling.audit.optionDropped,
+          top_level: deepseekSampling.audit.topLevel,
+        },
+        redaction: { applied: true, policyVersion: "v1" },
+      })
+    }
+
+    const stream = streamText({
       onError(error) {
         l.error("stream error", {
           error,
@@ -785,10 +885,12 @@ export namespace LLM {
           toolName: "invalid",
         }
       },
-      temperature: params.temperature,
-      topP: params.topP,
-      topK: params.topK,
-      providerOptions: ProviderTransform.providerOptions(input.model, paramsOptions),
+      temperature: deepseekSampling.temperature,
+      topP: deepseekSampling.topP,
+      topK: deepseekSampling.topK,
+      providerOptions: ProviderTransform.providerOptions(input.model, deepseekSampling.options, {
+        deepseekProfile: deepseekSampling.profile,
+      }),
       activeTools: Object.keys(tools).filter((x) => x !== "invalid"),
       tools,
       maxOutputTokens,
@@ -847,6 +949,11 @@ export namespace LLM {
         ],
       }),
       experimental_telemetry: { isEnabled: cfg.experimental?.openTelemetry },
+    })
+
+    return Object.assign(stream, {
+      contextPackId: pack.contextPackId,
+      deepseekSampling,
     })
   }
 

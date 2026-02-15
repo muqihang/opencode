@@ -308,3 +308,136 @@ describe("session.hybrid-routing-policy", () => {
     expect(policy.compensationGate).toBe("balanced")
   })
 })
+
+describe("session.llm.deepseek sampling governance", () => {
+  const model = {
+    id: "deepseek/deepseek-reasoner",
+    providerID: "deepseek",
+    api: {
+      id: "deepseek-reasoner",
+      url: "https://api.deepseek.com",
+      npm: "@ai-sdk/openai-compatible",
+    },
+  }
+
+  test("strict/normal profiles diverge at parameter level for reasoner mode", () => {
+    const resolve = (
+      LLM as unknown as {
+        resolveDeepseekSamplingPolicy?: (input: {
+          model: { id: string; providerID: string; api: { id: string } }
+          options: Record<string, unknown>
+          temperature?: number
+          topP?: number
+          topK?: number
+          orchestratorV16DeepseekThinking: boolean
+        }) => {
+          profile: string
+          modeResolved: string
+          options: Record<string, unknown>
+          temperature?: number
+          topP?: number
+          topK?: number
+          audit: {
+            optionDropped: string[]
+            topLevel: {
+              temperature: string
+              topP: string
+              topK: string
+            }
+          }
+        }
+      }
+    ).resolveDeepseekSamplingPolicy
+
+    expect(typeof resolve).toBe("function")
+    if (!resolve) return
+
+    const strict = resolve({
+      model,
+      options: {
+        thinking: { type: "enabled" },
+        topK: 40,
+        keep: "ok",
+      },
+      temperature: 0.2,
+      topP: 0.6,
+      topK: 40,
+      orchestratorV16DeepseekThinking: true,
+    })
+    const normal = resolve({
+      model,
+      options: {
+        thinking: { type: "enabled" },
+        topK: 40,
+        keep: "ok",
+      },
+      temperature: 0.2,
+      topP: 0.6,
+      topK: 40,
+      orchestratorV16DeepseekThinking: false,
+    })
+
+    expect(strict.modeResolved).toBe("reasoner")
+    expect(strict.profile).toBe("strict")
+    expect(normal.profile).toBe("normal")
+    expect(strict.options["topK"]).toBeUndefined()
+    expect(normal.options["topK"]).toBe(40)
+    expect(strict.temperature).toBeUndefined()
+    expect(strict.topP).toBeUndefined()
+    expect(strict.topK).toBeUndefined()
+    expect(normal.temperature).toBe(0.2)
+    expect(normal.topP).toBe(0.6)
+    expect(normal.topK).toBe(40)
+  })
+
+  test("orchestrator_v16_deepseek_thinking exposes mode/profile and impact audit fields", () => {
+    const resolve = (
+      LLM as unknown as {
+        resolveDeepseekSamplingPolicy?: (input: {
+          model: { id: string; providerID: string; api: { id: string } }
+          options: Record<string, unknown>
+          temperature?: number
+          topP?: number
+          topK?: number
+          orchestratorV16DeepseekThinking: boolean
+        }) => {
+          profile: string
+          modeResolved: string
+          reasonCodes: string[]
+          audit: {
+            optionDropped: string[]
+            topLevel: {
+              temperature: string
+              topP: string
+              topK: string
+            }
+          }
+        }
+      }
+    ).resolveDeepseekSamplingPolicy
+
+    expect(typeof resolve).toBe("function")
+    if (!resolve) return
+
+    const resolved = resolve({
+      model,
+      options: {
+        thinking: { type: "enabled" },
+        topK: 40,
+      },
+      temperature: 0.2,
+      topP: 0.6,
+      topK: 40,
+      orchestratorV16DeepseekThinking: true,
+    })
+
+    expect(resolved.modeResolved).toBe("reasoner")
+    expect(resolved.profile).toBe("strict")
+    expect(resolved.reasonCodes.includes("orchestrator_v16_deepseek_thinking")).toBe(true)
+    expect(Array.isArray(resolved.audit.optionDropped)).toBe(true)
+    expect(resolved.audit.optionDropped.length > 0).toBe(true)
+    expect(resolved.audit.topLevel.temperature).toBe("dropped")
+    expect(resolved.audit.topLevel.topP).toBe("dropped")
+    expect(resolved.audit.topLevel.topK).toBe("dropped")
+  })
+})
