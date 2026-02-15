@@ -76,6 +76,27 @@ const assertNoJsonLeak = (text: string) => {
   expect(/```json/iu.test(text)).toBe(false)
 }
 
+const machineFields = [
+  "specVersion:",
+  "sessionId:",
+  "generatedAtUtc:",
+  "sha256:",
+  "plugin_prompt:",
+  "compaction-input:",
+  "compaction-facts:",
+]
+
+const assertNoMachineFields = (text: string) => {
+  for (const item of machineFields) {
+    expect(text.includes(item)).toBe(false)
+  }
+}
+
+const assertHumanSummary = (text: string) => {
+  expect(text.includes("# Compaction Summary")).toBe(true)
+  assertNoMachineFields(text)
+}
+
 const setRunner = (fn: typeof CapsuleAssistedRunner.runFromCompaction) => {
   const old = CapsuleAssistedRunner.runFromCompaction
   ;(CapsuleAssistedRunner as { runFromCompaction: typeof CapsuleAssistedRunner.runFromCompaction }).runFromCompaction = fn
@@ -421,7 +442,7 @@ describe("session.compaction structured artifacts + events", () => {
         expect(result).toBe("continue")
 
         const deterministic = await summaryText(sessionId)
-        expect(deterministic.includes("# Capsule")).toBe(true)
+        assertHumanSummary(deterministic)
         assertNoJsonLeak(deterministic)
 
         const appliedReady = await waitFor({
@@ -442,6 +463,7 @@ describe("session.compaction structured artifacts + events", () => {
         const finalText = await summaryText(sessionId)
         expect(finalText).toContain("# LLM Summary")
         assertNoJsonLeak(finalText)
+        assertNoMachineFields(finalText)
       },
     })
 
@@ -503,6 +525,7 @@ describe("session.compaction structured artifacts + events", () => {
 
         const finalText = await summaryText(sessionId)
         expect(finalText).toBe(deterministic)
+        assertHumanSummary(finalText)
         assertNoJsonLeak(finalText)
       },
     })
@@ -558,6 +581,7 @@ describe("session.compaction structured artifacts + events", () => {
 
         const finalText = await summaryText(sessionId)
         expect(finalText).toBe(deterministic)
+        assertHumanSummary(finalText)
         assertNoJsonLeak(finalText)
       },
     })
@@ -622,11 +646,46 @@ describe("session.compaction structured artifacts + events", () => {
 
         expect(calls.value).toBe(0)
         const finalText = await summaryText(sessionId)
-        expect(finalText.includes("# Capsule")).toBe(true)
+        assertHumanSummary(finalText)
         assertNoJsonLeak(finalText)
       },
     })
 
     restore()
+  }, { timeout })
+
+  test("config true still executes assisted flow without hard env gate", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ experimental: { compaction_llm_augment: true } }))
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+        await writeText({ sessionId, text: "Round A: verify assisted gate behavior" })
+        const msg = await writeText({ sessionId, text: "Round B: compact" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const done = await waitFor({
+          ms: 12_000,
+          check: async () => Boolean(await findEvent({ sessionId, type: "capsule.assisted.requested" })),
+        })
+        expect(done).toBe(true)
+
+        const requested = await findEvent({ sessionId, type: "capsule.assisted.requested" })
+        expect(requested).toBeTruthy()
+        if (requested) {
+          const data = requested.data ?? {}
+          expect(typeof data["compactionId"]).toBe("string")
+        }
+      },
+    })
   }, { timeout })
 })

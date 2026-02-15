@@ -62,6 +62,14 @@ const makeAssistant = async (input: { sessionId: string; parentId: string; text:
   return msg
 }
 
+const summaryText = async (sessionId: string) => {
+  const msgs = await Session.messages({ sessionID: sessionId })
+  const msg = msgs.findLast((item) => item.info.role === "assistant" && item.info.summary)
+  if (!msg) return ""
+  const part = msg.parts.find((item): item is MessageV2.TextPart => item.type === "text")
+  return part?.text ?? ""
+}
+
 describe("structured compaction regression", () => {
   test("multi-round history compacts and context-pack tokenEstimate drops with traceable pointers", async () => {
     await using tmp = await tmpdir({ git: true })
@@ -209,6 +217,49 @@ describe("structured compaction regression", () => {
         expect(report.quality?.["contradiction_count"]).toBe(data["contradiction_count"])
         expect(report.quality?.["contradiction_rate"]).toBe(data["contradiction_rate"])
         expect(report.quality?.["reason_codes"]).toEqual(data["reason_codes"])
+      },
+    })
+  }, { timeout })
+
+  test("polluted next_steps/active_files are normalized and fail-safe in visible summary", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+
+        await makeUser({
+          sessionId,
+          text:
+            "Round 1: known: next_steps: known: | known: next_steps: known: || known: ||| ; " +
+            "files touched src/session/compaction.ts src/session/compaction.ts.",
+        })
+        const msg = await makeUser({
+          sessionId,
+          text:
+            "Round 2: next step?? known: next_steps: known: | known: | known: || ; known: next_steps: known:.",
+        })
+
+        const list = await Session.messages({ sessionID: sessionId })
+        const compacted = await SessionCompaction.process({
+          parentID: msg.id,
+          messages: list,
+          sessionID: sessionId,
+          abort: new AbortController().signal,
+          auto: false,
+        })
+        expect(compacted).toBe("continue")
+
+        const summary = await summaryText(sessionId)
+        expect(summary.includes("# Compaction Summary")).toBe(true)
+        expect(summary.includes("known:")).toBe(false)
+        expect(summary.includes("next_steps:")).toBe(false)
+        expect(summary.includes("plugin_prompt:")).toBe(false)
+        expect(summary.includes("sha256:")).toBe(false)
+        expect(summary.includes("||")).toBe(false)
+        expect(summary.includes("src/session/compaction.ts")).toBe(true)
+        expect(summary.includes("## Next Steps\n- unknown")).toBe(true)
       },
     })
   }, { timeout })
