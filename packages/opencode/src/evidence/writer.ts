@@ -6,7 +6,13 @@ import { Filesystem } from "@/util/filesystem"
 import { Identifier } from "@/id/id"
 import { EvidencePack } from "@/protocol/evidence-pack"
 import type { EvidencePack as EvidencePackType } from "@/protocol/evidence-pack"
-import { EvidenceManifest } from "@/protocol/evidence-manifest"
+import {
+  EvidenceManifest,
+  appendManifestEntry,
+  latestManifestEntries,
+  upgradeManifestEntries,
+  validateManifestEntries,
+} from "@/protocol/evidence-manifest"
 import { EventV1 } from "@/protocol/event"
 import { EvidenceMicroPack } from "@/protocol/evidence-micro-pack"
 import { renderEvidencePackViewMarkdown } from "@/evidence/pack-view"
@@ -249,7 +255,13 @@ async function readManifest(file: string, packId: string) {
     })
   }
   const data = JSON.parse(text) as unknown
-  return EvidenceManifest.parse(data)
+  const manifest = EvidenceManifest.parse(data)
+  const checked = validateManifestEntries(manifest.entries)
+  if (checked.state === "legacy") return manifest
+  return {
+    ...manifest,
+    entries: checked.entries,
+  }
 }
 
 type Claim = EvidencePackType["claims"][number]
@@ -315,7 +327,8 @@ export const EvidenceWriter = {
 
     const packId = `EP-${sessionId}`
     const manifestData = await readManifest(manifestPath, packId)
-    const entries = [...manifestData.entries]
+    const seed = validateManifestEntries(manifestData.entries)
+    const entries = seed.state === "legacy" ? upgradeManifestEntries(seed.entries) : [...seed.entries]
     const events: Array<z.infer<typeof EventV1>> = []
     let claims: Claim[] = []
     let checks: Check[] = []
@@ -378,24 +391,32 @@ export const EvidenceWriter = {
     }
 
     async function writeManifest(packId: string) {
-      const sortedEntries = [...entries].sort((a, b) => a.path.localeCompare(b.path))
+      const checked = validateManifestEntries(entries)
+      const chain = checked.state === "legacy" ? upgradeManifestEntries(checked.entries) : checked.entries
+      if (chain !== entries) {
+        entries.splice(0, entries.length, ...chain)
+      }
       const manifest = EvidenceManifest.parse({
         specVersion: "evidence-manifest/1.0",
         packId,
         generatedAtUtc: new Date().toISOString(),
-        entries: sortedEntries,
+        entries: [...entries],
       })
       await writeDual(manifestPath, stableJson(manifest))
       return manifest
     }
 
-    async function upsert(entry: z.infer<typeof Entry>, packId: string) {
-      const hit = entries.findIndex((item) => item.path === entry.path)
-      if (hit >= 0) {
-        entries[hit] = entry
-      } else {
-        entries.push(entry)
-      }
+    async function append(entry: z.infer<typeof Entry>, packId: string) {
+      const next = appendManifestEntry({
+        entries,
+        entry: {
+          path: entry.path,
+          sha256: entry.sha256,
+          kind: entry.kind,
+          size: entry.size,
+        },
+      })
+      entries.splice(0, entries.length, ...next)
       return writeManifest(packId)
     }
 
@@ -416,7 +437,7 @@ export const EvidenceWriter = {
         const text = await Bun.file(eventsPath).text()
         const hash = sha(text)
         const size = Buffer.byteLength(text, "utf-8")
-        await upsert(
+        await append(
           Entry.parse({
             path: path.relative(base, eventsPath),
             sha256: hash,
@@ -460,7 +481,7 @@ export const EvidenceWriter = {
         const text = await Bun.file(eventsPath).text()
         const hash = sha(text)
         const size = Buffer.byteLength(text, "utf-8")
-        await upsert(
+        await append(
           Entry.parse({
             path: path.relative(base, eventsPath),
             sha256: hash,
@@ -489,7 +510,7 @@ export const EvidenceWriter = {
           kind: data.kind,
           size: result.size,
         })
-        await upsert(entry, packId)
+        await append(entry, packId)
         return entry
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -509,7 +530,7 @@ export const EvidenceWriter = {
           kind: "evidence-error",
           size: failureWrite.size,
         })
-        await upsert(failureEntry, packId)
+        await append(failureEntry, packId)
         await event({
           specVersion: "event/1.0",
           ts: new Date().toISOString(),
@@ -593,7 +614,8 @@ export const EvidenceWriter = {
         }
       await attachUpstreamLock()
       const eventsFromDisk = await readEventsFromDisk()
-      const artifactEntries = entries.filter((entry) =>
+      const current = latestManifestEntries(entries)
+      const artifactEntries = current.filter((entry) =>
         entry.path.replace(/\\/g, "/").startsWith(artifactPrefix),
       )
       const artifacts = sortArtifacts(
@@ -634,7 +656,7 @@ export const EvidenceWriter = {
       })
       const packText = stableJson(pack)
       const packWrite = await writeDual(packPath, packText)
-      await upsert(
+      await append(
         Entry.parse({
           path: path.relative(base, packPath),
           sha256: packWrite.hash,
@@ -643,7 +665,7 @@ export const EvidenceWriter = {
         }),
         packId,
       )
-      const pointers = entries
+      const pointers = current
         .filter((entry) =>
           ["event-log", "stdout", "stderr", "execpolicy-eval", "worktree-patch"].includes(
             entry.kind,
@@ -662,7 +684,7 @@ export const EvidenceWriter = {
         pointers,
       })
       const packViewWrite = await writeDual(packViewPath, packView)
-      await upsert(
+      await append(
         Entry.parse({
           path: path.relative(base, packViewPath),
           sha256: packViewWrite.hash,
@@ -685,7 +707,7 @@ export const EvidenceWriter = {
         parentSessionId: data.parentSessionId,
         generatedAtUtc: new Date().toISOString(),
         artifacts: sortArtifacts(
-          entries.map((entry) => ({
+          latestManifestEntries(entries).map((entry) => ({
             path: entry.path,
             sha256: entry.sha256,
             kind: entry.kind,
@@ -699,7 +721,7 @@ export const EvidenceWriter = {
       const microPath = path.join(evidence, "micro-pack.json")
       const microText = stableJson(micro)
       const microWrite = await writeDual(microPath, microText)
-      await upsert(
+      await append(
         Entry.parse({
           path: path.relative(base, microPath),
           sha256: microWrite.hash,

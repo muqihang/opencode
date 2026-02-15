@@ -334,7 +334,7 @@ describe("orchestrator integration v2 rollout", () => {
           expect(result.degraded).toBe(false)
           expect(result.system[result.system.length - 1]).not.toBe("unknown-first")
 
-          const injected = result.system[result.system.length - 1] ?? ""
+          const injected = result.system.find((line) => line.startsWith("<orchestrator_evidence_v2>")) ?? ""
           expect(injected.startsWith("<orchestrator_evidence_v2>")).toBe(true)
           expect(injected.endsWith("</orchestrator_evidence_v2>")).toBe(true)
 

@@ -2,7 +2,12 @@ import fs from "fs/promises"
 import path from "path"
 import z from "zod"
 import { EvidenceWriter } from "@/evidence/writer"
-import { EvidenceManifest } from "@/protocol/evidence-manifest"
+import {
+  EvidenceManifest,
+  appendManifestEntry,
+  latestManifestEntries,
+  validateManifestEntries,
+} from "@/protocol/evidence-manifest"
 import { EvidencePack } from "@/protocol/evidence-pack"
 import type { EvidencePack as EvidencePackType } from "@/protocol/evidence-pack"
 import { EventV1 } from "@/protocol/event"
@@ -110,7 +115,13 @@ async function readManifest(file: string, packId: string) {
       entries: [],
     })
   }
-  return EvidenceManifest.parse(JSON.parse(text))
+  const manifest = EvidenceManifest.parse(JSON.parse(text))
+  const checked = validateManifestEntries(manifest.entries)
+  if (checked.state === "legacy") return manifest
+  return {
+    ...manifest,
+    entries: checked.entries,
+  }
 }
 
 async function readEvents(file: string) {
@@ -148,7 +159,7 @@ async function artifactsFromChild(options: {
     }))
   }
   const prefix = `.opencode/artifacts/${options.childSessionId}/`
-  return options.manifest.entries
+  return latestManifestEntries(options.manifest.entries)
     .filter((entry) => entry.path.replace(/\\/g, "/").startsWith(prefix))
     .map((entry) => ({
       id: `artifact:${entry.sha256}`,
@@ -338,18 +349,20 @@ export async function mergeChildEvidencePacks(input: z.infer<typeof MergeInput>)
 
   const manifest = await readManifest(parentManifestPath, parentPackId)
   const packEntryPath = path.relative(base, parentPackPath)
-  const updatedEntries = manifest.entries.filter((entry) => entry.path !== packEntryPath)
-  updatedEntries.push({
-    path: packEntryPath,
-    sha256: packWrite.hash,
-    kind: "evidence-pack",
-    size: packWrite.size,
+  const updatedEntries = appendManifestEntry({
+    entries: manifest.entries,
+    entry: {
+      path: packEntryPath,
+      sha256: packWrite.hash,
+      kind: "evidence-pack",
+      size: packWrite.size,
+    },
   })
   const nextManifest = EvidenceManifest.parse({
     specVersion: "evidence-manifest/1.0",
     packId: parentPackId,
     generatedAtUtc: new Date().toISOString(),
-    entries: updatedEntries.sort((a, b) => a.path.localeCompare(b.path)),
+    entries: updatedEntries,
   })
   await writeAtomic(parentManifestPath, stableJson(nextManifest))
 

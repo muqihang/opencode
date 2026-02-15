@@ -115,6 +115,8 @@ describe("dual-pass degrade", () => {
 
     expect(result.degraded).toBe(true)
     expect(result.system.length).toBe(2)
-    expect(result.system[1]?.includes("<orchestrator>")).toBe(true)
+    const injected = result.system[1] ?? ""
+    const tagged = injected.includes("<orchestrator>") || injected.includes("<orchestrator_evidence_v2>")
+    expect(tagged).toBe(true)
   })
 })

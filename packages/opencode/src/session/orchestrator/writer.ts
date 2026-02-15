@@ -4,6 +4,7 @@ import { OrchestratorFeatures } from "@/protocol/orchestrator-features"
 import { OrchestratorPlan } from "@/protocol/orchestrator-plan"
 import { stableJson } from "@/util/stable-json"
 import { normalizeOrchestratorDegraded } from "./degraded-taxonomy"
+import { OrchestratorProgressStore } from "./progress-store"
 
 const AdaptiveDegradedCodes = new Set([
   "adaptive.ttc.scale_blocked_budget",
@@ -47,24 +48,7 @@ type Progress = {
   evidence_gain_per_cycle: number
 }
 
-const cycles = new Map<string, number>()
-
-const stops = new Set<string>()
-
-const degraded = new Set<string>()
-
 const workerMode = (mode: Mode) => mode === "assist" || mode === "heavy"
-
-const messageKey = (input: { sessionId: string; messageId: string }) => `${input.sessionId}:${input.messageId}`
-
-const nextCycle = (input: { sessionId: string; messageId: string; mode: Mode; frozen: boolean }) => {
-  if (!workerMode(input.mode)) return 1
-  const key = messageKey(input)
-  if (input.frozen) return cycles.get(key) ?? 1
-  const value = (cycles.get(key) ?? 0) + 1
-  cycles.set(key, value)
-  return value
-}
 
 const progress = (input: { sessionId: string; plan: z.infer<typeof OrchestratorPlan>; cycle: number }): Progress => {
   const maxRerun = input.plan.budgets.maxRerun ?? 1
@@ -139,13 +123,12 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
   const data = OrchestratorArtifactsInput.parse(input)
   const writer = await EvidenceWriter.open({ sessionId: data.sessionId })
   const planId = data.plan.orchestratorPlanId
-  const key = messageKey({ sessionId: data.sessionId, messageId: data.plan.messageId })
-  const cycle = nextCycle({
+  const durable = await OrchestratorProgressStore.reserve({
     sessionId: data.sessionId,
     messageId: data.plan.messageId,
-    mode: data.plan.orchestratorMode,
-    frozen: stops.has(key),
+    worker: workerMode(data.plan.orchestratorMode),
   })
+  const cycle = durable.cycle
   const ledger = progress({ sessionId: data.sessionId, plan: data.plan, cycle })
   const base = `orchestrator/${planId}`
 
@@ -161,7 +144,10 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
   })
 
   const stopExceeded = ledger.stopReason === "max_rerun_exceeded"
-  const writePlanned = !(stopExceeded && stops.has(key))
+  if (stopExceeded) {
+    await OrchestratorProgressStore.stop({ sessionId: data.sessionId, messageId: data.plan.messageId })
+  }
+  const writePlanned = !(stopExceeded && durable.stopped)
   if (writePlanned) {
     await writer.event({
       specVersion: "event/1.0",
@@ -183,10 +169,6 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
       redaction: { applied: true, policyVersion: "v1" },
     })
   }
-  if (stopExceeded) {
-    stops.add(key)
-  }
-
   const adaptive = data.plan.reasons
     .map((item) => item.code)
     .filter((code) => code.startsWith("adaptive.ttc."))
@@ -194,9 +176,12 @@ export async function writeOrchestratorArtifacts(input: z.infer<typeof Orchestra
   if (degradedAdaptive.length === 0) return
 
   const reason = [...new Set(degradedAdaptive)].sort().join(",")
-  const degradedKey = `${key}:${reason}`
-  if (degraded.has(degradedKey)) return
-  degraded.add(degradedKey)
+  if (durable.degraded.has(reason)) return
+  await OrchestratorProgressStore.degraded({
+    sessionId: data.sessionId,
+    messageId: data.plan.messageId,
+    reason,
+  })
   const taxonomy = normalizeOrchestratorDegraded({
     stage: "adaptive_ttc",
     reason,
