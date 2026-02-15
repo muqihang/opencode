@@ -112,6 +112,12 @@ export const CompactionQuality = z
 
 export type CompactionQuality = z.infer<typeof CompactionQuality>
 
+export const CompactionViewSource = z.enum(["deterministic", "llm"])
+export type CompactionViewSource = z.infer<typeof CompactionViewSource>
+
+export const CompactionAssistedStatus = z.enum(["success", "degraded", "failed", "disabled"])
+export type CompactionAssistedStatus = z.infer<typeof CompactionAssistedStatus>
+
 export const CompactionReport = z
   .object({
     specVersion: z.literal("compaction-report/1.0"),
@@ -135,6 +141,11 @@ export const CompactionReport = z
       })
       .strict()
       .optional(),
+    ui_view_source: CompactionViewSource,
+    assisted_status: CompactionAssistedStatus,
+    assisted_reason_code: z.string().min(1).nullable(),
+    assisted_timeout_ms: NonNegativeInt,
+    summary_format_version: z.string().min(1),
     artifacts: z
       .object({
         capsule: Pointer,

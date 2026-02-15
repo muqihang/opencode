@@ -239,6 +239,8 @@ export namespace Config {
         experimental.orchestrator_worker_debug_summary ?? Flag.OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY,
       compaction_llm_augment:
         experimental.compaction_llm_augment ?? Flag.OPENCODE_EXPERIMENTAL_CAPSULE_LLM,
+      compaction_llm_timeout_ms:
+        experimental.compaction_llm_timeout_ms ?? Flag.OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS ?? 30_000,
       retrieval_hybrid_strategy:
         experimental.retrieval_hybrid_strategy ?? hybridStrategyFlag,
       retrieval_hybrid_compensation_gate:
@@ -1250,6 +1252,12 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Apply verified LLM-assisted compaction view over deterministic baseline"),
+          compaction_llm_timeout_ms: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe("Timeout in milliseconds for assisted compaction LLM request (default 30000)"),
           batch_tool: z.boolean().optional().describe("Enable the batch tool"),
           openTelemetry: z
             .boolean()
