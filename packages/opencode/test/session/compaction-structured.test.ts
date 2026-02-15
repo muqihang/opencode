@@ -97,6 +97,17 @@ const assertHumanSummary = (text: string) => {
   assertNoMachineFields(text)
 }
 
+const degradedNote = (reason: "timeout" | "failed") =>
+  `LLM 摘要不可用（原因：${reason}），当前显示 deterministic 摘要`
+
+const readReport = async (input: { root: string; sessionId: string }) => {
+  const manifest = await EvidenceReader.readManifest(input.sessionId)
+  const entry = manifest.entries.find((item) => item.path.includes(`/artifacts/`) && item.path.includes(`/compaction/`) && item.path.endsWith("/compaction.report.json"))
+  expect(entry).toBeTruthy()
+  if (!entry) return
+  return (await Bun.file(path.join(input.root, entry.path)).json()) as Record<string, unknown>
+}
+
 const setRunner = (fn: typeof CapsuleAssistedRunner.runFromCompaction) => {
   const old = CapsuleAssistedRunner.runFromCompaction
   ;(CapsuleAssistedRunner as { runFromCompaction: typeof CapsuleAssistedRunner.runFromCompaction }).runFromCompaction = fn
@@ -456,8 +467,19 @@ describe("session.compaction structured artifacts + events", () => {
         if (applied) {
           const data = applied.data ?? {}
           expect(data["ui_view_source"]).toBe("llm")
+          expect(data["assisted_status"]).toBe("success")
+          expect(data["assisted_reason_code"]).toBeNull()
+          expect(data["assisted_timeout_ms"]).toBe(30_000)
+          expect(data["summary_format_version"]).toBe("assisted-summary/1.0")
           expect(typeof data["compactionId"]).toBe("string")
           expect(typeof data["view_artifact"]).toBe("string")
+
+          const report = await readReport({ root: tmp.path, sessionId })
+          expect(report?.["ui_view_source"]).toBe(data["ui_view_source"])
+          expect(report?.["assisted_status"]).toBe(data["assisted_status"])
+          expect(report?.["assisted_reason_code"]).toBe(data["assisted_reason_code"])
+          expect(report?.["assisted_timeout_ms"]).toBe(data["assisted_timeout_ms"])
+          expect(report?.["summary_format_version"]).toBe(data["summary_format_version"])
         }
 
         const finalText = await summaryText(sessionId)
@@ -470,9 +492,59 @@ describe("session.compaction structured artifacts + events", () => {
     restore()
   }, { timeout })
 
+  test("assisted hintText only uses human summary blocks", async () => {
+    const seen = { hint: "" }
+    const restore = setRunner(
+      (async (input: Parameters<typeof CapsuleAssistedRunner.runFromCompaction>[0]) => {
+        seen.hint = input.hintText
+        await Bun.sleep(80)
+        return {
+          status: "failed",
+          verifyOk: false,
+          reasonCode: "provider_error",
+          coverage: { known: 0, unknown: 0, anchors: 0 },
+        } as unknown
+      }) as unknown as typeof CapsuleAssistedRunner.runFromCompaction,
+    )
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ experimental: { compaction_llm_augment: true } }))
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+        await writeText({ sessionId, text: "Round A: keep deterministic summary plain text" })
+        const msg = await writeText({ sessionId, text: "Round B: compact" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const skippedReady = await waitFor({
+          ms: 3_000,
+          check: async () => Boolean(await findEvent({ sessionId, type: "compaction.assisted_skipped" })),
+        })
+        expect(skippedReady).toBe(true)
+        expect(seen.hint.startsWith("# Compaction Summary")).toBe(true)
+        expect(seen.hint.startsWith("# Capsule")).toBe(false)
+        for (const item of machineFields) {
+          expect(seen.hint.includes(item)).toBe(false)
+        }
+      },
+    })
+
+    restore()
+  }, { timeout })
+
   test("assisted degraded keeps deterministic summary and emits skipped event", async () => {
     const restore = setRunner(
       (async () => {
+        await Bun.sleep(80)
         return {
           status: "degraded",
           verifyOk: false,
@@ -521,10 +593,22 @@ describe("session.compaction structured artifacts + events", () => {
           expect(data["status"]).toBe("degraded")
           expect(data["reasonCode"]).toBe("assisted_degraded")
           expect(data["ui_view_source"]).toBe("deterministic")
+          expect(data["assisted_status"]).toBe("degraded")
+          expect(data["assisted_reason_code"]).toBe("schema_invalid")
+          expect(data["assisted_timeout_ms"]).toBe(30_000)
+          expect(data["summary_format_version"]).toBe("human-summary/1.0")
+
+          const report = await readReport({ root: tmp.path, sessionId })
+          expect(report?.["ui_view_source"]).toBe(data["ui_view_source"])
+          expect(report?.["assisted_status"]).toBe(data["assisted_status"])
+          expect(report?.["assisted_reason_code"]).toBe(data["assisted_reason_code"])
+          expect(report?.["assisted_timeout_ms"]).toBe(data["assisted_timeout_ms"])
+          expect(report?.["summary_format_version"]).toBe(data["summary_format_version"])
         }
 
         const finalText = await summaryText(sessionId)
-        expect(finalText).toBe(deterministic)
+        expect(finalText.startsWith(deterministic.trimEnd())).toBe(true)
+        expect(finalText.includes(degradedNote("failed"))).toBe(true)
         assertHumanSummary(finalText)
         assertNoJsonLeak(finalText)
       },
@@ -536,6 +620,7 @@ describe("session.compaction structured artifacts + events", () => {
   test("assisted failed keeps deterministic summary and emits skipped event", async () => {
     const restore = setRunner(
       (async () => {
+        await Bun.sleep(80)
         return {
           status: "failed",
           verifyOk: false,
@@ -577,12 +662,79 @@ describe("session.compaction structured artifacts + events", () => {
           expect(data["status"]).toBe("failed")
           expect(data["reasonCode"]).toBe("assisted_failed")
           expect(data["ui_view_source"]).toBe("deterministic")
+          expect(data["assisted_status"]).toBe("failed")
+          expect(data["assisted_reason_code"]).toBe("provider_error")
+          expect(data["assisted_timeout_ms"]).toBe(30_000)
+          expect(data["summary_format_version"]).toBe("human-summary/1.0")
+
+          const report = await readReport({ root: tmp.path, sessionId })
+          expect(report?.["ui_view_source"]).toBe(data["ui_view_source"])
+          expect(report?.["assisted_status"]).toBe(data["assisted_status"])
+          expect(report?.["assisted_reason_code"]).toBe(data["assisted_reason_code"])
+          expect(report?.["assisted_timeout_ms"]).toBe(data["assisted_timeout_ms"])
+          expect(report?.["summary_format_version"]).toBe(data["summary_format_version"])
         }
 
         const finalText = await summaryText(sessionId)
-        expect(finalText).toBe(deterministic)
+        expect(finalText.startsWith(deterministic.trimEnd())).toBe(true)
+        expect(finalText.includes(degradedNote("failed"))).toBe(true)
         assertHumanSummary(finalText)
         assertNoJsonLeak(finalText)
+      },
+    })
+
+    restore()
+  }, { timeout })
+
+  test("assisted timeout appends explicit degraded note for user visibility", async () => {
+    const restore = setRunner(
+      (async () => {
+        await Bun.sleep(80)
+        return {
+          status: "failed",
+          verifyOk: false,
+          reasonCode: "timeout",
+          coverage: { known: 0, unknown: 0, anchors: 0 },
+        } as unknown
+      }) as unknown as typeof CapsuleAssistedRunner.runFromCompaction,
+    )
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ experimental: { compaction_llm_augment: true } }))
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+        await writeText({ sessionId, text: "Round A" })
+        const msg = await writeText({ sessionId, text: "Round B compact" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const deterministic = await summaryText(sessionId)
+        const skippedReady = await waitFor({
+          ms: 3_000,
+          check: async () => Boolean(await findEvent({ sessionId, type: "compaction.assisted_skipped" })),
+        })
+        expect(skippedReady).toBe(true)
+
+        const skipped = await findEvent({ sessionId, type: "compaction.assisted_skipped" })
+        expect(skipped).toBeTruthy()
+        if (skipped) {
+          const data = skipped.data ?? {}
+          expect(data["assisted_status"]).toBe("failed")
+          expect(data["assisted_reason_code"]).toBe("timeout")
+        }
+
+        const finalText = await summaryText(sessionId)
+        expect(finalText.startsWith(deterministic.trimEnd())).toBe(true)
+        expect(finalText.includes(degradedNote("timeout"))).toBe(true)
       },
     })
 
@@ -642,12 +794,24 @@ describe("session.compaction structured artifacts + events", () => {
           expect(data["status"]).toBe("disabled")
           expect(data["reasonCode"]).toBe("disabled")
           expect(data["ui_view_source"]).toBe("deterministic")
+          expect(data["assisted_status"]).toBe("disabled")
+          expect(data["assisted_reason_code"]).toBeNull()
+          expect(data["assisted_timeout_ms"]).toBe(30_000)
+          expect(data["summary_format_version"]).toBe("human-summary/1.0")
+
+          const report = await readReport({ root: tmp.path, sessionId })
+          expect(report?.["ui_view_source"]).toBe(data["ui_view_source"])
+          expect(report?.["assisted_status"]).toBe(data["assisted_status"])
+          expect(report?.["assisted_reason_code"]).toBe(data["assisted_reason_code"])
+          expect(report?.["assisted_timeout_ms"]).toBe(data["assisted_timeout_ms"])
+          expect(report?.["summary_format_version"]).toBe(data["summary_format_version"])
         }
 
         expect(calls.value).toBe(0)
         const finalText = await summaryText(sessionId)
         assertHumanSummary(finalText)
         assertNoJsonLeak(finalText)
+        expect(finalText.includes("LLM 摘要不可用（原因：")).toBe(false)
       },
     })
 
@@ -684,8 +848,93 @@ describe("session.compaction structured artifacts + events", () => {
         if (requested) {
           const data = requested.data ?? {}
           expect(typeof data["compactionId"]).toBe("string")
+          expect(data["assisted_timeout_ms"]).toBe(30_000)
         }
       },
     })
+  }, { timeout })
+
+  test("assisted timeout supports config experimental.compaction_llm_timeout_ms override", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({ experimental: { compaction_llm_augment: true, compaction_llm_timeout_ms: 45_000 } }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const sessionId = session.id
+        await writeText({ sessionId, text: "Round A: timeout override" })
+        const msg = await writeText({ sessionId, text: "Round B: compact" })
+
+        const result = await runStructured({ sessionId, parentId: msg.id })
+        expect(result).toBe("continue")
+
+        const done = await waitFor({
+          ms: 12_000,
+          check: async () => Boolean(await findEvent({ sessionId, type: "capsule.assisted.requested" })),
+        })
+        expect(done).toBe(true)
+
+        const requested = await findEvent({ sessionId, type: "capsule.assisted.requested" })
+        expect(requested).toBeTruthy()
+        if (requested) {
+          const data = requested.data ?? {}
+          expect(data["assisted_timeout_ms"]).toBe(45_000)
+        }
+      },
+    })
+  }, { timeout })
+
+  test("assisted timeout supports env OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS override", async () => {
+    const prev = process.env["OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS"]
+    try {
+      process.env["OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS"] = "47000"
+
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(path.join(dir, "opencode.json"), JSON.stringify({ experimental: { compaction_llm_augment: true } }))
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({})
+          const sessionId = session.id
+          await writeText({ sessionId, text: "Round A: env timeout override" })
+          const msg = await writeText({ sessionId, text: "Round B: compact" })
+
+          const result = await runStructured({ sessionId, parentId: msg.id })
+          expect(result).toBe("continue")
+
+          const done = await waitFor({
+            ms: 12_000,
+            check: async () => Boolean(await findEvent({ sessionId, type: "capsule.assisted.requested" })),
+          })
+          expect(done).toBe(true)
+
+          const requested = await findEvent({ sessionId, type: "capsule.assisted.requested" })
+          expect(requested).toBeTruthy()
+          if (requested) {
+            const data = requested.data ?? {}
+            expect(data["assisted_timeout_ms"]).toBe(47_000)
+          }
+        },
+      })
+    } finally {
+      if (prev === undefined) {
+        delete process.env["OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS"]
+      } else {
+        process.env["OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS"] = prev
+      }
+    }
   }, { timeout })
 })

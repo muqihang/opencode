@@ -40,6 +40,7 @@ export namespace Flag {
   export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2: boolean
   export declare const OPENCODE_EXPERIMENTAL_OFFLINE_EVAL_GATES: boolean
   export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS: number | undefined
+  export declare const OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS: number | undefined
   export declare const OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_DEBUG_SUMMARY: boolean
   export declare const OPENCODE_RETRIEVAL_HYBRID_STRATEGY: string | undefined
   export declare const OPENCODE_RETRIEVAL_HYBRID_COMPENSATION_GATE: string | undefined
@@ -207,6 +208,19 @@ Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_V15_A2", {
 Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS", {
   get() {
     const value = process.env["OPENCODE_EXPERIMENTAL_ORCHESTRATOR_WORKER_TIMEOUT_MS"]
+    if (!value) return undefined
+    const parsed = Number(value)
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+// Dynamic getter for OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS
+// This must be evaluated at access time to support runtime env overrides in CLI/tests
+Object.defineProperty(Flag, "OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS", {
+  get() {
+    const value = process.env["OPENCODE_EXPERIMENTAL_COMPACTION_LLM_TIMEOUT_MS"]
     if (!value) return undefined
     const parsed = Number(value)
     return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined

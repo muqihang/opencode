@@ -32,6 +32,42 @@ export type CapsuleAssistedRunResult = {
 
 const coverageNone = { known: 0, unknown: 0, anchors: 0 }
 
+const hintFallback = [
+  "# Compaction Summary",
+  "",
+  "## Goal",
+  "- unknown",
+  "",
+  "## Decisions",
+  "- Compaction trigger: manual",
+  "",
+  "## Open Questions",
+  "- none",
+  "",
+  "## Next Steps",
+  "- unknown",
+].join("\n")
+
+const hintBlocked = [
+  /\bspecVersion\s*:/iu,
+  /\bsessionId\s*:/iu,
+  /\bgeneratedAtUtc\s*:/iu,
+  /\bsha256\s*:/iu,
+  /\bplugin_prompt\s*:/iu,
+]
+
+const hintSafe = (text: string) => {
+  if (!text.startsWith("# Compaction Summary")) return false
+  return hintBlocked.every((item) => !item.test(text))
+}
+
+const humanHint = (value: string) => {
+  const text = value.trim()
+  if (!text) return hintFallback
+  if (hintSafe(text)) return text
+  return hintFallback
+}
+
 const baseDir = () => (Instance.worktree === "/" ? Instance.directory : Instance.worktree)
 
 const normRel = (value: string) => value.replace(/\\/g, "/").replace(/\/+/g, "/")
@@ -227,6 +263,7 @@ export const CapsuleAssistedRunner = {
     compactionId: string
     parentId?: string
     hintText: string
+    timeoutMs: number
     modelFallback: { providerID: string; modelID: string }
     artifacts: Artifact[]
   }): Promise<CapsuleAssistedRunResult> {
@@ -248,6 +285,7 @@ export const CapsuleAssistedRunner = {
       data: {
         compactionId: input.compactionId,
         parentId: input.parentId,
+        assisted_timeout_ms: input.timeoutMs,
         versions,
         budget,
       },
@@ -325,7 +363,7 @@ export const CapsuleAssistedRunner = {
       versions,
       budget,
       anchors,
-      hintText: input.hintText,
+      hintText: humanHint(input.hintText),
     })
 
     const inputEntry = await writer.artifact({
@@ -345,7 +383,7 @@ export const CapsuleAssistedRunner = {
         versions,
         budget,
         anchors: anchors.map((a) => ({ path: a.path, sha256: a.sha256, kind: a.kind, anchor: a.anchor })),
-        hintSha256: sha256Text(input.hintText),
+        hintSha256: sha256Text(inputPack.hintText),
       },
     })
     const store = CacheStore.open({ namespace: "capsule-assisted", scope, limits: CachePolicy.limits() })
@@ -388,7 +426,7 @@ export const CapsuleAssistedRunner = {
               schema: Draft,
               messages,
             }),
-            12_000,
+            input.timeoutMs,
           )
           return { specVersion: "capsule-assisted-cache/1.0", items: result.object.items }
         },

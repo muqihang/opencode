@@ -427,6 +427,18 @@ export namespace SessionCompaction {
   const viewSafe = (text: string) => blockedViewPatterns.every((p) => !p.test(text))
 
   const coverageNone = { known: 0, unknown: 0, anchors: 0 }
+  const assistedTimeoutDefault = 30_000
+
+  const runtimeReason = (value: string | undefined) => (value === "timeout" ? "timeout" : "failed")
+
+  const degradedNote = (value: "timeout" | "failed") =>
+    `LLM 摘要不可用（原因：${value}），当前显示 deterministic 摘要`
+
+  const withDegradedNote = (input: { text: string; reason: string | undefined }) => {
+    const note = degradedNote(runtimeReason(input.reason))
+    if (input.text.includes(note)) return input.text
+    return `${input.text.trimEnd()}\n\n> ${note}`
+  }
 
   const skipCode = (input: { status: CapsuleAssistedRunResult["status"]; verifyOk: boolean }): AssistedSkipCode => {
     if (input.status === "disabled") return "disabled"
@@ -951,6 +963,11 @@ export namespace SessionCompaction {
             confidence: reference.confidence,
             reason_codes: reference.reasonCodes,
           },
+          ui_view_source: "deterministic",
+          assisted_status: "disabled",
+          assisted_reason_code: null,
+          assisted_timeout_ms: assistedTimeoutDefault,
+          summary_format_version: "human-summary/1.0",
           artifacts: {
             capsule: { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
             facts: { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },
@@ -1057,14 +1074,61 @@ export namespace SessionCompaction {
         msg.time.completed = Date.now()
         await Session.updateMessage(msg)
 
+        const writeRuntime = async (input2: {
+          uiViewSource: "deterministic" | "llm"
+          assistedStatus: "success" | "degraded" | "failed" | "disabled"
+          assistedReasonCode: string | null
+          assistedTimeoutMs: number
+          summaryFormatVersion: string
+        }) => {
+          const updated = CompactionReport.parse({
+            ...finalReport,
+            ui_view_source: input2.uiViewSource,
+            assisted_status: input2.assistedStatus,
+            assisted_reason_code: input2.assistedReasonCode,
+            assisted_timeout_ms: input2.assistedTimeoutMs,
+            summary_format_version: input2.summaryFormatVersion,
+          })
+          await writer.artifact({ kind: "compaction-report", path: reportRel, data: stableJson(updated) })
+          return updated
+        }
+
         const emitSkipped = async (input2: {
           status: CapsuleAssistedRunResult["status"]
           reasonCode: AssistedSkipCode
           assistedReasonCode?: string
+          assistedTimeoutMs: number
           coverage: { known: number; unknown: number; anchors: number }
           viewArtifact?: string
           verifyArtifact?: string
         }) => {
+          const assistedStatus = input2.status === "success" ? "degraded" : input2.status
+          const runtime = await writeRuntime({
+            uiViewSource: "deterministic",
+            assistedStatus,
+            assistedReasonCode: input2.assistedReasonCode ?? null,
+            assistedTimeoutMs: input2.assistedTimeoutMs,
+            summaryFormatVersion: "human-summary/1.0",
+          })
+
+          if (input2.status !== "disabled") {
+            const text = withDegradedNote({
+              text: summaryRendered,
+              reason: input2.assistedReasonCode,
+            })
+            await Session.updatePart({
+              id: summaryPart.id,
+              messageID: summaryPart.messageID,
+              sessionID: summaryPart.sessionID,
+              type: "text",
+              text,
+              time: {
+                start: summaryPart.time?.start ?? Date.now(),
+                end: Date.now(),
+              },
+            })
+          }
+
           await writer.event({
             specVersion: "event/1.0",
             ts: new Date().toISOString(),
@@ -1077,8 +1141,11 @@ export namespace SessionCompaction {
               compactionId,
               status: input2.status,
               reasonCode: input2.reasonCode,
-              assisted_reason_code: input2.assistedReasonCode,
-              ui_view_source: "deterministic",
+              assisted_status: runtime.assisted_status,
+              assisted_reason_code: runtime.assisted_reason_code,
+              assisted_timeout_ms: runtime.assisted_timeout_ms,
+              ui_view_source: runtime.ui_view_source,
+              summary_format_version: runtime.summary_format_version,
               coverage: input2.coverage,
               view_artifact: input2.viewArtifact,
               verify_artifact: input2.verifyArtifact,
@@ -1090,10 +1157,12 @@ export namespace SessionCompaction {
         void (async () => {
           const cfg = await Config.get()
           const assistedEnabled = cfg.experimental?.compaction_llm_augment ?? false
+          const assistedTimeoutMs = cfg.experimental?.compaction_llm_timeout_ms ?? assistedTimeoutDefault
           if (!assistedEnabled) {
             await emitSkipped({
               status: "disabled",
               reasonCode: "disabled",
+              assistedTimeoutMs,
               coverage: coverageNone,
             })
             return
@@ -1104,6 +1173,7 @@ export namespace SessionCompaction {
             compactionId,
             parentId: input.parentID,
             hintText: summaryRendered,
+            timeoutMs: assistedTimeoutMs,
             modelFallback: { providerID: user.model.providerID, modelID: user.model.modelID },
             artifacts: [
               { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
@@ -1127,6 +1197,7 @@ export namespace SessionCompaction {
               status: assisted.status,
               reasonCode: skipCode({ status: assisted.status, verifyOk: assisted.verifyOk }),
               assistedReasonCode: assisted.reasonCode,
+              assistedTimeoutMs,
               coverage: assisted.coverage,
               viewArtifact: assisted.artifacts?.view?.path,
               verifyArtifact: assisted.artifacts?.verify?.path,
@@ -1139,6 +1210,7 @@ export namespace SessionCompaction {
               status: assisted.status,
               reasonCode: "verify_failed",
               assistedReasonCode: assisted.reasonCode,
+              assistedTimeoutMs,
               coverage: assisted.coverage,
               viewArtifact: assisted.artifacts?.view?.path,
               verifyArtifact: assisted.artifacts?.verify?.path,
@@ -1153,6 +1225,7 @@ export namespace SessionCompaction {
               status: assisted.status,
               reasonCode: "artifact_missing",
               assistedReasonCode: assisted.reasonCode,
+              assistedTimeoutMs,
               coverage: assisted.coverage,
               viewArtifact,
               verifyArtifact: assisted.artifacts?.verify?.path,
@@ -1165,6 +1238,7 @@ export namespace SessionCompaction {
               status: assisted.status,
               reasonCode: "verify_failed",
               assistedReasonCode: assisted.reasonCode,
+              assistedTimeoutMs,
               coverage: assisted.coverage,
               viewArtifact,
               verifyArtifact: assisted.artifacts?.verify?.path,
@@ -1184,6 +1258,14 @@ export namespace SessionCompaction {
             },
           })
 
+          const runtime = await writeRuntime({
+            uiViewSource: "llm",
+            assistedStatus: "success",
+            assistedReasonCode: null,
+            assistedTimeoutMs,
+            summaryFormatVersion: "assisted-summary/1.0",
+          })
+
           await writer.event({
             specVersion: "event/1.0",
             ts: new Date().toISOString(),
@@ -1195,7 +1277,11 @@ export namespace SessionCompaction {
             data: {
               compactionId,
               status: assisted.status,
-              ui_view_source: "llm",
+              assisted_status: runtime.assisted_status,
+              assisted_reason_code: runtime.assisted_reason_code,
+              assisted_timeout_ms: runtime.assisted_timeout_ms,
+              ui_view_source: runtime.ui_view_source,
+              summary_format_version: runtime.summary_format_version,
               coverage: assisted.coverage,
               view_artifact: viewArtifact,
               verify_artifact: assisted.artifacts?.verify?.path,
