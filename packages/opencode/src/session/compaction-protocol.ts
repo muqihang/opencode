@@ -63,6 +63,7 @@ export const CompactionInput = z
     specVersion: z.literal("compaction-input/1.0"),
     sessionId: z.string().min(1),
     compactionId: z.string().min(1),
+    probe_correlation_id: z.string().min(1),
     parentId: z.string().min(1),
     generatedAtUtc: IsoDateTimeUtc,
     trigger: CompactionTrigger.optional(),
@@ -97,10 +98,15 @@ const Delta = z
 export const CompactionQuality = z
   .object({
     semantic_coverage: z.number().min(0).max(1),
+    consistency_score: z.number().min(0).max(1),
+    anchor_consistency_score: z.number().min(0).max(1),
     known_facts: NonNegativeInt,
     unknown_facts: NonNegativeInt,
+    contradiction_count: NonNegativeInt,
+    contradiction_rate: z.number().min(0).max(1),
     active_files_count: NonNegativeInt,
     next_steps_count: NonNegativeInt,
+    reason_codes: z.array(z.string().regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/)),
   })
   .strict()
 
@@ -111,6 +117,7 @@ export const CompactionReport = z
     specVersion: z.literal("compaction-report/1.0"),
     sessionId: z.string().min(1),
     compactionId: z.string().min(1),
+    probe_correlation_id: z.string().min(1),
     generatedAtUtc: IsoDateTimeUtc,
     previous: z
       .object({
@@ -120,6 +127,14 @@ export const CompactionReport = z
       .strict(),
     delta: Delta,
     quality: CompactionQuality,
+    reference_check: z
+      .object({
+        mode_resolved: z.enum(["strict", "normal", "unknown"]),
+        confidence: z.number().min(0).max(1),
+        reason_codes: z.array(z.string().regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/)),
+      })
+      .strict()
+      .optional(),
     artifacts: z
       .object({
         capsule: Pointer,

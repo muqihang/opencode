@@ -4,6 +4,7 @@ import path from "path"
 import type { OrchestratorPlan } from "../../src/protocol/orchestrator-plan"
 import { resolveSecureOutputMode } from "../../src/session/orchestrator/policy"
 import { LLM } from "../../src/session/llm"
+import { buildReferenceCheckModeResolvedEventData } from "../../src/session/processor"
 import { applyStrictReferenceCheck } from "../../src/session/reference-check"
 import { SecureOutputContract } from "../../src/session/secure-output-contract"
 import { resolveSecureOutputContract } from "../../src/session/secure-output-contract"
@@ -186,5 +187,61 @@ describe("orchestrator secure-output policy", () => {
       sessionId: "session-contract-ref-check",
     })
     expect(normalCheck.applied).toBe(false)
+  })
+
+  test("balanced policy can escalate to strict under high-risk evidence-heavy confidence", async () => {
+    const mode = resolveSecureOutputMode({
+      enabled: true,
+      plan: makePlan({ orchestratorMode: "assist" }),
+    })
+    expect(mode).toBe("balanced")
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "docs"), { recursive: true })
+        await Bun.write(path.join(dir, "docs", "proof.md"), "line 1\nline 2\nline 3\n")
+      },
+    })
+
+    const checked = await applyStrictReferenceCheck({
+      intentText: "直接回答，不要展开",
+      text: "[evidence: docs/proof.md:2]",
+      baseDir: tmp.path,
+      sessionId: "session-policy-escalate",
+      modeResolved: {
+        mode: "normal",
+        confidence: 0.96,
+        reasonCodes: ["intent_not_verification", "high_risk", "evidence_heavy"],
+        intent: "直接回答，不要展开",
+      },
+    })
+
+    const structured = {
+      mode_resolved: checked.modeResolved.mode,
+      confidence: checked.modeResolved.confidence,
+      reason_codes: checked.modeResolved.reasonCodes,
+    }
+
+    expect(checked.applied).toBe(true)
+    expect(checked.blocked).toBe(false)
+    expect(structured.mode_resolved).toBe("strict")
+    expect(structured.confidence).toBeGreaterThanOrEqual(0.95)
+    expect(structured.reason_codes.includes("confidence_escalated_strict")).toBe(true)
+  })
+
+  test("reference_check.mode_resolved event includes mode_resolved and legacy mode", () => {
+    const data = buildReferenceCheckModeResolvedEventData({
+      messageId: "msg-event",
+      mode: "strict",
+      confidence: 0.99,
+      reasonCodes: ["confidence_escalated_strict"],
+      intentText: "请输出最终审计结论",
+    })
+
+    expect(data.mode_resolved).toBe("strict")
+    expect(data.mode).toBe("strict")
+    expect(data.confidence).toBe(0.99)
+    expect(data.reason_codes).toEqual(["confidence_escalated_strict"])
   })
 })

@@ -331,6 +331,7 @@ test("retrieval writes probe journal and marks duplicate probe by message+key", 
         specVersion?: string
         messageId?: string
         probeId?: string
+        probe_correlation_id?: string
         dedupeKey?: string
         why?: string
         queries?: unknown
@@ -341,6 +342,7 @@ test("retrieval writes probe journal and marks duplicate probe by message+key", 
         specVersion?: string
         messageId?: string
         probeId?: string
+        probe_correlation_id?: string
         dedupeKey?: string
         why?: string
         queries?: unknown
@@ -351,6 +353,7 @@ test("retrieval writes probe journal and marks duplicate probe by message+key", 
       expect(oneProbe.specVersion).toBe("probe-journal/1.0")
       expect(oneProbe.messageId).toBe(messageId)
       expect(typeof oneProbe.probeId).toBe("string")
+      expect(typeof oneProbe.probe_correlation_id).toBe("string")
       expect(typeof oneProbe.dedupeKey).toBe("string")
       expect(typeof oneProbe.why).toBe("string")
       expect(Array.isArray(oneProbe.queries)).toBe(true)
@@ -358,10 +361,39 @@ test("retrieval writes probe journal and marks duplicate probe by message+key", 
 
       expect(twoProbe.specVersion).toBe("probe-journal/1.0")
       expect(twoProbe.messageId).toBe(messageId)
+      expect(typeof twoProbe.probe_correlation_id).toBe("string")
       expect(twoProbe.dedupeKey).toBe(oneProbe.dedupeKey)
+      expect(twoProbe.probe_correlation_id).toBe(oneProbe.probe_correlation_id)
       expect(oneProbe.dedupe?.duplicate).toBe(false)
       expect(twoProbe.dedupe?.duplicate).toBe(true)
       expect(twoProbe.dedupe?.seen).toBeGreaterThanOrEqual(2)
+
+      const eventsPathValue = await eventsPath(sessionId)
+      const eventsText = await Bun.file(eventsPathValue).text()
+      const events = eventsText
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => EventV1.parse(JSON.parse(line)))
+      const oneStart = events.find((event) => event.type === "retrieval.started" && event.data?.retrievalId === one.retrievalId)
+      const oneTerminal = events.find(
+        (event) => event.data?.retrievalId === one.retrievalId && event.type !== "retrieval.started" && event.type.startsWith("retrieval."),
+      )
+      const twoStart = events.find((event) => event.type === "retrieval.started" && event.data?.retrievalId === two.retrievalId)
+      const twoTerminal = events.find(
+        (event) => event.data?.retrievalId === two.retrievalId && event.type !== "retrieval.started" && event.type.startsWith("retrieval."),
+      )
+
+      expect(typeof oneStart?.data?.["probe_correlation_id"]).toBe("string")
+      expect(typeof oneTerminal?.data?.["probe_correlation_id"]).toBe("string")
+      expect(typeof twoStart?.data?.["probe_correlation_id"]).toBe("string")
+      expect(typeof twoTerminal?.data?.["probe_correlation_id"]).toBe("string")
+
+      expect(oneStart?.data?.["probe_correlation_id"]).toBe(oneProbe.probe_correlation_id)
+      expect(oneTerminal?.data?.["probe_correlation_id"]).toBe(oneProbe.probe_correlation_id)
+      expect(twoStart?.data?.["probe_correlation_id"]).toBe(twoProbe.probe_correlation_id)
+      expect(twoTerminal?.data?.["probe_correlation_id"]).toBe(twoProbe.probe_correlation_id)
+      expect(oneStart?.data?.["probe_correlation_id"]).toBe(twoStart?.data?.["probe_correlation_id"])
     },
   })
 })

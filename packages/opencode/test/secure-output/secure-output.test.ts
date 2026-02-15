@@ -126,6 +126,7 @@ describe("secure-output", () => {
         if (!claims) return
 
         const payload = (await Bun.file(path.join(Instance.worktree, claims.path)).json()) as {
+          probe_correlation_id?: string
           claims?: Array<{
             pointers?: Array<{
               path?: string
@@ -134,13 +135,20 @@ describe("secure-output", () => {
             }>
           }>
         }
+        expect(typeof payload.probe_correlation_id).toBe("string")
         expect(payload.claims?.[0]?.pointers?.[0]?.path).toBe(rel)
         expect(payload.claims?.[0]?.pointers?.[0]?.sha256).toBe(sha256(content))
         expect(payload.claims?.[0]?.pointers?.[0]?.anchor).toEqual({ lineStart: 2, lineEnd: 3 })
 
         const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 120 })
         const drafted = events.events.find((event) => event.type === "secure_output.claims_drafted")
+        const completed = events.events.find((event) => event.type === "secure_output.completed")
         expect(Boolean(drafted)).toBe(true)
+        expect(Boolean(completed)).toBe(true)
+        expect(typeof drafted?.data?.["probe_correlation_id"]).toBe("string")
+        expect(typeof completed?.data?.["probe_correlation_id"]).toBe("string")
+        expect(drafted?.data?.["probe_correlation_id"]).toBe(payload.probe_correlation_id)
+        expect(completed?.data?.["probe_correlation_id"]).toBe(payload.probe_correlation_id)
       },
     })
   }, { timeout: 30000 })
@@ -542,9 +550,11 @@ describe("secure-output", () => {
         if (!entry) return
 
         const payload = (await Bun.file(path.join(Instance.worktree, entry.path)).json()) as {
+          probe_correlation_id?: string
           invalid_refs_count?: number
           reason_codes?: string[]
         }
+        expect(typeof payload.probe_correlation_id).toBe("string")
         expect(typeof payload.invalid_refs_count).toBe("number")
         expect((payload.invalid_refs_count ?? 0) > 0).toBe(true)
         expect(Array.isArray(payload.reason_codes)).toBe(true)
@@ -552,9 +562,15 @@ describe("secure-output", () => {
 
         const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 120 })
         const feedback = events.events.find((event) => event.type === "reference_check.feedback")
+        const degraded = events.events.find((event) => event.type === "secure_output.degraded")
         expect(Boolean(feedback)).toBe(true)
+        expect(Boolean(degraded)).toBe(true)
         expect(typeof feedback?.data?.["invalid_refs_count"]).toBe("number")
         expect(Array.isArray(feedback?.data?.["reason_codes"])).toBe(true)
+        expect(typeof feedback?.data?.["probe_correlation_id"]).toBe("string")
+        expect(typeof degraded?.data?.["probe_correlation_id"]).toBe("string")
+        expect(feedback?.data?.["probe_correlation_id"]).toBe(payload.probe_correlation_id)
+        expect(degraded?.data?.["probe_correlation_id"]).toBe(payload.probe_correlation_id)
       },
     })
   }, { timeout: 30000 })

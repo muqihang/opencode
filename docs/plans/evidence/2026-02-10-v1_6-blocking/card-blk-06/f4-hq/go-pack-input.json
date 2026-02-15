@@ -1,0 +1,30 @@
+{
+  "p0": {
+    "reference_gate_green": true,
+    "replay_trace_green": true
+  },
+  "p1": {
+    "claims_grounding_green": true,
+    "compaction_quality_green": true
+  },
+  "p2": {
+    "contradiction_rate_green": true,
+    "anchor_consistency_score_green": true
+  },
+  "nightly": {
+    "nightly_soak_pass_rate": 0.997,
+    "restart_resume_regression": 0
+  },
+  "replay_traces": [
+    "docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/f4-hq/p2-compaction-quality-soak-replay-report.md",
+    "docs/plans/evidence/2026-02-10-v1_6-blocking/card-blk-06/f4-hq/p2b-audit-closure-replay-report.md"
+  ],
+  "mandatory_gates": {
+    "strict_reference_gate": true,
+    "long_session_restart_soak": true,
+    "assisted_compaction_guardrails": true
+  },
+  "external": {
+    "checklist_mapped": true
+  }
+}

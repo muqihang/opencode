@@ -17,6 +17,10 @@ export type VerificationModeResolution = {
   intent: string
 }
 
+const strictEscalationConfidence = 0.95
+const highRiskSignals = new Set(["high_risk", "unsupported_high_risk", "redaction_high"])
+const evidenceHeavySignals = new Set(["evidence_heavy", "citation_required", "citations_required"])
+
 const uniq = (input: string[]) => Array.from(new Set(input))
 
 const matchCodes = (text: string) =>
@@ -54,3 +58,44 @@ export const resolveVerificationMode = (input: {
   }
 }
 
+const hasSignal = (input: { reasonCodes: string[]; signals: Set<string> }) =>
+  input.reasonCodes.some((code) => input.signals.has(code))
+
+export const resolveEscalatedVerificationMode = (input: VerificationModeResolution): VerificationModeResolution => {
+  const reasonCodes = uniq(input.reasonCodes)
+  if (input.mode !== "normal") {
+    return {
+      mode: input.mode,
+      confidence: input.confidence,
+      reasonCodes,
+      intent: input.intent,
+    }
+  }
+
+  const highRisk = hasSignal({ reasonCodes, signals: highRiskSignals })
+  if (!highRisk) {
+    return {
+      mode: input.mode,
+      confidence: input.confidence,
+      reasonCodes,
+      intent: input.intent,
+    }
+  }
+
+  const evidenceHeavy = hasSignal({ reasonCodes, signals: evidenceHeavySignals })
+  if (!evidenceHeavy || input.confidence < strictEscalationConfidence) {
+    return {
+      mode: input.mode,
+      confidence: input.confidence,
+      reasonCodes,
+      intent: input.intent,
+    }
+  }
+
+  return {
+    mode: "strict",
+    confidence: Math.max(input.confidence, strictEscalationConfidence),
+    reasonCodes: uniq([...reasonCodes, "confidence_escalated_strict"]),
+    intent: input.intent,
+  }
+}

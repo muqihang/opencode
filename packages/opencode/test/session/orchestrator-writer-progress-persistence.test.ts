@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import path from "path"
 import { EvidenceReader } from "../../src/evidence/reader"
 import { Instance } from "../../src/project/instance"
 import { OrchestratorFeatures } from "../../src/protocol/orchestrator-features"
@@ -128,6 +129,11 @@ describe("orchestrator writer progress persistence", () => {
         const cycleSecond = Number(cycleSecondRows.at(-1)?.data?.["cycle"] ?? 0)
         expect(cycleSecond).toBeGreaterThan(cycleFirst)
 
+        const cycleSeq = cycleSecondRows
+          .map((item) => Number(item.data?.["cycle"] ?? 0))
+          .filter((item) => item > 0)
+        expect(cycleSeq.every((item, idx, all) => idx === 0 || item >= all[idx - 1])).toBe(true)
+
         await writerB.writeOrchestratorArtifacts({
           sessionId,
           plan: plan({
@@ -155,6 +161,14 @@ describe("orchestrator writer progress persistence", () => {
           (item) => item.data?.["stopReason"] === "max_rerun_exceeded",
         )
         expect(stopRows.length).toBe(1)
+
+        const progressFile = path.join(fixture.path, ".opencode", "context", sessionId, "orchestrator-progress.json")
+        const progressText = await Bun.file(progressFile).text()
+        const progress = JSON.parse(progressText) as {
+          messages?: Record<string, { cycle?: number }>
+        }
+        const savedCycle = Number(progress.messages?.[cycleMessage]?.cycle ?? 0)
+        expect(savedCycle).toBeGreaterThanOrEqual(cycleSecond)
 
         const degraded = await degradedRows({ sessionId, messageId: stopMessage })
         expect(degraded.length).toBe(1)
