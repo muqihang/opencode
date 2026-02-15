@@ -69,21 +69,37 @@ const runRound = async (input: { sessionId: string; round: number; tag: string }
   expect(quality).toBeTruthy()
   if (!quality) throw new Error("missing compaction.quality")
   const qualityData = quality.data ?? {}
+  expect(typeof qualityData["probe_correlation_id"]).toBe("string")
   expect(typeof qualityData["consistency_score"]).toBe("number")
+  expect(typeof qualityData["anchor_consistency_score"]).toBe("number")
   expect(typeof qualityData["contradiction_count"]).toBe("number")
+  expect(typeof qualityData["contradiction_rate"]).toBe("number")
   expect(Array.isArray(qualityData["reason_codes"])).toBe(true)
+  expect(Number(qualityData["anchor_consistency_score"])).toBeGreaterThanOrEqual(0)
+  expect(Number(qualityData["anchor_consistency_score"])).toBeLessThanOrEqual(1)
+  expect(Number(qualityData["contradiction_rate"])).toBeGreaterThanOrEqual(0)
+  expect(Number(qualityData["contradiction_rate"])).toBeLessThanOrEqual(1)
+
+  const completed = completedRows.at(-1)
+  expect(typeof completed?.data?.["probe_correlation_id"]).toBe("string")
+  expect(completed?.data?.["probe_correlation_id"]).toBe(qualityData["probe_correlation_id"])
 
   const reportPath = String(qualityData["report_artifact"] ?? "")
   expect(reportPath.length).toBeGreaterThan(0)
   const reportText = await Bun.file(path.join(Instance.worktree, reportPath)).text()
   const report = JSON.parse(reportText) as {
     compactionId?: string
+    probe_correlation_id?: string
     previous?: { compactionId?: string }
     quality?: Record<string, unknown>
   }
   expect(report.compactionId).toBeTruthy()
+  expect(typeof report.probe_correlation_id).toBe("string")
+  expect(report.probe_correlation_id).toBe(String(qualityData["probe_correlation_id"] ?? ""))
   expect(report.quality?.["consistency_score"]).toBe(qualityData["consistency_score"])
+  expect(report.quality?.["anchor_consistency_score"]).toBe(qualityData["anchor_consistency_score"])
   expect(report.quality?.["contradiction_count"]).toBe(qualityData["contradiction_count"])
+  expect(report.quality?.["contradiction_rate"]).toBe(qualityData["contradiction_rate"])
   expect(report.quality?.["reason_codes"]).toEqual(qualityData["reason_codes"])
 
   const statePath = path.join(Instance.worktree, ".opencode", "compaction", input.sessionId, "state.json")
@@ -95,6 +111,7 @@ const runRound = async (input: { sessionId: string; round: number; tag: string }
     compactionId: String(report.compactionId ?? ""),
     previousCompactionId: String(report.previous?.compactionId ?? ""),
     completedCount: completedRows.length,
+    probeCorrelation: String(qualityData["probe_correlation_id"] ?? ""),
   }
 }
 
@@ -118,6 +135,9 @@ describe("compaction restart soak", () => {
         expect(new Set(ids).size).toBeGreaterThanOrEqual(3)
         expect(ids[1] > ids[0]).toBe(true)
         expect(ids[2] > ids[1]).toBe(true)
+
+        expect(second.probeCorrelation).toBe(first.probeCorrelation)
+        expect(third.probeCorrelation).toBe(second.probeCorrelation)
 
         expect(first.completedCount).toBe(1)
         expect(second.completedCount).toBe(2)

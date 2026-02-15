@@ -42,6 +42,21 @@ const referenceCheckPolicy = [
   "</reference_check_policy>",
 ].join("\n")
 
+export const buildReferenceCheckModeResolvedEventData = (input: {
+  messageId: string
+  mode: "strict" | "normal"
+  confidence: number
+  reasonCodes: string[]
+  intentText: string
+}) => ({
+  messageId: input.messageId,
+  mode_resolved: input.mode,
+  confidence: input.confidence,
+  reason_codes: input.reasonCodes,
+  mode: input.mode,
+  intent: input.intentText,
+})
+
 export type ClaimsStreamMask = {
   tail: string
   hidden: boolean
@@ -810,13 +825,7 @@ export namespace SessionProcessor {
         actor: "orchestrator:processor",
         type: "reference_check.mode_resolved",
         summary: "reference-check mode resolved",
-        data: {
-          messageId: input.messageId,
-          mode: input.mode,
-          confidence: input.confidence,
-          reason_codes: input.reasonCodes,
-          intent: input.intentText,
-        },
+        data: buildReferenceCheckModeResolvedEventData(input),
         redaction: { applied: true, policyVersion: "v1" },
       })
       .catch(() => {})

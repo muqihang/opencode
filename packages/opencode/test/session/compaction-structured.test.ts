@@ -182,7 +182,9 @@ describe("session.compaction structured artifacts + events", () => {
 
         const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 1000 })
         const types = events.events.map((e) => e.type)
+        const started = events.events.find((e) => e.type === "compaction.started")
         const quality = events.events.find((e) => e.type === "compaction.quality")
+        const completed = events.events.find((e) => e.type === "compaction.completed")
         const anchorEntry = manifest.entries.find((e) => compactionPattern.test(e.path) && e.path.endsWith("/anchor.snapshot.json"))
         expect(anchorEntry).toBeTruthy()
         if (anchorEntry) {
@@ -202,34 +204,51 @@ describe("session.compaction structured artifacts + events", () => {
         expect(quality).toBeTruthy()
         if (quality) {
           const qualityData = quality.data ?? {}
+          expect(typeof qualityData["probe_correlation_id"]).toBe("string")
           expect(typeof qualityData["semantic_coverage"]).toBe("number")
           expect(typeof qualityData["consistency_score"]).toBe("number")
+          expect(typeof qualityData["anchor_consistency_score"]).toBe("number")
           expect(typeof qualityData["known_facts"]).toBe("number")
           expect(typeof qualityData["unknown_facts"]).toBe("number")
           expect(typeof qualityData["contradiction_count"]).toBe("number")
+          expect(typeof qualityData["contradiction_rate"]).toBe("number")
           expect(typeof qualityData["active_files_count"]).toBe("number")
           expect(typeof qualityData["next_steps_count"]).toBe("number")
           expect(Array.isArray(qualityData["reason_codes"])).toBe(true)
           expect(Number(qualityData["consistency_score"])).toBeGreaterThanOrEqual(0)
           expect(Number(qualityData["consistency_score"])).toBeLessThanOrEqual(1)
+          expect(Number(qualityData["anchor_consistency_score"])).toBeGreaterThanOrEqual(0)
+          expect(Number(qualityData["anchor_consistency_score"])).toBeLessThanOrEqual(1)
           expect(Number(qualityData["contradiction_count"])).toBeGreaterThanOrEqual(0)
+          expect(Number(qualityData["contradiction_rate"])).toBeGreaterThanOrEqual(0)
+          expect(Number(qualityData["contradiction_rate"])).toBeLessThanOrEqual(1)
           expect((qualityData["reason_codes"] as unknown[]).every((item) => typeof item === "string")).toBe(true)
         }
+
+        expect(typeof started?.data?.["probe_correlation_id"]).toBe("string")
+        expect(typeof completed?.data?.["probe_correlation_id"]).toBe("string")
+        expect(started?.data?.["probe_correlation_id"]).toBe(quality?.data?.["probe_correlation_id"])
+        expect(completed?.data?.["probe_correlation_id"]).toBe(quality?.data?.["probe_correlation_id"])
 
         const reportEntry = manifest.entries.find((e) => compactionPattern.test(e.path) && e.path.endsWith("/compaction.report.json"))
         expect(reportEntry).toBeTruthy()
         if (reportEntry && quality) {
           const reportText = await Bun.file(path.join(tmp.path, reportEntry.path)).text()
           const report = JSON.parse(reportText) as {
+            probe_correlation_id?: string
             quality?: Record<string, unknown>
           }
           expect(report.quality).toBeTruthy()
           const qualityData = quality.data ?? {}
+          expect(typeof report.probe_correlation_id).toBe("string")
+          expect(report.probe_correlation_id).toBe(String(qualityData["probe_correlation_id"] ?? ""))
           expect(report.quality?.["semantic_coverage"]).toBe(qualityData["semantic_coverage"])
           expect(report.quality?.["consistency_score"]).toBe(qualityData["consistency_score"])
+          expect(report.quality?.["anchor_consistency_score"]).toBe(qualityData["anchor_consistency_score"])
           expect(report.quality?.["known_facts"]).toBe(qualityData["known_facts"])
           expect(report.quality?.["unknown_facts"]).toBe(qualityData["unknown_facts"])
           expect(report.quality?.["contradiction_count"]).toBe(qualityData["contradiction_count"])
+          expect(report.quality?.["contradiction_rate"]).toBe(qualityData["contradiction_rate"])
           expect(report.quality?.["active_files_count"]).toBe(qualityData["active_files_count"])
           expect(report.quality?.["next_steps_count"]).toBe(qualityData["next_steps_count"])
           expect(report.quality?.["reason_codes"]).toEqual(qualityData["reason_codes"])
@@ -271,6 +290,12 @@ describe("session.compaction structured artifacts + events", () => {
         expect(Number(data["contradiction_count"])).toBeGreaterThan(0)
         expect(Number(data["consistency_score"])).toBeGreaterThanOrEqual(0)
         expect(Number(data["consistency_score"])).toBeLessThanOrEqual(1)
+        expect(typeof data["anchor_consistency_score"]).toBe("number")
+        expect(Number(data["anchor_consistency_score"])).toBeGreaterThanOrEqual(0)
+        expect(Number(data["anchor_consistency_score"])).toBeLessThanOrEqual(1)
+        expect(typeof data["contradiction_rate"]).toBe("number")
+        expect(Number(data["contradiction_rate"])).toBeGreaterThanOrEqual(0)
+        expect(Number(data["contradiction_rate"])).toBeLessThanOrEqual(1)
         const reasonCodes = Array.isArray(data["reason_codes"])
           ? (data["reason_codes"] as unknown[]).map((item) => String(item))
           : []

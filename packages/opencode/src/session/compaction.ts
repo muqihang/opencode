@@ -12,6 +12,7 @@ import { Log } from "../util/log"
 import { fn } from "@/util/fn"
 import { Config } from "@/config/config"
 import { EvidenceWriter } from "@/evidence/writer"
+import { EvidenceReader } from "@/evidence/reader"
 import { stableJson } from "@/util/stable-json"
 import { ulid } from "ulid"
 import { CompactionFacts, CompactionInput, CompactionQuality, CompactionReport, CompactionTrigger } from "./compaction-protocol"
@@ -22,6 +23,7 @@ import { AnchorSnapshot } from "./anchor-snapshot"
 import { withTimeout } from "@/util/timeout"
 import { Capsule } from "./capsule"
 import { CapsuleAssistedRunner } from "./capsule-assisted"
+import { resolveProbeCorrelationID } from "./probe-correlation"
 import type { CapsuleAssistedRunResult } from "./capsule-assisted"
 
 export namespace SessionCompaction {
@@ -274,7 +276,33 @@ export namespace SessionCompaction {
     return {
       consistencyScore,
       contradictionCount,
+      claimCount: claims.length,
       reasonCodes: [...new Set(reasonCodes)].sort(),
+    }
+  }
+
+  const referenceCheck = async (sessionID: string) => {
+    const rows = await EvidenceReader.readEvents(sessionID, { cursor: 0, limit: 1200 }).catch(() => undefined)
+    const resolved = rows?.events.findLast((item) => item.type === "reference_check.mode_resolved")
+    if (!resolved)
+      return {
+        modeResolved: "unknown" as const,
+        confidence: 0,
+        reasonCodes: ["reference_check_unavailable"],
+      }
+
+    const data = resolved.data ?? {}
+    const modeRaw = typeof data["mode_resolved"] === "string" ? data["mode_resolved"] : data["mode"]
+    const modeResolved = modeRaw === "strict" || modeRaw === "normal" ? modeRaw : "unknown"
+    const confidenceRaw = Number(data["confidence"])
+    const confidence = Number.isFinite(confidenceRaw) ? Math.min(1, Math.max(0, confidenceRaw)) : 0
+    const reasonCodes = Array.isArray(data["reason_codes"])
+      ? data["reason_codes"].map((item) => String(item)).filter((item) => /^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(item))
+      : []
+    return {
+      modeResolved,
+      confidence,
+      reasonCodes: reasonCodes.length > 0 ? reasonCodes : ["reference_check_missing_reason_codes"],
     }
   }
 
@@ -490,6 +518,10 @@ export namespace SessionCompaction {
     })) as MessageV2.Assistant
 
     const compactionId = msg.id
+    const probeCorrelationID = resolveProbeCorrelationID({
+      sessionID: input.sessionID,
+      messageID: input.parentID,
+    })
     const base = `compaction/${compactionId}`
     const now = new Date().toISOString()
     const result = await withTimeout(
@@ -595,6 +627,7 @@ export namespace SessionCompaction {
           specVersion: "compaction-input/1.0",
           sessionId: input.sessionID,
           compactionId,
+          probe_correlation_id: probeCorrelationID,
           parentId: input.parentID,
           generatedAtUtc: now,
           trigger: triggerInfo,
@@ -618,6 +651,7 @@ export namespace SessionCompaction {
           summary: "compaction started",
           data: {
             compactionId,
+            probe_correlation_id: probeCorrelationID,
             parentId: input.parentID,
             trigger: triggerInfo,
             trigger_source: triggerSource,
@@ -768,15 +802,30 @@ export namespace SessionCompaction {
           openQuestions,
           workingSet,
         })
+        const reference = await referenceCheck(input.sessionID)
+        const contradictionRate = Number((consistency.contradictionCount / Math.max(1, consistency.claimCount)).toFixed(3))
+        const anchorScore = Number(
+          ((
+            ((contextLedger.lastAnchorSnapshot ? 1 : 0) + (reference.modeResolved === "unknown" ? 0 : 1) + reference.confidence) /
+            3
+          ) *
+            (1 / (1 + contradictionRate))).toFixed(3),
+        )
+        const qualityReasonCodes = [
+          ...consistency.reasonCodes,
+          ...(reference.modeResolved === "unknown" ? ["reference_check_unlinked"] : ["reference_check_linked"]),
+        ]
         const quality = CompactionQuality.parse({
           semantic_coverage: Number((semanticKnown / 3).toFixed(3)),
           consistency_score: consistency.consistencyScore,
+          anchor_consistency_score: anchorScore,
           known_facts: factTotals.known,
           unknown_facts: factTotals.unknown,
           contradiction_count: consistency.contradictionCount,
+          contradiction_rate: contradictionRate,
           active_files_count: insight.files.length,
           next_steps_count: insight.steps.length,
-          reason_codes: consistency.reasonCodes,
+          reason_codes: [...new Set(qualityReasonCodes)].sort(),
         })
 
         const reportRel = `${base}/compaction.report.json`
@@ -785,6 +834,7 @@ export namespace SessionCompaction {
           specVersion: "compaction-report/1.0",
           sessionId: input.sessionID,
           compactionId,
+          probe_correlation_id: probeCorrelationID,
           generatedAtUtc: now,
           previous: {
             compactionId: prev.lastCompactionId,
@@ -792,6 +842,11 @@ export namespace SessionCompaction {
           },
           delta: { added, removed, changed },
           quality,
+          reference_check: {
+            mode_resolved: reference.modeResolved,
+            confidence: reference.confidence,
+            reason_codes: reference.reasonCodes,
+          },
           artifacts: {
             capsule: { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },
             facts: { path: factsEntry.path, sha256: factsEntry.sha256, kind: factsEntry.kind },
@@ -826,14 +881,20 @@ export namespace SessionCompaction {
           summary: "compaction semantic quality recorded",
           data: {
             compactionId,
+            probe_correlation_id: probeCorrelationID,
             semantic_coverage: finalReport.quality.semantic_coverage,
             consistency_score: finalReport.quality.consistency_score,
+            anchor_consistency_score: finalReport.quality.anchor_consistency_score,
             known_facts: finalReport.quality.known_facts,
             unknown_facts: finalReport.quality.unknown_facts,
             contradiction_count: finalReport.quality.contradiction_count,
+            contradiction_rate: finalReport.quality.contradiction_rate,
             active_files_count: finalReport.quality.active_files_count,
             next_steps_count: finalReport.quality.next_steps_count,
             reason_codes: finalReport.quality.reason_codes,
+            reference_check_mode_resolved: finalReport.reference_check?.mode_resolved,
+            reference_check_confidence: finalReport.reference_check?.confidence,
+            reference_check_reason_codes: finalReport.reference_check?.reason_codes,
             report_artifact: reportEntry.path,
           },
           redaction: { applied: true, policyVersion: "v1" },
@@ -860,6 +921,7 @@ export namespace SessionCompaction {
           summary: "compaction completed",
           data: {
             compactionId,
+            probe_correlation_id: probeCorrelationID,
             quality: finalReport.quality,
             artifacts: {
               capsule: { path: capsuleEntry.path, sha256: capsuleEntry.sha256, kind: capsuleEntry.kind },

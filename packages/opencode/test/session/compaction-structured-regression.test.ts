@@ -170,17 +170,45 @@ describe("structured compaction regression", () => {
         expect(capsule.sha256.length).toBe(64)
 
         const events = await EvidenceReader.readEvents(sessionId, { cursor: 0, limit: 1000 })
+        const started = events.events.findLast((item) => item.type === "compaction.started")
         const quality = events.events.findLast((item) => item.type === "compaction.quality")
+        const completed = events.events.findLast((item) => item.type === "compaction.completed")
         expect(quality).toBeTruthy()
         if (!quality) return
         const data = quality.data ?? {}
+        expect(typeof data["probe_correlation_id"]).toBe("string")
         expect(typeof data["consistency_score"]).toBe("number")
+        expect(typeof data["anchor_consistency_score"]).toBe("number")
         expect(typeof data["contradiction_count"]).toBe("number")
+        expect(typeof data["contradiction_rate"]).toBe("number")
         expect(Number(data["consistency_score"])).toBeGreaterThanOrEqual(0)
         expect(Number(data["consistency_score"])).toBeLessThanOrEqual(1)
+        expect(Number(data["anchor_consistency_score"])).toBeGreaterThanOrEqual(0)
+        expect(Number(data["anchor_consistency_score"])).toBeLessThanOrEqual(1)
         expect(Number(data["contradiction_count"])).toBeGreaterThanOrEqual(0)
+        expect(Number(data["contradiction_rate"])).toBeGreaterThanOrEqual(0)
+        expect(Number(data["contradiction_rate"])).toBeLessThanOrEqual(1)
         expect(Array.isArray(data["reason_codes"])).toBe(true)
         expect((data["reason_codes"] as unknown[]).every((item) => typeof item === "string")).toBe(true)
+
+        expect(typeof started?.data?.["probe_correlation_id"]).toBe("string")
+        expect(typeof completed?.data?.["probe_correlation_id"]).toBe("string")
+        expect(started?.data?.["probe_correlation_id"]).toBe(data["probe_correlation_id"])
+        expect(completed?.data?.["probe_correlation_id"]).toBe(data["probe_correlation_id"])
+
+        const reportPath = String(data["report_artifact"] ?? "")
+        expect(reportPath.length).toBeGreaterThan(0)
+        const report = (await Bun.file(path.join(Instance.worktree, reportPath)).json()) as {
+          probe_correlation_id?: string
+          quality?: Record<string, unknown>
+        }
+        expect(typeof report.probe_correlation_id).toBe("string")
+        expect(report.probe_correlation_id).toBe(String(data["probe_correlation_id"] ?? ""))
+        expect(report.quality?.["consistency_score"]).toBe(data["consistency_score"])
+        expect(report.quality?.["anchor_consistency_score"]).toBe(data["anchor_consistency_score"])
+        expect(report.quality?.["contradiction_count"]).toBe(data["contradiction_count"])
+        expect(report.quality?.["contradiction_rate"]).toBe(data["contradiction_rate"])
+        expect(report.quality?.["reason_codes"]).toEqual(data["reason_codes"])
       },
     })
   }, { timeout })

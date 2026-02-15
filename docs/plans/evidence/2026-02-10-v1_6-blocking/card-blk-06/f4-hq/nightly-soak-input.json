@@ -1,0 +1,17 @@
+{
+  "restart_resume_monotonicity": {
+    "checkpoints": [1, 2, 3, 4],
+    "monotonic": true
+  },
+  "strict_reference_gate": {
+    "violations": 0,
+    "fail_closed": true
+  },
+  "assisted_compaction_guardrails": {
+    "degraded": 0,
+    "verify_failures": 0,
+    "fallback_safe": true
+  },
+  "nightly_soak_pass_rate": 0.997,
+  "restart_resume_regression": 0
+}

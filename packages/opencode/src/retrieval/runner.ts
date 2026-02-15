@@ -10,6 +10,7 @@ import { CachePolicy } from "@/cache/policy"
 import { sha256Text } from "@/routing/cache"
 import { verifyEvidenceChain } from "@/evidence/chain"
 import { artifactCandidates, resolveTenantScope } from "@/util/tenant-context"
+import { resolveProbeCorrelationID } from "@/session/probe-correlation"
 import { runCodeRetrieval } from "./code"
 import { runWorkbenchRetrieval } from "./workbench"
 import { resolveWorkspaceFingerprint } from "./workspace"
@@ -402,6 +403,7 @@ const buildPlan = (intentText: string): RetrievalPlanForKey => {
 type ProbeJournal = {
   specVersion: "probe-journal/1.0"
   probeId: string
+  probe_correlation_id: string
   retrievalId: string
   sessionId: string
   messageId: string
@@ -489,6 +491,10 @@ export const RetrievalRunner = {
   },
   async run(input: { sessionId: string; messageId: string; intentText: string; abort: AbortSignal }): Promise<RetrievalRun> {
     const retrievalId = ulid()
+    const probeCorrelationID = resolveProbeCorrelationID({
+      sessionID: input.sessionId,
+      messageID: input.messageId,
+    })
     const state: Inflight = { abort: new AbortController(), reason: "" }
     const current = inflightMap(input.sessionId)
     const previousEntry = current.size > 0 ? (current.entries().next().value as [string, Inflight] | undefined) : undefined
@@ -563,6 +569,7 @@ export const RetrievalRunner = {
         retrievalId,
         retrievalCacheKey: cacheKey,
         messageId: input.messageId,
+        probe_correlation_id: probeCorrelationID,
       },
       redaction: { applied: true, policyVersion: "v1" },
     })
@@ -932,6 +939,7 @@ export const RetrievalRunner = {
     const probe: ProbeJournal = {
       specVersion: "probe-journal/1.0",
       probeId: retrievalId,
+      probe_correlation_id: probeCorrelationID,
       retrievalId,
       sessionId: input.sessionId,
       messageId: input.messageId,
@@ -1001,6 +1009,7 @@ export const RetrievalRunner = {
       data: {
         retrievalId,
         retrievalCacheKey: cacheKey,
+        probe_correlation_id: probeCorrelationID,
         summary,
         artifacts: {
           spec: strip(specEntry.path),

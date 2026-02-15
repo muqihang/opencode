@@ -7,6 +7,7 @@ import { AssistantClaims } from "@/protocol/assistant-claims"
 import { runVerification } from "@/verification"
 import { VerificationReport } from "@/protocol/verification-report"
 import { artifactCandidates, resolveTenantScope } from "@/util/tenant-context"
+import { resolveProbeCorrelationID } from "@/session/probe-correlation"
 import type { Tool } from "@/tool/tool"
 
 const Mode = z.enum(["strict", "balanced", "loose"])
@@ -438,6 +439,14 @@ export const runSecureOutput = async (input: {
   const budget = Budget.parse(input.budget)
   const contextPackId = resolveContextPackId(input.contextPackId)
   const writer = await EvidenceWriter.open({ sessionId })
+  const probeCorrelationID = resolveProbeCorrelationID({
+    sessionID: sessionId,
+    messageID: messageId,
+  })
+  const probe = (data: Record<string, unknown>) => ({
+    ...data,
+    probe_correlation_id: probeCorrelationID,
+  })
 
   const inputEntry = await writer.artifact({
     kind: "secure-output-input",
@@ -449,6 +458,7 @@ export const runSecureOutput = async (input: {
       mode,
       budget,
       contextPackId: contextPackId ?? null,
+      probe_correlation_id: probeCorrelationID,
     }),
   })
 
@@ -460,7 +470,7 @@ export const runSecureOutput = async (input: {
     actor: "worker:secure_output",
     type: "secure_output.requested",
     summary: "输出门禁已启动",
-    data: { mode, contextPackId: contextPackId ?? null, input_artifact: inputEntry.path },
+    data: probe({ mode, contextPackId: contextPackId ?? null, input_artifact: inputEntry.path }),
     redaction: { applied: true, policyVersion: "v1" },
   })
 
@@ -505,12 +515,12 @@ export const runSecureOutput = async (input: {
       actor: "worker:secure_output",
       type: "secure_output.degraded",
       summary: "输出已降级",
-      data: {
+      data: probe({
         mode,
         input_artifact: inputEntry.path,
         error_artifact: errorEntry.path,
         reason_codes: ["missing_claims_block"],
-      },
+      }),
       redaction: { applied: true, policyVersion: "v1" },
     })
 
@@ -526,12 +536,12 @@ export const runSecureOutput = async (input: {
       actor: "worker:secure_output",
       type: "secure_output.claims_drafted",
       summary: "strict 模式已从可见文本自动生成最小 claims 草稿",
-      data: {
+      data: probe({
         mode,
         input_artifact: inputEntry.path,
         claim_count: drafted.claims.length,
         reason_codes: ["claims_auto_drafted"],
-      },
+      }),
       redaction: { applied: true, policyVersion: "v1" },
     })
   }
@@ -565,7 +575,7 @@ export const runSecureOutput = async (input: {
       actor: "worker:secure_output",
       type: "secure_output.degraded",
       summary: "输出已降级",
-      data: { mode, input_artifact: inputEntry.path, error_artifact: errorEntry.path, reason_codes: ["invalid_json"] },
+      data: probe({ mode, input_artifact: inputEntry.path, error_artifact: errorEntry.path, reason_codes: ["invalid_json"] }),
       redaction: { applied: true, policyVersion: "v1" },
     })
 
@@ -611,7 +621,7 @@ export const runSecureOutput = async (input: {
       actor: "worker:secure_output",
       type: "secure_output.degraded",
       summary: "输出已降级",
-      data: { mode, input_artifact: inputEntry.path, error_artifact: errorEntry.path, reason_codes: ["schema_invalid"] },
+      data: probe({ mode, input_artifact: inputEntry.path, error_artifact: errorEntry.path, reason_codes: ["schema_invalid"] }),
       redaction: { applied: true, policyVersion: "v1" },
     })
 
@@ -625,7 +635,10 @@ export const runSecureOutput = async (input: {
   const claimsEntry = await writer.artifact({
     kind: "secure-output-claims",
     path: `secure-output/${messageId}.claims.json`,
-    data: stableJson(claims.data),
+    data: stableJson({
+      ...claims.data,
+      probe_correlation_id: probeCorrelationID,
+    }),
   })
 
   if (factList.length === 0) {
@@ -639,7 +652,7 @@ export const runSecureOutput = async (input: {
         actor: "worker:secure_output",
         type: "secure_output.degraded",
         summary: "输出已降级",
-        data: { mode, claims_artifact: claimsEntry.path, reason_codes: ["missing_disclaimer"] },
+        data: probe({ mode, claims_artifact: claimsEntry.path, reason_codes: ["missing_disclaimer"] }),
         redaction: { applied: true, policyVersion: "v1" },
       })
       return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path] }
@@ -655,7 +668,7 @@ export const runSecureOutput = async (input: {
         actor: "worker:secure_output",
         type: "secure_output.degraded",
         summary: "输出已降级",
-        data: { mode, claims_artifact: claimsEntry.path, reason_codes: ["classification_evasion"] },
+        data: probe({ mode, claims_artifact: claimsEntry.path, reason_codes: ["classification_evasion"] }),
         redaction: { applied: true, policyVersion: "v1" },
       })
       return { status: "degraded", text: cleaned, artifacts: [inputEntry.path, claimsEntry.path] }
@@ -669,7 +682,7 @@ export const runSecureOutput = async (input: {
       actor: "worker:secure_output",
       type: "secure_output.completed",
       summary: "输出已通过门禁",
-      data: { mode, claims_artifact: claimsEntry.path, input_artifact: inputEntry.path },
+      data: probe({ mode, claims_artifact: claimsEntry.path, input_artifact: inputEntry.path }),
       redaction: { applied: true, policyVersion: "v1" },
     })
 
@@ -687,14 +700,14 @@ export const runSecureOutput = async (input: {
         actor: "worker:secure_output",
         type: "secure_output.fail_closed",
         summary: "strict 模式缺少 contextPackId，已 fail-closed",
-        data: {
+        data: probe({
           mode,
           messageId,
           reason_code: "context_pack_id_missing",
           reason_codes: reasonCodes,
           claims_artifact: claimsEntry.path,
           input_artifact: inputEntry.path,
-        },
+        }),
         redaction: { applied: true, policyVersion: "v1" },
       })
     }
@@ -707,13 +720,13 @@ export const runSecureOutput = async (input: {
       actor: "worker:secure_output",
       type: "secure_output.degraded",
       summary: "context checkpoint 缺失，输出已降级",
-      data: {
+      data: probe({
         mode,
         messageId,
         input_artifact: inputEntry.path,
         claims_artifact: claimsEntry.path,
         reason_codes: reasonCodes,
-      },
+      }),
       redaction: { applied: true, policyVersion: "v1" },
     })
 
@@ -744,6 +757,7 @@ export const runSecureOutput = async (input: {
         verification_report_artifact: verify.reportPath,
         invalid_refs_count: feedback.invalidRefsCount,
         reason_codes: fallbackCodes,
+        probe_correlation_id: probeCorrelationID,
       }),
     })
 
@@ -755,14 +769,14 @@ export const runSecureOutput = async (input: {
       actor: "worker:secure_output",
       type: "reference_check.feedback",
       summary: "reference-check 输出已结构化落盘",
-      data: {
+      data: probe({
         mode,
         messageId,
         verification_report_artifact: verify.reportPath,
         reference_check_artifact: feedbackEntry.path,
         invalid_refs_count: feedback.invalidRefsCount,
         reason_codes: fallbackCodes,
-      },
+      }),
       redaction: { applied: true, policyVersion: "v1" },
     })
 
@@ -774,7 +788,7 @@ export const runSecureOutput = async (input: {
       actor: "worker:secure_output",
       type: "secure_output.degraded",
       summary: "事实断言未通过核验，输出已降级",
-      data: {
+      data: probe({
         mode,
         contextPackId,
         input_artifact: inputEntry.path,
@@ -783,7 +797,7 @@ export const runSecureOutput = async (input: {
         reference_check_artifact: feedbackEntry.path,
         invalid_refs_count: feedback.invalidRefsCount,
         reason_codes: fallbackCodes,
-      },
+      }),
       redaction: { applied: true, policyVersion: "v1" },
     })
 
@@ -798,14 +812,14 @@ export const runSecureOutput = async (input: {
     actor: "worker:secure_output",
     type: "secure_output.completed",
     summary: "事实断言已通过核验",
-    data: {
+    data: probe({
       mode,
       contextPackId,
       input_artifact: inputEntry.path,
       claims_artifact: claimsEntry.path,
       verification_report_artifact: verify.reportPath,
       claims_normalized: normalized.adjusted,
-    },
+    }),
     redaction: { applied: true, policyVersion: "v1" },
   })
 

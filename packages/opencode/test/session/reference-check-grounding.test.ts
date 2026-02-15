@@ -78,4 +78,40 @@ describe("strict reference-check grounding", () => {
     expect(checked.text).toBe("unknown/evidence_insufficient")
     expect(checked.reasonCodes.includes("line_out_of_range")).toBe(true)
   })
+
+  test("normal mode escalates to strict under high-risk evidence-heavy confidence", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "docs"), { recursive: true })
+        await Bun.write(path.join(dir, "docs", "policy.md"), lines(6))
+      },
+    })
+
+    const checked = await applyStrictReferenceCheck({
+      intentText: "请直接给最终结论",
+      text: "高风险结论但未提供证据",
+      baseDir: tmp.path,
+      sessionId: "session-check",
+      modeResolved: {
+        mode: "normal",
+        confidence: 0.97,
+        reasonCodes: ["intent_not_verification", "high_risk", "evidence_heavy"],
+        intent: "请直接给最终结论",
+      },
+    })
+
+    const structured = {
+      mode_resolved: checked.modeResolved.mode,
+      confidence: checked.modeResolved.confidence,
+      reason_codes: checked.modeResolved.reasonCodes,
+    }
+
+    expect(checked.applied).toBe(true)
+    expect(checked.blocked).toBe(true)
+    expect(checked.text).toBe("unknown/evidence_insufficient")
+    expect(structured.mode_resolved).toBe("strict")
+    expect(structured.confidence).toBeGreaterThanOrEqual(0.95)
+    expect(structured.reason_codes.includes("confidence_escalated_strict")).toBe(true)
+  })
 })

@@ -1,11 +1,16 @@
 import path from "path"
-import { resolveVerificationMode, type VerificationModeResolution } from "./verification-mode"
+import {
+  resolveEscalatedVerificationMode,
+  resolveVerificationMode,
+  type VerificationModeResolution,
+} from "./verification-mode"
 
 export const strictReferenceFailClosedText = "unknown/evidence_insufficient"
 
 const evidenceBlock = /\[evidence:\s*([^\]]*)\]/gi
 const inlineRef = /(?:^|[\s(（\[])([^\s\]）,;，；!?！？]+:\d+(?:-\d+)?)(?=$|[\s)）\].,;，；!?！？])/g
 const refShape = /^([^:\s]+):(\d+)(?:-(\d+))?$/
+const highRiskPattern = /(final\s+decision|final\s+verdict|guarantee|certain|definitive|must|绝对|必须|保证|最终结论)/i
 
 type Ref = {
   path: string
@@ -80,6 +85,21 @@ const listInlineRefs = (text: string) =>
   Array.from(text.matchAll(inlineRef))
     .map((match) => trim(match[1] ?? ""))
     .filter((item) => item.length > 0)
+
+const riskSignals = (text: string) => {
+  const refs = uniq([...listBlockTokens(text), ...listInlineRefs(text)])
+  const evidenceHeavy = refs.length > 0
+  const highRisk = highRiskPattern.test(text)
+  const signals = [
+    ...(highRisk ? ["high_risk"] : []),
+    ...(evidenceHeavy ? ["evidence_heavy"] : []),
+  ]
+  const confidence = highRisk && evidenceHeavy ? 0.95 : evidenceHeavy ? 0.75 : highRisk ? 0.65 : 0
+  return {
+    signals,
+    confidence,
+  }
+}
 
 const parseRef = (input: { token: string; sessionId: string }): Parsed => {
   const token = trim(input.token)
@@ -181,12 +201,18 @@ export const applyStrictReferenceCheck = async (input: {
   hasVerificationIntent?: boolean
   modeResolved?: VerificationModeResolution
 }): Promise<StrictReferenceApplyResult> => {
-  const modeResolved =
+  const modeBase =
     input.modeResolved ??
     resolveVerificationMode({
       intentText: input.intentText,
       hasVerificationIntent: input.hasVerificationIntent,
     })
+  const risk = riskSignals(input.text)
+  const modeResolved = resolveEscalatedVerificationMode({
+    ...modeBase,
+    confidence: Math.max(modeBase.confidence, risk.confidence),
+    reasonCodes: uniq([...modeBase.reasonCodes, ...risk.signals]),
+  })
   const applied = modeResolved.mode === "strict"
   if (!applied) {
     return {
